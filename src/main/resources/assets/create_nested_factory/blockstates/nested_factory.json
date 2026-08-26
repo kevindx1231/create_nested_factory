@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "create_nested_factory:block/nested_factory"
+    },
+    "facing=east": {
+      "model": "create_nested_factory:block/nested_factory",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "create_nested_factory:block/nested_factory",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "create_nested_factory:block/nested_factory",
+      "y": 270
+    }
+  }
+}

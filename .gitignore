@@ -1,0 +1,22 @@
+# Gradle
+/.gradle/
+/build/
+/bin/
+
+# IDE
+/.idea/
+/.vscode/
+*.iml
+
+# Minecraft 运行目录
+/run/
+/logs/
+/out/
+
+# 本地配置与个人笔记
+/.claude/
+/note/
+
+# 系统文件
+.DS_Store
+Thumbs.db

@@ -1,0 +1,10 @@
+{
+  "type": "create_nested_factory:nested_factory",
+  "generator": {
+    "type": "minecraft:flat",
+    "settings": {
+      "biome": "minecraft:the_void",
+      "layers": []
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "replace": false,
+  "values": [
+    "create_nested_factory:snow_wall",
+    "create_nested_factory:white_concrete_wall"
+  ]
+}

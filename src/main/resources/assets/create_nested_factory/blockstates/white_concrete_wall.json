@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "create_nested_factory:block/white_concrete_wall"
+    }
+  }
+}
