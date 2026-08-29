@@ -35,6 +35,10 @@ public class SpaceExpanderItem extends Item {
         if (factory == null) {
             return InteractionResultHolder.pass(stack);
         }
+        if (factory.isNested()) {
+            player.displayClientMessage(Component.literal("§c嵌套工厂空间固定为 16×16×16，禁止扩展"), false);
+            return InteractionResultHolder.fail(stack);
+        }
         Direction direction = Direction.orderedByNearest(player)[0];
         if (!factory.expandSpace(serverLevel, direction)) {
             return InteractionResultHolder.pass(stack);

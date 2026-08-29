@@ -40,9 +40,12 @@ public final class BlackboxData {
     // 实时测量窗口计数。
     private final Map<Item, Integer> inputCount = new HashMap<>();
     private final Map<Item, Integer> outputCount = new HashMap<>();
+    private final Map<Item, Integer> learningOutputCount = new HashMap<>();
     private final Map<Fluid, Long> inputFluidCount = new HashMap<>();
     private final Map<Fluid, Long> outputFluidCount = new HashMap<>();
     private int windowTicks = 0;
+    private boolean recording = false;
+    private final Map<Item, Integer> ignoredOutputBudget = new HashMap<>();
 
     // 整数物品配方：每 recipeCycleTicks 消耗 recipeInputs、产出 recipeOutputs（全是整数）。
     private final Map<Item, Integer> recipeInputs = new HashMap<>();
@@ -89,12 +92,34 @@ public final class BlackboxData {
         return recipeOutputFluids;
     }
 
-    public boolean hasItemRecipe() {
-        return recipeCycleTicks > 0 && !recipeInputs.isEmpty();
-    }
-
     public boolean hasFluidRecipe() {
         return !recipeInputFluids.isEmpty();
+    }
+
+    public boolean hasRecipe() {
+        return !recipeInputs.isEmpty()
+                || !recipeOutputs.isEmpty()
+                || !recipeInputFluids.isEmpty()
+                || !recipeOutputFluids.isEmpty();
+    }
+
+    public boolean hasCompleteRecipe() {
+        boolean hasInput = !recipeInputs.isEmpty() || !recipeInputFluids.isEmpty();
+        boolean hasOutput = !recipeOutputs.isEmpty() || !recipeOutputFluids.isEmpty();
+        return hasInput && hasOutput;
+    }
+
+    public void setRecording(boolean recording) {
+        this.recording = recording;
+    }
+
+    public void setIgnoredOutputs(Map<Item, Integer> staticInventory) {
+        ignoredOutputBudget.clear();
+        for (Map.Entry<Item, Integer> entry : staticInventory.entrySet()) {
+            if (entry.getValue() > 0) {
+                ignoredOutputBudget.put(entry.getKey(), entry.getValue());
+            }
+        }
     }
 
     /** 推进实时测量窗口；每 RATE_WINDOW 帧提交一次实时速率。 */
@@ -126,15 +151,18 @@ public final class BlackboxData {
             float rate = e.getValue() / seconds;
             inputRates.put(e.getKey(), rate);
             int n = Math.round(rate);
-            if (n > 0) {
+            if (recording && n > 0) {
                 inputRateCounts.computeIfAbsent(e.getKey(), k -> new HashMap<>()).merge(n, 1, Integer::sum);
             }
         }
         for (Map.Entry<Item, Integer> e : outputCount.entrySet()) {
             float rate = e.getValue() / seconds;
             outputRates.put(e.getKey(), rate);
+        }
+        for (Map.Entry<Item, Integer> e : learningOutputCount.entrySet()) {
+            float rate = e.getValue() / seconds;
             int n = Math.round(rate);
-            if (n > 0) {
+            if (recording && n > 0) {
                 outputRateCounts.computeIfAbsent(e.getKey(), k -> new HashMap<>()).merge(n, 1, Integer::sum);
             }
         }
@@ -251,6 +279,7 @@ public final class BlackboxData {
     private void clearWindowCounters() {
         inputCount.clear();
         outputCount.clear();
+        learningOutputCount.clear();
         inputFluidCount.clear();
         outputFluidCount.clear();
         windowTicks = 0;
@@ -309,7 +338,21 @@ public final class BlackboxData {
             public ItemStack extractItem(int slot, int amount, boolean simulate) {
                 ItemStack result = base.extractItem(slot, amount, simulate);
                 if (!simulate && !result.isEmpty()) {
-                    outputCount.merge(result.getItem(), result.getCount(), Integer::sum);
+                    Item item = result.getItem();
+                    int extracted = result.getCount();
+                    outputCount.merge(item, extracted, Integer::sum);
+                    if (recording) {
+                        int counted = extracted;
+                        int ignored = ignoredOutputBudget.getOrDefault(item, 0);
+                        if (ignored > 0) {
+                            int skip = Math.min(ignored, counted);
+                            counted -= skip;
+                            ignoredOutputBudget.put(item, ignored - skip);
+                        }
+                        if (counted > 0) {
+                            learningOutputCount.merge(item, counted, Integer::sum);
+                        }
+                    }
                 }
                 return result;
             }

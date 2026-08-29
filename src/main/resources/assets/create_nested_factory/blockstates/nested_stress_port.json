@@ -1,0 +1,26 @@
+{
+  "variants": {
+    "facing=down": {
+      "model": "create_nested_factory:block/nested_stress_port_vertical",
+      "x": 180
+    },
+    "facing=east": {
+      "model": "create_nested_factory:block/nested_stress_port",
+      "y": 270
+    },
+    "facing=north": {
+      "model": "create_nested_factory:block/nested_stress_port",
+      "y": 180
+    },
+    "facing=south": {
+      "model": "create_nested_factory:block/nested_stress_port"
+    },
+    "facing=up": {
+      "model": "create_nested_factory:block/nested_stress_port_vertical"
+    },
+    "facing=west": {
+      "model": "create_nested_factory:block/nested_stress_port",
+      "y": 90
+    }
+  }
+}

@@ -24,6 +24,9 @@ public class Config {
 
     public static final ModConfigSpec.ConfigValue<String> MAGIC_NUMBER_INTRODUCTION = BUILDER.comment("What you want the introduction message to be for the magic number").define("magicNumberIntroduction", "The magic number is... ");
 
+    private static final ModConfigSpec.IntValue MAX_NESTING_DEPTH = BUILDER.comment("Maximum allowed nesting depth for nested factories")
+            .defineInRange("maxNestingDepth", 8, 1, 16);
+
     // a list of strings that are treated as resource locations for items
     private static final ModConfigSpec.ConfigValue<List<? extends String>> ITEM_STRINGS = BUILDER.comment("A list of items to log on common setup.").defineListAllowEmpty("items", List.of("minecraft:iron_ingot"), Config::validateItemName);
 
@@ -31,6 +34,7 @@ public class Config {
 
     public static boolean logDirtBlock;
     public static int magicNumber;
+    public static int maxNestingDepth;
     public static String magicNumberIntroduction;
     public static Set<Item> items;
 
@@ -42,6 +46,7 @@ public class Config {
     static void onLoad(final ModConfigEvent event) {
         logDirtBlock = LOG_DIRT_BLOCK.get();
         magicNumber = MAGIC_NUMBER.get();
+        maxNestingDepth = MAX_NESTING_DEPTH.get();
         magicNumberIntroduction = MAGIC_NUMBER_INTRODUCTION.get();
 
         // convert the list of strings into a set of items

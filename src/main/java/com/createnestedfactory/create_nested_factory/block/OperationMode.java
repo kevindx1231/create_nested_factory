@@ -8,7 +8,8 @@ public enum OperationMode implements StringRepresentable {
     CHUNK_LOADED,
     BLACKBOX_DRAINING,
     BLACKBOX_LEARNING,
-    BLACKBOX_ACTIVE;
+    BLACKBOX_ACTIVE,
+    BLUEPRINT;
 
     @Override
     public String getSerializedName() {
@@ -17,5 +18,9 @@ public enum OperationMode implements StringRepresentable {
 
     public boolean isBlackbox() {
         return this != CHUNK_LOADED;
+    }
+
+    public boolean isBlueprint() {
+        return this == BLUEPRINT;
     }
 }

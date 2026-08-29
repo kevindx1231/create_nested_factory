@@ -36,6 +36,12 @@ public final class PocketBounds {
                 && pos.getZ() >= minZ(origin) && pos.getZ() <= maxZ(origin);
     }
 
+    public boolean isBuildableAt(BlockPos origin, BlockPos pos) {
+        return pos.getX() > minX(origin) && pos.getX() < maxX(origin)
+                && pos.getY() > minY(origin) && pos.getY() < maxY(origin)
+                && pos.getZ() > minZ(origin) && pos.getZ() < maxZ(origin);
+    }
+
     public boolean canExpand(Direction direction) {
         return switch (direction) {
             case EAST -> maxXChunks < 1;

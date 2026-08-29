@@ -7,6 +7,8 @@ public final class FactoryPowerProfile {
     private float consumedSU;
     private float generatedFE;
     private float consumedFE;
+    // True only for profiles scanned after relay stress ports were excluded from generation.
+    private boolean generatedSUExcludesRelayStress;
 
     public FactoryPowerProfile() {
     }
@@ -16,6 +18,7 @@ public final class FactoryPowerProfile {
         this.consumedSU = consumedSU;
         this.generatedFE = generatedFE;
         this.consumedFE = consumedFE;
+        this.generatedSUExcludesRelayStress = true;
     }
 
     public void set(float generatedSU, float consumedSU, float generatedFE, float consumedFE) {
@@ -23,6 +26,7 @@ public final class FactoryPowerProfile {
         this.consumedSU = consumedSU;
         this.generatedFE = generatedFE;
         this.consumedFE = consumedFE;
+        this.generatedSUExcludesRelayStress = true;
     }
 
     public float generatedSU() {
@@ -32,6 +36,16 @@ public final class FactoryPowerProfile {
     public float consumedSU() {
         return consumedSU;
     }
+
+    /**
+     * Generation that is safe to use in black-box simulation. Profiles saved before
+     * relay stress ports were excluded are treated conservatively as having no known
+     * internal generation, preventing historical external input from becoming free power.
+     */
+    public float internalGeneratedSU() {
+        return generatedSUExcludesRelayStress ? generatedSU : 0f;
+    }
+
 
     public float generatedFE() {
         return generatedFE;
@@ -45,6 +59,15 @@ public final class FactoryPowerProfile {
         return generatedSU - consumedSU;
     }
 
+    /**
+     * Stress that must cross this factory boundary. Internal surplus is deliberately
+     * not exportable: a nested factory can offset its own load, but cannot create
+     * stress capacity for its parent without an explicit output port.
+     */
+    public float externalStressDemandSU() {
+        return Math.max(0f, consumedSU - internalGeneratedSU());
+    }
+
     public float netFE() {
         return generatedFE - consumedFE;
     }
@@ -55,6 +78,7 @@ public final class FactoryPowerProfile {
         tag.putFloat("ConsumedSU", consumedSU);
         tag.putFloat("GeneratedFE", generatedFE);
         tag.putFloat("ConsumedFE", consumedFE);
+        tag.putBoolean("GeneratedSUExcludesRelayStress", generatedSUExcludesRelayStress);
         return tag;
     }
 
@@ -63,5 +87,7 @@ public final class FactoryPowerProfile {
         consumedSU = tag.getFloat("ConsumedSU");
         generatedFE = tag.getFloat("GeneratedFE");
         consumedFE = tag.getFloat("ConsumedFE");
+        generatedSUExcludesRelayStress = tag.contains("GeneratedSUExcludesRelayStress")
+                && tag.getBoolean("GeneratedSUExcludesRelayStress");
     }
 }

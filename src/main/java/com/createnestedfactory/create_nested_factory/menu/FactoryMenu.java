@@ -22,7 +22,7 @@ import java.util.Map;
 
 public class FactoryMenu extends AbstractContainerMenu {
     private final NestedFactoryBlockEntity factory;
-    private final ContainerData data = new SimpleContainerData(16);
+    private final ContainerData data = new SimpleContainerData(17);
 
     public FactoryMenu(int containerId, Inventory playerInventory) {
         this(containerId, playerInventory, null);
@@ -48,12 +48,17 @@ public class FactoryMenu extends AbstractContainerMenu {
             }
             syncRate(10, factory.getBlackbox().getInputRates(), factory.getBlackbox().getInputFluidRates());
             syncRate(13, factory.getBlackbox().getOutputRates(), factory.getBlackbox().getOutputFluidRates());
+            data.set(16, factory.isBlueprintApplied() ? 1 : 0);
         }
         super.broadcastChanges();
     }
 
     public OperationMode getMode() {
         return OperationMode.values()[data.get(0)];
+    }
+
+    public boolean isBlueprintApplied() {
+        return data.get(16) != 0;
     }
 
     public PortMode getFaceMode(int buttonIndex) {
@@ -144,6 +149,9 @@ public class FactoryMenu extends AbstractContainerMenu {
                 }
             } else if (id == 6) {
                 factory.toggleBlackbox(player);
+                return true;
+            } else if (id == 7) {
+                factory.switchFromBlueprint(player, OperationMode.CHUNK_LOADED);
                 return true;
             }
         }

@@ -11,28 +11,55 @@ import net.neoforged.neoforge.attachment.AttachmentType;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import net.neoforged.neoforge.registries.NeoForgeRegistries;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Supplier;
 
 public class ModAttachments {
     public static final DeferredRegister<AttachmentType<?>> ATTACHMENT_TYPES = DeferredRegister.create(NeoForgeRegistries.ATTACHMENT_TYPES, Create_nested_factory.MODID);
 
-    public static final Supplier<AttachmentType<ReturnData>> RETURN_DATA = ATTACHMENT_TYPES.register("return_data",
-            () -> AttachmentType.builder(ReturnData::defaults)
-                    .serialize(ReturnData.CODEC)
+    public static final Supplier<AttachmentType<FactorySession>> FACTORY_SESSION = ATTACHMENT_TYPES.register("factory_session",
+            () -> AttachmentType.builder(FactorySession::defaults)
+                    .serialize(FactorySession.CODEC)
                     .build());
 
-    public record ReturnData(ResourceKey<Level> dimension, Vec3 pos, float yRot, float xRot, boolean mayfly, boolean flying) {
-        public static ReturnData defaults() {
-            return new ReturnData(Level.OVERWORLD, Vec3.ZERO, 0.0F, 0.0F, false, false);
+    public record ReturnFrame(ResourceKey<Level> dimension, Vec3 pos, float yRot, float xRot,
+                              String sourceFactoryId, String targetFactoryId) {
+        public static ReturnFrame defaults() {
+            return new ReturnFrame(Level.OVERWORLD, Vec3.ZERO, 0.0F, 0.0F, "", "");
         }
 
-        public static final Codec<ReturnData> CODEC = RecordCodecBuilder.create(instance -> instance.group(
-                ResourceKey.codec(Registries.DIMENSION).fieldOf("dimension").forGetter(ReturnData::dimension),
-                Vec3.CODEC.fieldOf("pos").forGetter(ReturnData::pos),
-                Codec.FLOAT.fieldOf("yRot").forGetter(ReturnData::yRot),
-                Codec.FLOAT.fieldOf("xRot").forGetter(ReturnData::xRot),
-                Codec.BOOL.fieldOf("mayfly").forGetter(ReturnData::mayfly),
-                Codec.BOOL.fieldOf("flying").forGetter(ReturnData::flying)
-        ).apply(instance, ReturnData::new));
+        public static final Codec<ReturnFrame> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+                ResourceKey.codec(Registries.DIMENSION).fieldOf("dimension").forGetter(ReturnFrame::dimension),
+                Vec3.CODEC.fieldOf("pos").forGetter(ReturnFrame::pos),
+                Codec.FLOAT.fieldOf("yRot").forGetter(ReturnFrame::yRot),
+                Codec.FLOAT.fieldOf("xRot").forGetter(ReturnFrame::xRot),
+                Codec.STRING.optionalFieldOf("sourceFactoryId", "").forGetter(ReturnFrame::sourceFactoryId),
+                Codec.STRING.optionalFieldOf("targetFactoryId", "").forGetter(ReturnFrame::targetFactoryId)
+        ).apply(instance, ReturnFrame::new));
+    }
+
+    public record FactorySession(String rootFactoryId, String currentFactoryId, boolean grantedFlight,
+                                 boolean originalMayFly, boolean originalFlying, boolean nightVisionGranted,
+                                 boolean originalNightVision,
+                                 List<ReturnFrame> stack) {
+        public static FactorySession defaults() {
+            return new FactorySession("", "", false, false, false, false, false, new ArrayList<>());
+        }
+
+        public boolean isActive() {
+            return !currentFactoryId.isEmpty();
+        }
+
+        public static final Codec<FactorySession> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+                Codec.STRING.optionalFieldOf("rootFactoryId", "").forGetter(FactorySession::rootFactoryId),
+                Codec.STRING.optionalFieldOf("currentFactoryId", "").forGetter(FactorySession::currentFactoryId),
+                Codec.BOOL.fieldOf("grantedFlight").forGetter(FactorySession::grantedFlight),
+                Codec.BOOL.fieldOf("originalMayFly").forGetter(FactorySession::originalMayFly),
+                Codec.BOOL.fieldOf("originalFlying").forGetter(FactorySession::originalFlying),
+                Codec.BOOL.fieldOf("nightVisionGranted").forGetter(FactorySession::nightVisionGranted),
+                Codec.BOOL.fieldOf("originalNightVision").forGetter(FactorySession::originalNightVision),
+                Codec.list(ReturnFrame.CODEC).fieldOf("stack").forGetter(FactorySession::stack)
+        ).apply(instance, FactorySession::new));
     }
 }

@@ -17,7 +17,8 @@ public class ModBlocks {
     public static final DeferredBlock<NestedFactoryBlock> NESTED_FACTORY = BLOCKS.register("nested_factory",
             () -> new NestedFactoryBlock(BlockBehaviour.Properties.of()
                     .mapColor(MapColor.METAL)
-                    .strength(5.0F, 6.0F)));
+                    .strength(5.0F, 6.0F)
+                    .noOcclusion()));
 
     public static final DeferredBlock<NestedPortBlock> NESTED_PORT = BLOCKS.register("nested_port",
             () -> new NestedPortBlock(BlockBehaviour.Properties.of()
@@ -27,7 +28,8 @@ public class ModBlocks {
     public static final DeferredBlock<NestedStressPortBlock> NESTED_STRESS_PORT = BLOCKS.register("nested_stress_port",
             () -> new NestedStressPortBlock(BlockBehaviour.Properties.of()
                     .mapColor(MapColor.METAL)
-                    .strength(2.0F, 3.0F)));
+                    .strength(2.0F, 3.0F)
+                    .noOcclusion()));
 
     public static final DeferredBlock<NestedWallBlock> SNOW_WALL = BLOCKS.register("snow_wall",
             () -> new NestedWallBlock(BlockBehaviour.Properties.of()
