@@ -1,0 +1,21 @@
+﻿{
+  "type": "create:mixing",
+  "heat_requirement": "superheated",
+  "ingredients": [
+    {
+      "item": "create:sturdy_sheet"
+    },
+    {
+      "item": "create:sturdy_sheet"
+    },
+    {
+      "item": "minecraft:netherite_scrap"
+    }
+  ],
+  "results": [
+    {
+      "id": "create_nested_factory:sturdy_alloy_ingot",
+      "count": 1
+    }
+  ]
+}

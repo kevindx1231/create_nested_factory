@@ -1,0 +1,30 @@
+﻿{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "B": {
+      "item": "create:brass_sheet"
+    },
+    "E": {
+      "item": "create:electron_tube"
+    },
+    "S": {
+      "item": "create:sturdy_sheet"
+    },
+    "C": {
+      "item": "create:bound_cardboard_block"
+    },
+    "P": {
+      "item": "create:precision_mechanism"
+    }
+  },
+  "pattern": [
+    "BEB",
+    "SCS",
+    "BPB"
+  ],
+  "result": {
+    "id": "create_nested_factory:nested_factory",
+    "count": 1
+  }
+}

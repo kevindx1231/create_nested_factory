@@ -1,8 +1,11 @@
 package com.createnestedfactory.create_nested_factory.item;
 
+import com.createnestedfactory.create_nested_factory.network.PlayerMessagePayload;
+
 import com.createnestedfactory.create_nested_factory.block.NestedFactoryBlock;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity;
 import net.minecraft.core.Direction;
+import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
@@ -36,7 +39,7 @@ public class SpaceExpanderItem extends Item {
             return InteractionResultHolder.pass(stack);
         }
         if (factory.isNested()) {
-            player.displayClientMessage(Component.literal("§c嵌套工厂空间固定为 16×16×16，禁止扩展"), false);
+            PlayerMessagePayload.sendTo(player, Component.translatable("message.create_nested_factory.space_expand.nested_denied").withStyle(ChatFormatting.RED), false);
             return InteractionResultHolder.fail(stack);
         }
         Direction direction = Direction.orderedByNearest(player)[0];
@@ -46,8 +49,13 @@ public class SpaceExpanderItem extends Item {
         if (!player.getAbilities().instabuild) {
             stack.shrink(1);
         }
-        serverLevel.playSound(null, player.blockPosition(), SoundEvents.END_PORTAL_SPAWN, SoundSource.BLOCKS, 0.5F, 1.5F);
-        player.displayClientMessage(Component.literal("§a空间已成功向 " + direction.getName() + " 方向拓展 1 个区块！"), true);
+        serverLevel.playSound(null, player.blockPosition(), SoundEvents.EXPERIENCE_ORB_PICKUP, SoundSource.BLOCKS, 0.5F, 1.5F);
+        PlayerMessagePayload.sendTo(player, Component.translatable("message.create_nested_factory.space_expand.success", directionName(direction))
+                .withStyle(ChatFormatting.GREEN), true);
         return InteractionResultHolder.success(stack);
+    }
+
+    private static Component directionName(Direction direction) {
+        return Component.translatable("direction.create_nested_factory." + direction.getSerializedName());
     }
 }

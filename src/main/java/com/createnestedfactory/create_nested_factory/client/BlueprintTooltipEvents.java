@@ -2,13 +2,14 @@ package com.createnestedfactory.create_nested_factory.client;
 
 import com.createnestedfactory.create_nested_factory.Create_nested_factory;
 import com.createnestedfactory.create_nested_factory.blueprint.NestedFactoryBlueprint;
+import com.createnestedfactory.create_nested_factory.block.entity.ItemVariant;
 import com.simibubi.create.foundation.utility.CreateLang;
 import net.minecraft.ChatFormatting;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.Style;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.material.Fluid;
 import net.neoforged.neoforge.fluids.FluidStack;
@@ -31,7 +32,10 @@ public final class BlueprintTooltipEvents {
     @SubscribeEvent
     public static void onItemTooltip(ItemTooltipEvent event) {
         ItemStack stack = event.getItemStack();
-        NestedFactoryBlueprint blueprint = NestedFactoryBlueprint.fromItem(stack);
+        if (Minecraft.getInstance().level == null) {
+            return;
+        }
+        NestedFactoryBlueprint blueprint = NestedFactoryBlueprint.fromItem(stack, Minecraft.getInstance().level.registryAccess());
         if (blueprint == null) {
             return;
         }
@@ -75,14 +79,13 @@ public final class BlueprintTooltipEvents {
                 .append(Component.literal(value == null || value.isBlank() ? "-" : value).withStyle(INFO_STYLE)));
     }
 
-    private static void addRateSection(List<Component> tooltip, String key, Map<Item, Float> itemRates,
+    private static void addRateSection(List<Component> tooltip, String key, Map<ItemVariant, Float> itemRates,
             Map<Fluid, Float> fluidRates) {
         tooltip.add(Component.translatable(key).withStyle(ChatFormatting.GRAY));
         itemRates.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey((left, right) ->
-                        BuiltInRegistries.ITEM.getKey(left).toString()
-                                .compareTo(BuiltInRegistries.ITEM.getKey(right).toString())))
-                .forEach(entry -> tooltip.add(rateLine(new ItemStack(entry.getKey()).getHoverName(),
+                        left.compareTo(right)))
+                .forEach(entry -> tooltip.add(rateLine(entry.getKey().prototype().getHoverName(),
                         formatRate(entry.getValue()), "/s")));
         fluidRates.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey((left, right) ->

@@ -14,9 +14,22 @@ public class ModItems {
     public static final DeferredItem<BlockItem> NESTED_FACTORY = ITEMS.registerSimpleBlockItem("nested_factory", ModBlocks.NESTED_FACTORY);
     public static final DeferredItem<BlockItem> NESTED_PORT = ITEMS.registerSimpleBlockItem("nested_port", ModBlocks.NESTED_PORT);
     public static final DeferredItem<BlockItem> NESTED_STRESS_PORT = ITEMS.registerSimpleBlockItem("nested_stress_port", ModBlocks.NESTED_STRESS_PORT);
+    public static final DeferredItem<BlockItem> SNOW_WALL = ITEMS.registerSimpleBlockItem("snow_wall", ModBlocks.SNOW_WALL);
+    public static final DeferredItem<BlockItem> WHITE_CONCRETE_WALL = ITEMS.registerSimpleBlockItem("white_concrete_wall", ModBlocks.WHITE_CONCRETE_WALL);
 
-    public static final DeferredItem<SpaceExpanderItem> SPACE_EXPANDER =
-            ITEMS.register("space_expander", () -> new SpaceExpanderItem(new Item.Properties()));
-    public static final DeferredItem<SpaceCollapserItem> SPACE_COLLAPSER =
-            ITEMS.register("space_collapser", () -> new SpaceCollapserItem(new Item.Properties()));
+    // Keep the original item classes so the expansion/collapse behavior remains unchanged.
+    public static final DeferredItem<SpaceExpanderItem> SPACE_EXPAND_MECHANISM =
+            ITEMS.register("space_expand_mechanism", () -> new SpaceExpanderItem(new Item.Properties()));
+    public static final DeferredItem<SpaceCollapserItem> SPACE_COLLAPSE_MECHANISM =
+            ITEMS.register("space_collapse_mechanism", () -> new SpaceCollapserItem(new Item.Properties()));
+    public static final DeferredItem<Item> STURDY_CASING =
+            ITEMS.register("sturdy_casing", () -> new Item(new Item.Properties()));
+    public static final DeferredItem<Item> STURDY_ALLOY_INGOT =
+            ITEMS.register("sturdy_alloy_ingot", () -> new Item(new Item.Properties()));
+    public static final DeferredItem<Item> INCOMPLETE_STURDY_CASING =
+            ITEMS.register("incomplete_sturdy_casing", () -> new Item(new Item.Properties()));
+    public static final DeferredItem<Item> INCOMPLETE_SPACE_EXPAND_MECHANISM =
+            ITEMS.register("incomplete_space_expand_mechanism", () -> new Item(new Item.Properties()));
+    public static final DeferredItem<Item> INCOMPLETE_SPACE_COLLAPSE_MECHANISM =
+            ITEMS.register("incomplete_space_collapse_mechanism", () -> new Item(new Item.Properties()));
 }

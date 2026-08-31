@@ -1,5 +1,6 @@
 # Gradle
 /.gradle/
+/.gradle-user-home/
 /build/
 /bin/
 
@@ -8,15 +9,24 @@
 /.vscode/
 *.iml
 
-# Minecraft 运行目录
+# Minecraft runtime files
 /run/
 /logs/
 /out/
 
-# 本地配置与个人笔记
+# Local configuration and personal notes
 /.claude/
 /note/
+/Github push.txt
+/8.30问题汇总.md
+/问题汇总.md
+/多层嵌套实现.md
+/添加蓝图模式.md
+/加载模式归纳.md
+/添加蓝图和多层嵌套.patch
+/\#*.md
+/*.patch
 
-# 系统文件
+# System files
 .DS_Store
 Thumbs.db

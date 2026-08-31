@@ -1,8 +1,11 @@
 package com.createnestedfactory.create_nested_factory.item;
 
+import com.createnestedfactory.create_nested_factory.network.PlayerMessagePayload;
+
 import com.createnestedfactory.create_nested_factory.block.NestedFactoryBlock;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity;
 import net.minecraft.core.Direction;
+import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
@@ -36,27 +39,17 @@ public class SpaceCollapserItem extends Item {
             return InteractionResultHolder.pass(stack);
         }
         if (factory.isNested()) {
-            player.displayClientMessage(Component.literal("§c嵌套工厂空间固定为 16×16×16，禁止坍缩"), false);
+            PlayerMessagePayload.sendTo(player, Component.translatable("message.create_nested_factory.space_collapse.nested_denied").withStyle(ChatFormatting.RED), false);
             return InteractionResultHolder.fail(stack);
         }
         Direction direction = Direction.orderedByNearest(player)[0];
-        if (!factory.getBounds().canCollapse(direction)) {
-            return InteractionResultHolder.pass(stack);
-        }
-        NestedFactoryBlockEntity.CollapseCheck check = factory.checkSectionCollapsible(serverLevel, direction);
-        if (!check.clear()) {
-            player.displayClientMessage(Component.literal("§c无法坍缩空间！区域内存在残留: §e" + check.reason()), false);
-            serverLevel.playSound(null, player.blockPosition(), SoundEvents.VILLAGER_NO, SoundSource.BLOCKS, 1.0F, 1.0F);
-            return InteractionResultHolder.fail(stack);
-        }
-        if (!factory.collapseSpace(serverLevel, direction)) {
+        if (!factory.beginCollapseValidation(serverLevel, direction, stack.getItem(), player.getUUID())) {
             return InteractionResultHolder.pass(stack);
         }
         if (!player.getAbilities().instabuild) {
             stack.shrink(1);
         }
-        serverLevel.playSound(null, player.blockPosition(), SoundEvents.BEACON_DEACTIVATE, SoundSource.BLOCKS, 0.8F, 0.8F);
-        player.displayClientMessage(Component.literal("§e空间已成功沿 " + direction.getName() + " 方向坍缩收缩！"), true);
+        serverLevel.playSound(null, player.blockPosition(), SoundEvents.SHULKER_SHOOT, SoundSource.BLOCKS, 0.8F, 0.8F);
         return InteractionResultHolder.success(stack);
     }
 }

@@ -1,0 +1,27 @@
+﻿{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "B": {
+      "item": "create:brass_sheet"
+    },
+    "F": {
+      "item": "create:fluid_pipe"
+    },
+    "T": {
+      "item": "create:belt_connector"
+    },
+    "C": {
+      "item": "create:bound_cardboard_block"
+    }
+  },
+  "pattern": [
+    "BFB",
+    "TCT",
+    "BFB"
+  ],
+  "result": {
+    "id": "create_nested_factory:nested_port",
+    "count": 2
+  }
+}

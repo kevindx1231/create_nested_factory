@@ -1,11 +1,13 @@
 package com.createnestedfactory.create_nested_factory.blueprint;
 
+import com.createnestedfactory.create_nested_factory.block.FactoryFacePortBindings;
 import com.createnestedfactory.create_nested_factory.block.FactoryPowerProfile;
 import com.createnestedfactory.create_nested_factory.block.PortMode;
 import com.createnestedfactory.create_nested_factory.block.entity.BlackboxData;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity;
 import com.simibubi.create.AllItems;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.item.ItemStack;
@@ -13,9 +15,10 @@ import net.minecraft.world.item.component.CustomData;
 
 import java.util.Locale;
 
+/** Version-2 blueprint format: every item recipe entry includes complete ItemStack components. */
 public final class NestedFactoryBlueprint {
     public static final String ITEM_KEY = "NestedFactoryBlueprint";
-    private static final String MARKER = "create_nested_factory:blueprint_v1";
+    private static final String MARKER = "create_nested_factory:blueprint_v2";
 
     private String displayName = "";
     private String sourceFactoryId = "";
@@ -30,23 +33,20 @@ public final class NestedFactoryBlueprint {
     private final int[] portIds = new int[6];
 
     public NestedFactoryBlueprint() {
-        for (int i = 0; i < 6; i++) {
-            faceModes[i] = PortMode.NONE;
-        }
+        for (int i = 0; i < 6; i++) faceModes[i] = PortMode.NONE;
     }
 
-    public static NestedFactoryBlueprint fromFactory(NestedFactoryBlockEntity factory) {
+    public static NestedFactoryBlueprint fromFactory(NestedFactoryBlockEntity factory, HolderLookup.Provider registries) {
         NestedFactoryBlueprint blueprint = new NestedFactoryBlueprint();
         blueprint.sourceFactoryId = factory.getFactoryId();
         blueprint.sourceFactoryName = factory.getCustomName() == null
-                ? factory.getDisplayName().getString()
-                : factory.getCustomName();
+                ? factory.getDisplayName().getString() : factory.getCustomName();
         blueprint.displayName = blueprint.sourceFactoryName;
         blueprint.sourceDimension = factory.getLevel().dimension().location().toString();
         blueprint.sourcePos = factory.getBlockPos().immutable();
         blueprint.sourceDepth = factory.getNestingDepth();
         blueprint.productionEfficiency = 1.0f;
-        blueprint.blackbox.read(factory.getBlackbox().write(new CompoundTag()));
+        blueprint.blackbox.read(factory.getBlackbox().write(new CompoundTag(), registries), registries);
         blueprint.powerProfile.read(factory.getPowerProfile().write());
         for (int i = 0; i < 6; i++) {
             blueprint.faceModes[i] = factory.getFaceMode(net.minecraft.core.Direction.from3DDataValue(i));
@@ -55,33 +55,26 @@ public final class NestedFactoryBlueprint {
         return blueprint;
     }
 
-    public static NestedFactoryBlueprint fromItem(ItemStack stack) {
-        if (!stack.is(AllItems.SCHEMATIC.get())) {
-            return null;
-        }
+    public static NestedFactoryBlueprint fromItem(ItemStack stack, HolderLookup.Provider registries) {
+        if (!stack.is(AllItems.SCHEMATIC.get())) return null;
         CompoundTag root = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag();
-        if (root == null || !root.contains(ITEM_KEY)) {
-            return null;
-        }
-        return fromTag(root.getCompound(ITEM_KEY));
+        return root == null || !root.contains(ITEM_KEY) ? null : fromTag(root.getCompound(ITEM_KEY), registries);
     }
 
-    public static NestedFactoryBlueprint fromTag(CompoundTag tag) {
-        if (!MARKER.equals(tag.getString("Marker"))) {
-            return null;
-        }
+    public static NestedFactoryBlueprint fromTag(CompoundTag tag, HolderLookup.Provider registries) {
+        if (!MARKER.equals(tag.getString("Marker"))) return null;
         NestedFactoryBlueprint blueprint = new NestedFactoryBlueprint();
-        blueprint.read(tag);
-        return blueprint;
+        blueprint.read(tag, registries);
+        return blueprint.hasCompleteRunData() ? blueprint : null;
     }
 
-    public void writeToItem(ItemStack stack) {
+    public void writeToItem(ItemStack stack, HolderLookup.Provider registries) {
         CompoundTag data = new CompoundTag();
-        write(data);
+        write(data, registries);
         CustomData.update(DataComponents.CUSTOM_DATA, stack, root -> root.put(ITEM_KEY, data));
     }
 
-    public CompoundTag write(CompoundTag tag) {
+    public CompoundTag write(CompoundTag tag, HolderLookup.Provider registries) {
         tag.putString("Marker", MARKER);
         tag.putString("DisplayName", displayName);
         tag.putString("SourceFactoryId", sourceFactoryId);
@@ -90,7 +83,7 @@ public final class NestedFactoryBlueprint {
         tag.putLong("SourcePos", sourcePos.asLong());
         tag.putInt("SourceDepth", sourceDepth);
         tag.putFloat("ProductionEfficiency", productionEfficiency);
-        tag.put("Blackbox", blackbox.write(new CompoundTag()));
+        tag.put("Blackbox", blackbox.write(new CompoundTag(), registries));
         tag.put("PowerProfile", powerProfile.write());
         for (int i = 0; i < 6; i++) {
             tag.putString("FaceMode" + i, faceModes[i].getSerializedName());
@@ -99,7 +92,7 @@ public final class NestedFactoryBlueprint {
         return tag;
     }
 
-    public void read(CompoundTag tag) {
+    public void read(CompoundTag tag, HolderLookup.Provider registries) {
         displayName = tag.getString("DisplayName");
         sourceFactoryId = tag.getString("SourceFactoryId");
         sourceFactoryName = tag.getString("SourceFactoryName");
@@ -107,7 +100,7 @@ public final class NestedFactoryBlueprint {
         sourcePos = tag.contains("SourcePos") ? BlockPos.of(tag.getLong("SourcePos")) : BlockPos.ZERO;
         sourceDepth = tag.getInt("SourceDepth");
         productionEfficiency = tag.contains("ProductionEfficiency") ? tag.getFloat("ProductionEfficiency") : 1.0f;
-        blackbox.read(tag.getCompound("Blackbox"));
+        blackbox.read(tag.getCompound("Blackbox"), registries);
         powerProfile.read(tag.getCompound("PowerProfile"));
         for (int i = 0; i < 6; i++) {
             faceModes[i] = readPortMode(tag.getString("FaceMode" + i));
@@ -115,65 +108,33 @@ public final class NestedFactoryBlueprint {
         }
     }
 
-    public NestedFactoryBlueprint copy() {
-        CompoundTag tag = new CompoundTag();
-        write(tag);
-        return fromTag(tag);
+    public NestedFactoryBlueprint copy(HolderLookup.Provider registries) {
+        return fromTag(write(new CompoundTag(), registries), registries);
     }
 
     public boolean hasCompleteRunData() {
-        return sourceFactoryId != null && !sourceFactoryId.isBlank();
+        return sourceFactoryId != null && !sourceFactoryId.isBlank()
+                && hasValidFacePortBindings() && blackbox.hasCompleteRecipe();
+    }
+
+    public boolean hasValidFacePortBindings() {
+        return FactoryFacePortBindings.isValid(faceModes, portIds);
     }
 
     private static PortMode readPortMode(String value) {
-        try {
-            return PortMode.valueOf(value.toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException ignored) {
-            return PortMode.NONE;
-        }
+        try { return PortMode.valueOf(value.toUpperCase(Locale.ROOT)); }
+        catch (IllegalArgumentException ignored) { return PortMode.NONE; }
     }
 
-    public String displayName() {
-        return displayName;
-    }
-
-    public String sourceFactoryId() {
-        return sourceFactoryId;
-    }
-
-    public String sourceFactoryName() {
-        return sourceFactoryName;
-    }
-
-    public String sourceDimension() {
-        return sourceDimension;
-    }
-
-    public BlockPos sourcePos() {
-        return sourcePos;
-    }
-
-    public int sourceDepth() {
-        return sourceDepth;
-    }
-
-    public float productionEfficiency() {
-        return productionEfficiency;
-    }
-
-    public BlackboxData blackbox() {
-        return blackbox;
-    }
-
-    public FactoryPowerProfile powerProfile() {
-        return powerProfile;
-    }
-
-    public PortMode faceMode(int index) {
-        return faceModes[index];
-    }
-
-    public int portId(int index) {
-        return portIds[index];
-    }
+    public String displayName() { return displayName; }
+    public String sourceFactoryId() { return sourceFactoryId; }
+    public String sourceFactoryName() { return sourceFactoryName; }
+    public String sourceDimension() { return sourceDimension; }
+    public BlockPos sourcePos() { return sourcePos; }
+    public int sourceDepth() { return sourceDepth; }
+    public float productionEfficiency() { return productionEfficiency; }
+    public BlackboxData blackbox() { return blackbox; }
+    public FactoryPowerProfile powerProfile() { return powerProfile; }
+    public PortMode faceMode(int index) { return faceModes[index]; }
+    public int portId(int index) { return portIds[index]; }
 }

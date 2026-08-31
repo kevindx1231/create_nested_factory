@@ -1,0 +1,34 @@
+﻿{
+  "parent": "minecraft:recipes/root",
+  "criteria": {
+    "has_brass": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "items": "#c:ingots/brass"
+          }
+        ]
+      }
+    },
+    "has_the_recipe": {
+      "trigger": "minecraft:recipe_unlocked",
+      "conditions": {
+        "recipe": "create_nested_factory:nested_factory"
+      }
+    }
+  },
+  "requirements": [
+    [
+      "has_the_recipe",
+      "has_brass"
+    ]
+  ],
+  "rewards": {
+    "recipes": [
+      "create_nested_factory:nested_factory",
+      "create_nested_factory:nested_port",
+      "create_nested_factory:nested_stress_port"
+    ]
+  }
+}

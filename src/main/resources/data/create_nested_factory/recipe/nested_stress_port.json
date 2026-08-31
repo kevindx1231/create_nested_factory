@@ -1,0 +1,38 @@
+﻿{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "B": {
+      "item": "create:brass_sheet"
+    },
+    "G": {
+      "type": "neoforge:compound",
+      "ingredients": [
+        {
+          "item": "create:speedometer"
+        },
+        {
+          "item": "create:stressometer"
+        }
+      ]
+    },
+    "S": {
+      "item": "create:shaft"
+    },
+    "C": {
+      "item": "create:bound_cardboard_block"
+    },
+    "A": {
+      "item": "create:andesite_alloy"
+    }
+  },
+  "pattern": [
+    "BGB",
+    "SCS",
+    "AAA"
+  ],
+  "result": {
+    "id": "create_nested_factory:nested_stress_port",
+    "count": 1
+  }
+}

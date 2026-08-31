@@ -1,20 +1,23 @@
 package com.createnestedfactory.create_nested_factory.blueprint;
 
-import com.createnestedfactory.create_nested_factory.block.OperationMode;
+import com.createnestedfactory.create_nested_factory.block.FactoryFacePortBindings;
 import com.createnestedfactory.create_nested_factory.block.PortMode;
 import net.minecraft.nbt.CompoundTag;
 
 import java.util.Locale;
 
+/**
+ * The configuration overwritten while a blueprint is applied.
+ *
+ * <p>This deliberately excludes energy, item/fluid contents, progress and all other runtime
+ * resources. Those values may have been consumed, produced or transferred while the blueprint
+ * was active, so restoring them would duplicate resources.</p>
+ */
 public final class FactoryRestoreSnapshot {
-    private OperationMode operationMode = OperationMode.CHUNK_LOADED;
     private final PortMode[] faceModes = new PortMode[6];
     private final int[] portIds = new int[6];
     private CompoundTag blackbox = new CompoundTag();
     private CompoundTag powerProfile = new CompoundTag();
-    private String customName;
-    private int energyStored;
-    private boolean invalidNested;
 
     public FactoryRestoreSnapshot() {
         for (int i = 0; i < 6; i++) {
@@ -23,14 +26,8 @@ public final class FactoryRestoreSnapshot {
     }
 
     public CompoundTag write(CompoundTag tag) {
-        tag.putString("OperationMode", operationMode.getSerializedName());
-        tag.put("Blackbox", blackbox);
-        tag.put("PowerProfile", powerProfile);
-        tag.putInt("EnergyStored", energyStored);
-        tag.putBoolean("InvalidNested", invalidNested);
-        if (customName != null) {
-            tag.putString("CustomName", customName);
-        }
+        tag.put("Blackbox", blackbox.copy());
+        tag.put("PowerProfile", powerProfile.copy());
         for (int i = 0; i < 6; i++) {
             tag.putString("FaceMode" + i, faceModes[i].getSerializedName());
             tag.putInt("PortId" + i, portIds[i]);
@@ -38,25 +35,17 @@ public final class FactoryRestoreSnapshot {
         return tag;
     }
 
+    /**
+     * Extra fields from older snapshots, including EnergyStored, are intentionally ignored.
+     */
     public void read(CompoundTag tag) {
-        operationMode = readOperationMode(tag.getString("OperationMode"));
-        blackbox = tag.getCompound("Blackbox");
-        powerProfile = tag.getCompound("PowerProfile");
-        energyStored = tag.getInt("EnergyStored");
-        invalidNested = tag.getBoolean("InvalidNested");
-        customName = tag.contains("CustomName") ? tag.getString("CustomName") : null;
+        blackbox = tag.getCompound("Blackbox").copy();
+        powerProfile = tag.getCompound("PowerProfile").copy();
         for (int i = 0; i < 6; i++) {
             faceModes[i] = readPortMode(tag.getString("FaceMode" + i));
             portIds[i] = tag.getInt("PortId" + i);
         }
-    }
-
-    private static OperationMode readOperationMode(String value) {
-        try {
-            return OperationMode.valueOf(value.toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException ignored) {
-            return OperationMode.CHUNK_LOADED;
-        }
+        FactoryFacePortBindings.normalize(faceModes, portIds);
     }
 
     private static PortMode readPortMode(String value) {
@@ -67,28 +56,12 @@ public final class FactoryRestoreSnapshot {
         }
     }
 
-    public OperationMode operationMode() {
-        return operationMode;
-    }
-
     public CompoundTag blackbox() {
-        return blackbox;
+        return blackbox.copy();
     }
 
     public CompoundTag powerProfile() {
-        return powerProfile;
-    }
-
-    public String customName() {
-        return customName;
-    }
-
-    public int energyStored() {
-        return energyStored;
-    }
-
-    public boolean invalidNested() {
-        return invalidNested;
+        return powerProfile.copy();
     }
 
     public PortMode faceMode(int index) {
@@ -99,28 +72,12 @@ public final class FactoryRestoreSnapshot {
         return portIds[index];
     }
 
-    public void operationMode(OperationMode operationMode) {
-        this.operationMode = operationMode;
-    }
-
     public void blackbox(CompoundTag blackbox) {
-        this.blackbox = blackbox;
+        this.blackbox = blackbox.copy();
     }
 
     public void powerProfile(CompoundTag powerProfile) {
-        this.powerProfile = powerProfile;
-    }
-
-    public void customName(String customName) {
-        this.customName = customName;
-    }
-
-    public void energyStored(int energyStored) {
-        this.energyStored = energyStored;
-    }
-
-    public void invalidNested(boolean invalidNested) {
-        this.invalidNested = invalidNested;
+        this.powerProfile = powerProfile.copy();
     }
 
     public void faceMode(int index, PortMode mode) {

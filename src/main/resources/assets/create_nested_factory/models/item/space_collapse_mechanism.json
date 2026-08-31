@@ -1,0 +1,6 @@
+{
+  "parent": "item/generated",
+  "textures": {
+    "layer0": "create_nested_factory:item/space_collapse_mechanism"
+  }
+}

@@ -7,6 +7,9 @@ public final class FactoryPowerProfile {
     private float consumedSU;
     private float generatedFE;
     private float consumedFE;
+    /** Exact boundary demand sampled from the room's de-duplicated stress-port groups. */
+    private float measuredExternalStressDemandSU;
+    private boolean hasMeasuredExternalStressDemand;
     // True only for profiles scanned after relay stress ports were excluded from generation.
     private boolean generatedSUExcludesRelayStress;
 
@@ -18,14 +21,25 @@ public final class FactoryPowerProfile {
         this.consumedSU = consumedSU;
         this.generatedFE = generatedFE;
         this.consumedFE = consumedFE;
+        this.measuredExternalStressDemandSU = Math.max(0f, consumedSU - generatedSU);
+        this.hasMeasuredExternalStressDemand = true;
         this.generatedSUExcludesRelayStress = true;
     }
 
     public void set(float generatedSU, float consumedSU, float generatedFE, float consumedFE) {
+        set(generatedSU, consumedSU, generatedFE, consumedFE,
+                Math.max(0f, consumedSU - generatedSU));
+    }
+
+    public void set(float generatedSU, float consumedSU, float generatedFE, float consumedFE,
+                    float measuredExternalStressDemandSU) {
         this.generatedSU = generatedSU;
         this.consumedSU = consumedSU;
         this.generatedFE = generatedFE;
         this.consumedFE = consumedFE;
+        this.measuredExternalStressDemandSU = Math.max(0f,
+                Float.isFinite(measuredExternalStressDemandSU) ? measuredExternalStressDemandSU : 0f);
+        this.hasMeasuredExternalStressDemand = true;
         this.generatedSUExcludesRelayStress = true;
     }
 
@@ -65,6 +79,9 @@ public final class FactoryPowerProfile {
      * stress capacity for its parent without an explicit output port.
      */
     public float externalStressDemandSU() {
+        if (hasMeasuredExternalStressDemand) {
+            return measuredExternalStressDemandSU;
+        }
         return Math.max(0f, consumedSU - internalGeneratedSU());
     }
 
@@ -78,6 +95,8 @@ public final class FactoryPowerProfile {
         tag.putFloat("ConsumedSU", consumedSU);
         tag.putFloat("GeneratedFE", generatedFE);
         tag.putFloat("ConsumedFE", consumedFE);
+        tag.putFloat("MeasuredExternalStressDemandSU", measuredExternalStressDemandSU);
+        tag.putBoolean("HasMeasuredExternalStressDemand", hasMeasuredExternalStressDemand);
         tag.putBoolean("GeneratedSUExcludesRelayStress", generatedSUExcludesRelayStress);
         return tag;
     }
@@ -87,6 +106,11 @@ public final class FactoryPowerProfile {
         consumedSU = tag.getFloat("ConsumedSU");
         generatedFE = tag.getFloat("GeneratedFE");
         consumedFE = tag.getFloat("ConsumedFE");
+        hasMeasuredExternalStressDemand = tag.contains("HasMeasuredExternalStressDemand")
+                && tag.getBoolean("HasMeasuredExternalStressDemand");
+        measuredExternalStressDemandSU = hasMeasuredExternalStressDemand
+                ? Math.max(0f, tag.getFloat("MeasuredExternalStressDemandSU"))
+                : 0f;
         generatedSUExcludesRelayStress = tag.contains("GeneratedSUExcludesRelayStress")
                 && tag.getBoolean("GeneratedSUExcludesRelayStress");
     }

@@ -23,6 +23,11 @@ public final class GoggleTooltips {
                 .append(Component.literal(":").withStyle(ChatFormatting.WHITE));
     }
 
+    public static MutableComponent message(String key, int color) {
+        return Component.literal(INDENT)
+                .append(Component.translatable(key).withStyle(style -> style.withColor(color)));
+    }
+
     public static MutableComponent stat(String key, String text, ChatFormatting valueColor) {
         return Component.literal(INDENT + " ")
                 .append(Component.translatable(key).withStyle(ChatFormatting.GRAY))

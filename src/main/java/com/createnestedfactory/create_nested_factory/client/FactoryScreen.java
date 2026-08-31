@@ -8,6 +8,7 @@ import com.simibubi.create.content.trains.station.NoShadowFontWrapper;
 import com.simibubi.create.foundation.gui.AllIcons;
 import com.simibubi.create.foundation.gui.menu.AbstractSimiContainerScreen;
 import com.simibubi.create.foundation.gui.widget.IconButton;
+
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractButton;
 import net.minecraft.client.gui.components.EditBox;
@@ -65,7 +66,6 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
     private static final int BG_HEIGHT = 111;
     // 顶部改名区域的宽（名称文字居中于此区域）。
     private static final int HEADER_WIDTH = 226;
-
     private EditBox addressBox;   // 顶部改名输入框
     private AbstractButton[] faceButtons; // 6 个面的端口模式按钮
     private AbstractButton modeButton; // 黑盒/常加载切换按钮（透明热区）
@@ -209,7 +209,7 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
     @Override
     public void removed() {
         // 界面关闭时把改名结果发给服务器保存（frogport 也是关屏时才保存）。
-        PacketDistributor.sendToServer(new RenameFactoryPayload(menu.getFactoryPos(), addressBox.getValue()));
+        PacketDistributor.sendToServer(new RenameFactoryPayload(menu.containerId, addressBox.getValue()));
         super.removed();
     }
 
