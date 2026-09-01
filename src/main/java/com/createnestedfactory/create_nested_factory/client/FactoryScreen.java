@@ -124,7 +124,11 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
         // —— 底部：打勾确认按钮（同 frogport，点了就关闭界面）——
         // x + BG_WIDTH - 25：距面板右边缘 25px；y + BG_HEIGHT - 24：距底 24px。
         confirmButton = new IconButton(x + BG_WIDTH - 25, y + BG_HEIGHT - 24, AllIcons.I_CONFIRM);
-        confirmButton.withCallback(() -> this.minecraft.player.closeContainer());
+        confirmButton.withCallback(() -> {
+            if (this.minecraft != null && this.minecraft.player != null) {
+                this.minecraft.player.closeContainer();
+            }
+        });
         addRenderableWidget(confirmButton);
     }
 
@@ -225,7 +229,9 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
 
         @Override
         public void onPress() {
-            minecraft.gameMode.handleInventoryButtonClick(menu.containerId, faceIndex);
+            if (minecraft != null && minecraft.gameMode != null) {
+                minecraft.gameMode.handleInventoryButtonClick(menu.containerId, faceIndex);
+            }
         }
 
         @Override
@@ -280,7 +286,9 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
 
         @Override
         public void onPress() {
-            minecraft.gameMode.handleInventoryButtonClick(menu.containerId, 6);
+            if (minecraft != null && minecraft.gameMode != null) {
+                minecraft.gameMode.handleInventoryButtonClick(menu.containerId, 6);
+            }
         }
 
         @Override

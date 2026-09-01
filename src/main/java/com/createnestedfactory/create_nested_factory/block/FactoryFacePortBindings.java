@@ -1,8 +1,8 @@
 package com.createnestedfactory.create_nested_factory.block;
 
 /**
- * Validates the six external factory-face bindings. Internal NestedPort instances may form a
- * many-member port group, but every enabled factory face must own a distinct id in 1..6.
+ * Validates the six external factory-face bindings. Every enabled face may join the same
+ * logical port group, while INPUT and OUTPUT faces remain separate directions.
  */
 public final class FactoryFacePortBindings {
     public static final int FACE_COUNT = 6;
@@ -16,7 +16,7 @@ public final class FactoryFacePortBindings {
         if (modes == null || ids == null || modes.length != FACE_COUNT || ids.length != FACE_COUNT) {
             return false;
         }
-        boolean[] used = new boolean[MAX_PORT_ID + 1];
+        PortMode[] modesById = new PortMode[MAX_PORT_ID + 1];
         for (int index = 0; index < FACE_COUNT; index++) {
             PortMode mode = modes[index];
             int id = ids[index];
@@ -26,10 +26,13 @@ public final class FactoryFacePortBindings {
                 }
                 continue;
             }
-            if (id < MIN_PORT_ID || id > MAX_PORT_ID || used[id]) {
+            if (id < MIN_PORT_ID || id > MAX_PORT_ID) {
                 return false;
             }
-            used[id] = true;
+            if (modesById[id] != null && modesById[id] != mode) {
+                return false;
+            }
+            modesById[id] = mode;
         }
         return true;
     }
@@ -43,7 +46,7 @@ public final class FactoryFacePortBindings {
             throw new IllegalArgumentException("Factory face bindings must contain exactly six entries");
         }
         boolean changed = false;
-        boolean[] used = new boolean[MAX_PORT_ID + 1];
+        PortMode[] modesById = new PortMode[MAX_PORT_ID + 1];
         for (int index = 0; index < FACE_COUNT; index++) {
             PortMode mode = modes[index];
             if (mode == null) {
@@ -60,20 +63,20 @@ public final class FactoryFacePortBindings {
             }
 
             int id = ids[index];
-            if (id >= MIN_PORT_ID && id <= MAX_PORT_ID && !used[id]) {
-                used[id] = true;
-                continue;
-            }
-
-            int replacement = lowestUnused(used);
-            if (replacement == 0) {
-                modes[index] = PortMode.NONE;
-                ids[index] = 0;
+            if (id < MIN_PORT_ID || id > MAX_PORT_ID
+                    || (modesById[id] != null && modesById[id] != mode)) {
+                int replacement = lowestCompatibleUnused(modesById, mode);
+                if (replacement == 0) {
+                    modes[index] = PortMode.NONE;
+                    ids[index] = 0;
+                } else {
+                    ids[index] = replacement;
+                    modesById[replacement] = mode;
+                }
+                changed = true;
             } else {
-                ids[index] = replacement;
-                used[replacement] = true;
+                modesById[id] = mode;
             }
-            changed = true;
         }
         return changed;
     }
@@ -93,6 +96,15 @@ public final class FactoryFacePortBindings {
             }
         }
         return lowestUnused(used);
+    }
+
+    private static int lowestCompatibleUnused(PortMode[] modesById, PortMode mode) {
+        for (int id = MIN_PORT_ID; id <= MAX_PORT_ID; id++) {
+            if (modesById[id] == null || modesById[id] == mode) {
+                return id;
+            }
+        }
+        return 0;
     }
 
     private static int lowestUnused(boolean[] used) {

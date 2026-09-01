@@ -1,21 +1,20 @@
 package com.createnestedfactory.create_nested_factory.block.entity;
 
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.material.Fluid;
 import net.neoforged.neoforge.fluids.FluidStack;
 import net.neoforged.neoforge.fluids.capability.IFluidHandler;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Persistent, unbounded-in-gameplay transit channels for a factory's six logical ports.
@@ -24,9 +23,16 @@ import java.util.Map;
  */
 public final class FactoryPortChannels {
     private static final int CHANNEL_COUNT = 6;
-    /** One small offer starts an otherwise empty direction; later offers are paid for by real downstream extraction. */
+
+    /** A concrete room-side fluid face participating in a logical port group. */
+    public record FluidEndpoint(BlockPos portPos, Direction side) {
+        public FluidEndpoint {
+            portPos = portPos.immutable();
+        }
+    }
+
+    /** One small offer starts an otherwise empty item direction; later offers are paid for by real downstream extraction. */
     private static final long INITIAL_ITEM_PRIME_CREDITS = 64L;
-    private static final long INITIAL_FLUID_PRIME_CREDITS = 1000L;
     private final PortResourceChannel[] channels = new PortResourceChannel[CHANNEL_COUNT];
 
     public FactoryPortChannels() {
@@ -55,6 +61,13 @@ public final class FactoryPortChannels {
     public void clear() {
         for (PortResourceChannel channel : channels) {
             channel.clear();
+        }
+    }
+
+    /** Clears only fluid handoff state while preserving the established item handoff state. */
+    public void clearFluids() {
+        for (PortResourceChannel channel : channels) {
+            channel.clearFluids();
         }
     }
 
@@ -87,12 +100,12 @@ public final class FactoryPortChannels {
     public static final class PortResourceChannel {
         private final ItemChannel inputItems = new ItemChannel();
         private final ItemChannel outputItems = new ItemChannel();
-        private final FluidChannel inputFluids = new FluidChannel();
-        private final FluidChannel outputFluids = new FluidChannel();
+        /** Shared, unbounded-in-gameplay INPUT handoff state for the complete port group. */
+        private final FluidLedger inputFluids = new FluidLedger();
+        /** Shared, unbounded-in-gameplay OUTPUT handoff state for the complete port group. */
+        private final FluidLedger outputFluids = new FluidLedger();
         private long inputItemCredits = INITIAL_ITEM_PRIME_CREDITS;
         private long outputItemCredits = INITIAL_ITEM_PRIME_CREDITS;
-        private long inputFluidCredits = INITIAL_FLUID_PRIME_CREDITS;
-        private long outputFluidCredits = INITIAL_FLUID_PRIME_CREDITS;
 
         public ItemChannel inputItems() {
             return inputItems;
@@ -102,12 +115,49 @@ public final class FactoryPortChannels {
             return outputItems;
         }
 
-        public FluidChannel inputFluids() {
+        public FluidLedger inputFluids() {
             return inputFluids;
         }
 
-        public FluidChannel outputFluids() {
+        public FluidLedger outputFluids() {
             return outputFluids;
+        }
+
+        /** Compatibility view: every room endpoint sees the same port-group ledger. */
+        public FluidLedger inputFluids(FluidEndpoint ignoredEndpoint) {
+            return inputFluids;
+        }
+
+        /** Shared ledger; endpoint membership is used by the caller for discovery/fairness only. */
+        public int fillInputFluids(Set<FluidEndpoint> endpoints, FluidStack resource,
+                                   IFluidHandler.FluidAction action) {
+            return inputFluids.fill(resource, action);
+        }
+
+        public FluidStack drainInputFluid(FluidEndpoint ignoredEndpoint, FluidStack requested,
+                                          IFluidHandler.FluidAction action) {
+            return inputFluids.drain(requested, action);
+        }
+
+        public FluidStack drainInputFluid(FluidEndpoint ignoredEndpoint, int maxDrain,
+                                          IFluidHandler.FluidAction action) {
+            return inputFluids.drain(maxDrain, action);
+        }
+
+        public int fillOutputFluids(FluidStack resource, IFluidHandler.FluidAction action) {
+            return outputFluids.fill(resource, action);
+        }
+
+        public FluidStack drainOutputFluids(FluidStack requested, IFluidHandler.FluidAction action) {
+            return outputFluids.drain(requested, action);
+        }
+
+        public FluidStack drainOutputFluids(int maxDrain, IFluidHandler.FluidAction action) {
+            return outputFluids.drain(maxDrain, action);
+        }
+
+        /** Legacy endpoint cleanup is intentionally a no-op: the port group owns one shared ledger. */
+        public void normalizeInputFluids(Set<FluidEndpoint> ignoredEndpoints) {
         }
 
         public boolean isEmpty() {
@@ -118,12 +168,14 @@ public final class FactoryPortChannels {
         private void clear() {
             inputItems.clear();
             outputItems.clear();
-            inputFluids.clear();
-            outputFluids.clear();
+            clearFluids();
             inputItemCredits = INITIAL_ITEM_PRIME_CREDITS;
             outputItemCredits = INITIAL_ITEM_PRIME_CREDITS;
-            inputFluidCredits = INITIAL_FLUID_PRIME_CREDITS;
-            outputFluidCredits = INITIAL_FLUID_PRIME_CREDITS;
+        }
+
+        private void clearFluids() {
+            inputFluids.clear();
+            outputFluids.clear();
         }
 
         private void appendItemsAndDiscardFluids(List<ItemStack> dropped) {
@@ -133,26 +185,17 @@ public final class FactoryPortChannels {
             outputFluids.clear();
             inputItemCredits = INITIAL_ITEM_PRIME_CREDITS;
             outputItemCredits = INITIAL_ITEM_PRIME_CREDITS;
-            inputFluidCredits = INITIAL_FLUID_PRIME_CREDITS;
-            outputFluidCredits = INITIAL_FLUID_PRIME_CREDITS;
         }
 
         public boolean canAcceptInputItems(long ignoredGameTime) {
             return inputItemCredits > 0;
         }
 
-        /**
-         * Checks whether one package-sized item batch can cross this INPUT boundary as one commit.
-         * This remains bounded by the existing handoff credits and does not create general storage.
-         */
         public boolean canAcceptInputItemBatch(long ignoredGameTime, List<ItemStack> stacks) {
             long total = totalItemCount(stacks);
             return total > 0 && total <= inputItemCredits && inputItems.canInsertAll(stacks);
         }
 
-        /**
-         * Commits a previously validated input batch. A failure leaves the channel unchanged.
-         */
         public boolean insertInputItemBatch(long ignoredGameTime, List<ItemStack> stacks) {
             if (!canAcceptInputItemBatch(ignoredGameTime, stacks)) {
                 return false;
@@ -171,14 +214,6 @@ public final class FactoryPortChannels {
             return outputItemCredits > 0;
         }
 
-        public boolean canAcceptInputFluids(long ignoredGameTime) {
-            return inputFluidCredits > 0;
-        }
-
-        public boolean canAcceptOutputFluids(long ignoredGameTime) {
-            return outputFluidCredits > 0;
-        }
-
         public int inputItemOfferLimit(long ignoredGameTime, ItemStack stack) {
             return offerLimit(inputItemCredits, stack.isEmpty() ? 0 : stack.getCount());
         }
@@ -187,28 +222,12 @@ public final class FactoryPortChannels {
             return offerLimit(outputItemCredits, stack.isEmpty() ? 0 : stack.getCount());
         }
 
-        public int inputFluidOfferLimit(long ignoredGameTime, FluidStack stack) {
-            return offerLimit(inputFluidCredits, stack.isEmpty() ? 0 : stack.getAmount());
-        }
-
-        public int outputFluidOfferLimit(long ignoredGameTime, FluidStack stack) {
-            return offerLimit(outputFluidCredits, stack.isEmpty() ? 0 : stack.getAmount());
-        }
-
         public void markInputItemExtracted(int amount) {
             inputItemCredits = safeAdd(inputItemCredits, Math.max(0, amount));
         }
 
         public void markOutputItemExtracted(int amount) {
             outputItemCredits = safeAdd(outputItemCredits, Math.max(0, amount));
-        }
-
-        public void markInputFluidDrained(int amount) {
-            inputFluidCredits = safeAdd(inputFluidCredits, Math.max(0, amount));
-        }
-
-        public void markOutputFluidDrained(int amount) {
-            outputFluidCredits = safeAdd(outputFluidCredits, Math.max(0, amount));
         }
 
         private static int offerLimit(long credits, int requested) {
@@ -243,31 +262,33 @@ public final class FactoryPortChannels {
             outputItemCredits = Math.max(0L, outputItemCredits - Math.max(0, amount));
         }
 
-        public void consumeInputFluids(int amount) {
-            inputFluidCredits = Math.max(0L, inputFluidCredits - Math.max(0, amount));
-        }
-
-        public void consumeOutputFluids(int amount) {
-            outputFluidCredits = Math.max(0L, outputFluidCredits - Math.max(0, amount));
-        }
-
         private CompoundTag write(CompoundTag tag, HolderLookup.Provider registries) {
             tag.put("InputItems", inputItems.write(new CompoundTag(), registries));
             tag.put("OutputItems", outputItems.write(new CompoundTag(), registries));
-            tag.put("InputFluids", inputFluids.write(new CompoundTag()));
-            tag.put("OutputFluids", outputFluids.write(new CompoundTag()));
+            tag.put("InputFluids", inputFluids.write(new CompoundTag(), registries));
+            tag.put("OutputFluids", outputFluids.write(new CompoundTag(), registries));
             return tag;
         }
 
         private void read(CompoundTag tag, HolderLookup.Provider registries) {
             inputItems.read(tag.getCompound("InputItems"), registries);
             outputItems.read(tag.getCompound("OutputItems"), registries);
-            inputFluids.read(tag.getCompound("InputFluids"));
-            outputFluids.read(tag.getCompound("OutputFluids"));
+            // Restore the new complete-identity ledgers. Old development fields do not contain
+            // an Entries list and are deliberately discarded by the migration.
+            CompoundTag inputTag = tag.getCompound("InputFluids");
+            CompoundTag outputTag = tag.getCompound("OutputFluids");
+            if (inputTag.contains("Entries", Tag.TAG_LIST)) {
+                inputFluids.read(inputTag, registries);
+            } else {
+                inputFluids.clear();
+            }
+            if (outputTag.contains("Entries", Tag.TAG_LIST)) {
+                outputFluids.read(outputTag, registries);
+            } else {
+                outputFluids.clear();
+            }
             inputItemCredits = inputItems.isEmpty() ? INITIAL_ITEM_PRIME_CREDITS : 0L;
             outputItemCredits = outputItems.isEmpty() ? INITIAL_ITEM_PRIME_CREDITS : 0L;
-            inputFluidCredits = inputFluids.isEmpty() ? INITIAL_FLUID_PRIME_CREDITS : 0L;
-            outputFluidCredits = outputFluids.isEmpty() ? INITIAL_FLUID_PRIME_CREDITS : 0L;
         }
     }
 
@@ -416,115 +437,136 @@ public final class FactoryPortChannels {
         }
     }
 
-    /** Dynamic virtual-tank fluid channel. Fluid components are not distinguished by the NeoForge fluid API here. */
-    public static final class FluidChannel {
-        private final Map<Fluid, Long> values = new HashMap<>();
+    /** Ordered port-group fluid ledger preserving complete FluidStack identity. */
+    public static final class FluidLedger {
+        private final List<FluidEntry> entries = new ArrayList<>();
 
         public int tanks() {
-            return sortedFluids().size();
+            return entries.size();
         }
 
         public FluidStack fluidInTank(int tank) {
-            Fluid fluid = fluidAt(tank);
-            if (fluid == null) {
-                return FluidStack.EMPTY;
-            }
-            long amount = values.getOrDefault(fluid, 0L);
-            return amount <= 0 ? FluidStack.EMPTY
-                    : new FluidStack(fluid, (int) Math.min(amount, Integer.MAX_VALUE));
+            return tank >= 0 && tank < entries.size() ? entries.get(tank).snapshot() : FluidStack.EMPTY;
         }
 
         public int fill(FluidStack resource, IFluidHandler.FluidAction action) {
-            if (resource.isEmpty()) {
+            if (resource == null || resource.isEmpty()) {
                 return 0;
             }
-            Fluid fluid = resource.getFluid();
-            long current = values.getOrDefault(fluid, 0L);
-            if (Long.MAX_VALUE - current < resource.getAmount()) {
+            FluidEntry entry = find(resource);
+            if (entry == null && entries.size() == Integer.MAX_VALUE) {
                 return 0;
             }
-            if (action.execute()) {
-                values.put(fluid, current + resource.getAmount());
+            if (entry == null) {
+                entry = new FluidEntry(resource.copyWithAmount(0));
+                if (action.execute()) {
+                    entries.add(entry);
+                }
             }
-            return resource.getAmount();
+            long current = entry.amount;
+            long requested = resource.getAmount();
+            if (Long.MAX_VALUE - current < requested) {
+                requested = Long.MAX_VALUE - current;
+            }
+            int accepted = (int) Math.min(requested, Integer.MAX_VALUE);
+            if (action.execute() && accepted > 0) {
+                entry.amount = current + accepted;
+            }
+            return accepted;
         }
 
         public FluidStack drain(FluidStack requested, IFluidHandler.FluidAction action) {
-            if (requested.isEmpty()) {
+            if (requested == null || requested.isEmpty()) {
                 return FluidStack.EMPTY;
             }
-            return drain(requested.getFluid(), requested.getAmount(), action);
+            FluidEntry entry = find(requested);
+            return entry == null ? FluidStack.EMPTY : drainEntry(entry, requested.getAmount(), action);
         }
 
         public FluidStack drain(int maxDrain, IFluidHandler.FluidAction action) {
-            if (maxDrain <= 0 || values.isEmpty()) {
+            if (maxDrain <= 0) {
                 return FluidStack.EMPTY;
             }
-            Fluid fluid = fluidAt(0);
-            return fluid == null ? FluidStack.EMPTY : drain(fluid, maxDrain, action);
+            for (FluidEntry entry : entries) {
+                if (entry.amount > 0) {
+                    return drainEntry(entry, maxDrain, action);
+                }
+            }
+            return FluidStack.EMPTY;
         }
 
         public boolean isEmpty() {
-            return values.isEmpty();
+            return entries.isEmpty();
         }
 
         private void clear() {
-            values.clear();
+            entries.clear();
         }
 
-        private FluidStack drain(Fluid fluid, int requested, IFluidHandler.FluidAction action) {
-            long current = values.getOrDefault(fluid, 0L);
-            if (current <= 0) {
-                return FluidStack.EMPTY;
-            }
-            int drained = (int) Math.min(current, requested);
-            if (action.execute()) {
-                long remaining = current - drained;
-                if (remaining == 0) {
-                    values.remove(fluid);
-                } else {
-                    values.put(fluid, remaining);
+        private FluidEntry find(FluidStack stack) {
+            for (FluidEntry entry : entries) {
+                if (FluidStack.isSameFluidSameComponents(entry.prototype, stack)) {
+                    return entry;
                 }
             }
-            return new FluidStack(fluid, drained);
+            return null;
         }
 
-        private CompoundTag write(CompoundTag tag) {
-            CompoundTag valuesTag = new CompoundTag();
-            values.forEach((fluid, count) -> {
-                ResourceLocation id = BuiltInRegistries.FLUID.getKey(fluid);
-                if (id != null && count > 0) {
-                    valuesTag.putLong(id.toString(), count);
+        private FluidStack drainEntry(FluidEntry entry, int requested, IFluidHandler.FluidAction action) {
+            int drained = (int) Math.min(entry.amount, Math.max(0, requested));
+            FluidStack result = entry.prototype.copyWithAmount(drained);
+            if (action.execute() && drained > 0) {
+                entry.amount -= drained;
+                if (entry.amount == 0) {
+                    entries.remove(entry);
                 }
-            });
-            tag.put("Values", valuesTag);
+            }
+            return result;
+        }
+
+        private CompoundTag write(CompoundTag tag, HolderLookup.Provider registries) {
+            ListTag list = new ListTag();
+            for (FluidEntry entry : entries) {
+                if (entry.amount <= 0 || entry.prototype.isEmpty()) {
+                    continue;
+                }
+                CompoundTag value = new CompoundTag();
+                value.put("Stack", entry.prototype.copyWithAmount(1).saveOptional(registries));
+                value.putLong("Amount", entry.amount);
+                list.add(value);
+            }
+            tag.put("Entries", list);
             return tag;
         }
 
-        private void read(CompoundTag tag) {
-            values.clear();
-            CompoundTag valuesTag = tag.getCompound("Values");
-            for (String idText : valuesTag.getAllKeys()) {
-                ResourceLocation id = ResourceLocation.tryParse(idText);
-                long count = valuesTag.getLong(idText);
-                if (id != null && count > 0 && BuiltInRegistries.FLUID.containsKey(id)) {
-                    values.put(BuiltInRegistries.FLUID.get(id), count);
+        private void read(CompoundTag tag, HolderLookup.Provider registries) {
+            entries.clear();
+            for (Tag raw : tag.getList("Entries", Tag.TAG_COMPOUND)) {
+                CompoundTag value = (CompoundTag) raw;
+                FluidStack prototype = FluidStack.parseOptional(registries, value.getCompound("Stack"));
+                long amount = value.getLong("Amount");
+                if (!prototype.isEmpty() && amount > 0) {
+                    entries.add(new FluidEntry(prototype.copyWithAmount(1), amount));
                 }
             }
         }
 
-        private Fluid fluidAt(int tank) {
-            if (tank < 0) {
-                return null;
-            }
-            List<Fluid> fluids = sortedFluids();
-            return tank >= fluids.size() ? null : fluids.get(tank);
-        }
+        private static final class FluidEntry {
+            private final FluidStack prototype;
+            private long amount;
 
-        private List<Fluid> sortedFluids() {
-            return values.keySet().stream()
-                    .sorted(Comparator.comparing(fluid -> BuiltInRegistries.FLUID.getKey(fluid).toString()))
-                    .toList();
+            private FluidEntry(FluidStack prototype) {
+                this.prototype = prototype;
+            }
+
+            private FluidEntry(FluidStack prototype, long amount) {
+                this.prototype = prototype;
+                this.amount = amount;
+            }
+
+            private FluidStack snapshot() {
+                return prototype.copyWithAmount((int) Math.min(amount, Integer.MAX_VALUE));
+            }
         }
     }
 

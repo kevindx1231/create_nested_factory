@@ -10,10 +10,7 @@ import com.simibubi.create.api.equipment.goggles.IHaveGoggleInformation;
 import com.simibubi.create.content.fluids.FluidPropagator;
 import com.simibubi.create.content.fluids.FluidTransportBehaviour;
 import com.simibubi.create.content.fluids.PipeConnection;
-import com.simibubi.create.content.fluids.pump.PumpBlock;
-import com.simibubi.create.content.fluids.pump.PumpBlockEntity;
 import com.simibubi.create.foundation.blockEntity.SyncedBlockEntity;
-import net.createmod.catnip.math.BlockFace;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -24,18 +21,15 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
-import net.neoforged.neoforge.capabilities.Capabilities;
 import net.neoforged.neoforge.fluids.capability.IFluidHandler;
 import net.neoforged.neoforge.items.IItemHandler;
 
-import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -59,6 +53,10 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
     private boolean mirroredPull = false;
     private boolean mirroredPressureApplied = false;
     private boolean pressureRefreshRequested = true;
+    /** Pressure mirrored outward when a room-side pump drives the external Create pipe. */
+    private float outwardPressure = 0f;
+    private boolean outwardPull = false;
+    private boolean outwardPressureApplied = false;
     /** Cached local precondition for entering the cross-dimension fluid bridge. */
     private boolean roomSideFluidBridge = false;
     private boolean roomSideFluidBridgeDirty = true;
@@ -123,7 +121,7 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
         if (isMappedInput(factory)) {
             markInputConsumer(side, true, factory);
         }
-        return factory.getRoomFluidHandler(targetPortId, side);
+        return factory.getRoomFluidHandler(targetPortId, worldPosition, side);
     }
 
     private boolean isMappedInput(NestedFactoryBlockEntity factory) {
@@ -187,11 +185,13 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
                 }
                 break;
             }
-            if (changed) {
-                NestedFactoryBlockEntity factory = findFactory();
-                if (factory != null) {
-                    factory.onRoomPortLogisticsConnectionChanged();
-                }
+            // A downstream tank or machine can change the endpoint of an already existing
+            // pipe without notifying this port. Refresh every room-side pipe whenever any
+            // port face changes, so an older pipe cannot retain a stale FlowSource.
+            refreshRoomFluidNetworks();
+            NestedFactoryBlockEntity factory = findFactory();
+            if (factory != null) {
+                factory.onRoomPortLogisticsConnectionChanged();
             }
         }
         requestFluidPressureRefresh();
@@ -231,11 +231,16 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
         if (be.roomSideFluidBridgeDirty) {
             be.refreshRoomSideFluidBridge();
         }
+        NestedFactoryBlockEntity factory = be.findFactory();
         if (!be.roomSideFluidBridge) {
             be.clearMirroredPressure();
             return;
         }
+        if (factory != null && level.getGameTime() % 5 == 0) {
+            factory.refreshRoomFluidNetworksIfSignatureChanged(be.targetPortId);
+        }
         be.updateMirroredFluidPressure();
+        be.updateOutwardFluidPressure();
     }
 
     /**
@@ -244,9 +249,27 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
      * on the room side. Item-only and unconnected ports must remain passive.
      */
     private void refreshRoomSideFluidBridge() {
+        boolean wasBridgeActive = roomSideFluidBridge;
         roomSideFluidBridgeDirty = false;
         roomSideFluidBridge = false;
-        if (mappedFaceMode == PortMode.NONE || level == null || level.isClientSide()) {
+        if (mappedFaceMode != PortMode.NONE && level != null && !level.isClientSide()) {
+            for (Direction side : Direction.values()) {
+                BlockPos adjacentPos = worldPosition.relative(side);
+                BlockState adjacentState = level.getBlockState(adjacentPos);
+                FluidTransportBehaviour pipe = FluidPropagator.getPipe(level, adjacentPos);
+                if (pipe != null && pipe.canHaveFlowToward(adjacentState, side.getOpposite())) {
+                    roomSideFluidBridge = true;
+                    break;
+                }
+            }
+        }
+        if (wasBridgeActive != roomSideFluidBridge) {
+            refreshRoomFluidNetworks();
+        }
+    }
+
+    void collectFluidEndpoints(Set<FactoryPortChannels.FluidEndpoint> endpoints) {
+        if (level == null || level.isClientSide() || mappedFaceMode == PortMode.NONE) {
             return;
         }
         for (Direction side : Direction.values()) {
@@ -254,8 +277,61 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
             BlockState adjacentState = level.getBlockState(adjacentPos);
             FluidTransportBehaviour pipe = FluidPropagator.getPipe(level, adjacentPos);
             if (pipe != null && pipe.canHaveFlowToward(adjacentState, side.getOpposite())) {
-                roomSideFluidBridge = true;
-                return;
+                endpoints.add(new FactoryPortChannels.FluidEndpoint(worldPosition, side));
+            }
+        }
+    }
+
+    /**
+     * Fully rebuilds every Create fluid network connected to this port. A pressure propagation
+     * pass alone is insufficient when a downstream tank is added after the first pipe: Create
+     * may still retain the old FluidNetwork target set. Reset every connection in the reachable
+     * pipe graph before asking Create to propagate again.
+     */
+    void refreshRoomFluidNetworks() {
+        if (level == null || level.isClientSide()) {
+            return;
+        }
+        Set<BlockPos> visitedPipes = new HashSet<>();
+        Deque<BlockPos> pendingPipes = new ArrayDeque<>();
+        for (Direction side : Direction.values()) {
+            BlockPos adjacentPos = worldPosition.relative(side);
+            if (FluidPropagator.getPipe(level, adjacentPos) != null) {
+                pendingPipes.add(adjacentPos);
+            }
+        }
+
+        while (!pendingPipes.isEmpty()) {
+            BlockPos pipePos = pendingPipes.removeFirst();
+            if (!level.isLoaded(pipePos) || !visitedPipes.add(pipePos)) {
+                continue;
+            }
+            FluidTransportBehaviour pipe = FluidPropagator.getPipe(level, pipePos);
+            if (pipe == null) {
+                continue;
+            }
+            // Clear the complete pipe state, including pressure, Flow and FlowSource. Merely
+            // resetting FluidNetwork leaves a previously open/blocked connection reusable.
+            pipe.wipePressure();
+            BlockState pipeState = level.getBlockState(pipePos);
+            for (Direction face : FluidPropagator.getPipeConnections(pipeState, pipe)) {
+                PipeConnection connection = pipe.getConnection(face);
+                if (connection != null) {
+                    connection.resetNetwork();
+                }
+                BlockPos connectedPos = pipePos.relative(face);
+                if (FluidPropagator.getPipe(level, connectedPos) != null) {
+                    pendingPipes.addLast(connectedPos);
+                }
+            }
+        }
+
+        // Rebuild each port-adjacent root after all reachable connections have been reset.
+        for (Direction side : Direction.values()) {
+            BlockPos adjacentPos = worldPosition.relative(side);
+            BlockState adjacentState = level.getBlockState(adjacentPos);
+            if (FluidPropagator.getPipe(level, adjacentPos) != null) {
+                FluidPropagator.propagateChangedPipe(level, adjacentPos, adjacentState);
             }
         }
     }
@@ -264,6 +340,10 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
     private void clearMirroredPressure() {
         if (mirroredPressure > PRESSURE_EPSILON || mirroredPressureApplied) {
             resetRoomPipePressure();
+        }
+        NestedFactoryBlockEntity factory = findFactory();
+        if (factory != null) {
+            clearOutwardPressure(factory);
         }
         mirroredPressure = 0f;
         mirroredPull = false;
@@ -283,6 +363,7 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
         if (mode != mappedFaceMode) {
             mappedFaceMode = mode;
             roomSideFluidBridgeDirty = true;
+            refreshRoomFluidNetworks();
             setChanged();
         }
     }
@@ -344,8 +425,88 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
         }
     }
 
+    private void updateOutwardFluidPressure() {
+        if (level == null || level.isClientSide() || mappedFaceMode == PortMode.NONE) {
+            return;
+        }
+        NestedFactoryBlockEntity factory = findFactory();
+        if (factory == null) {
+            return;
+        }
+
+        NestedFactoryBlockEntity.FluidPortPressure exterior =
+                factory.getExternalFluidPortPressure(targetPortId);
+        boolean externalDrivesThisPort = mappedFaceMode == PortMode.INPUT
+                ? exterior.towardFactory() > PRESSURE_EPSILON
+                : exterior.awayFromFactory() > PRESSURE_EPSILON;
+        if (externalDrivesThisPort) {
+            clearOutwardPressure(factory);
+            return;
+        }
+
+        float nextPressure = 0f;
+        boolean nextPull = false;
+        for (Direction side : Direction.values()) {
+            BlockPos adjacentPos = worldPosition.relative(side);
+            BlockState adjacentState = level.getBlockState(adjacentPos);
+            FluidTransportBehaviour pipe = FluidPropagator.getPipe(level, adjacentPos);
+            Direction pipeSideFacingPort = side.getOpposite();
+            if (pipe == null || !pipe.canHaveFlowToward(adjacentState, pipeSideFacingPort)) {
+                continue;
+            }
+            PipeConnection connection = pipe.getConnection(pipeSideFacingPort);
+            if (connection == null) {
+                continue;
+            }
+            if (mappedFaceMode == PortMode.OUTPUT) {
+                float pressure = Math.max(0f, connection.getPressure().getSecond());
+                if (pressure > nextPressure) {
+                    nextPressure = pressure;
+                    nextPull = false;
+                }
+            } else if (mappedFaceMode == PortMode.INPUT) {
+                float pressure = Math.max(0f, connection.getPressure().getFirst());
+                if (pressure > nextPressure) {
+                    nextPressure = pressure;
+                    nextPull = true;
+                }
+            }
+        }
+
+        boolean changed = Math.abs(nextPressure - outwardPressure) > PRESSURE_EPSILON
+                || nextPull != outwardPull;
+        boolean becameInactive = nextPressure <= PRESSURE_EPSILON && outwardPressure > PRESSURE_EPSILON;
+        if (changed || becameInactive) {
+            if (outwardPressureApplied) {
+                factory.refreshExternalFluidNetworks();
+            }
+            outwardPressure = nextPressure;
+            outwardPull = nextPull;
+            outwardPressureApplied = outwardPressure > PRESSURE_EPSILON
+                    && factory.applyExternalFluidPressure(targetPortId, outwardPull, outwardPressure);
+            return;
+        }
+
+        if (outwardPressure <= PRESSURE_EPSILON) {
+            return;
+        }
+        if (outwardPressureApplied && !factory.hasExternalFluidPressure(targetPortId, outwardPull)) {
+            outwardPressureApplied = factory.applyExternalFluidPressure(targetPortId, outwardPull, outwardPressure);
+        }
+    }
+
+    private void clearOutwardPressure(NestedFactoryBlockEntity factory) {
+        if (outwardPressureApplied) {
+            factory.refreshExternalFluidNetworks();
+        }
+        outwardPressure = 0f;
+        outwardPull = false;
+        outwardPressureApplied = false;
+    }
+
     private boolean isMirroredPressureStillPresent() {
         boolean foundPipe = false;
+        boolean foundPressure = false;
         for (Direction side : Direction.values()) {
             BlockPos adjacentPos = worldPosition.relative(side);
             BlockState adjacentState = level.getBlockState(adjacentPos);
@@ -362,11 +523,11 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
             float pressure = mirroredPull
                     ? connection.getPressure().getSecond()
                     : connection.getPressure().getFirst();
-            if (pressure <= PRESSURE_EPSILON) {
-                return false;
+            if (pressure > PRESSURE_EPSILON) {
+                foundPressure = true;
             }
         }
-        return !foundPipe || mirroredPressureApplied;
+        return !foundPipe || foundPressure;
     }
 
     /** Clears pressure/flow state in every Create pipe network touching this port. */
@@ -387,183 +548,9 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
     private boolean applyRoomPressure(boolean pull, float pressure) {
         boolean applied = false;
         for (Direction side : Direction.values()) {
-            applied |= distributePressureTo(side, pull, pressure);
+            applied |= FluidPressureBridge.apply(level, worldPosition, side, pull, pressure);
         }
         return applied;
-    }
-
-    private boolean distributePressureTo(Direction side, boolean pull, float pressure) {
-        BlockFace start = new BlockFace(worldPosition, side);
-        BlockPos firstPipePos = start.getConnectedPos();
-        FluidTransportBehaviour firstPipe = FluidPropagator.getPipe(level, firstPipePos);
-        if (firstPipe == null) {
-            return false;
-        }
-
-        Set<BlockFace> targets = new HashSet<>();
-        Map<BlockPos, PipeGraphNode> pipeGraph = new HashMap<>();
-        if (!pull) {
-            // The port is about to become a new source for this graph.
-            FluidPropagator.resetAffectedFluidNetworks(level, firstPipePos, side.getOpposite());
-        }
-
-        if (!hasReachedValidEndpoint(level, start, pull)) {
-            node(pipeGraph, worldPosition, 0).connections.put(side, pull);
-            node(pipeGraph, firstPipePos, 1).connections.put(side.getOpposite(), !pull);
-
-            List<PipePathNode> frontier = new ArrayList<>();
-            Set<BlockPos> visited = new HashSet<>();
-            int maxDistance = FluidPropagator.getPumpRange();
-            frontier.add(new PipePathNode(1, firstPipePos));
-
-            while (!frontier.isEmpty()) {
-                PipePathNode entry = frontier.remove(0);
-                int distance = entry.distance();
-                BlockPos currentPos = entry.pos();
-                if (!level.isLoaded(currentPos) || !visited.add(currentPos)) {
-                    continue;
-                }
-
-                BlockState currentState = level.getBlockState(currentPos);
-                FluidTransportBehaviour pipe = FluidPropagator.getPipe(level, currentPos);
-                if (pipe == null) {
-                    continue;
-                }
-
-                for (Direction face : FluidPropagator.getPipeConnections(currentState, pipe)) {
-                    BlockFace blockFace = new BlockFace(currentPos, face);
-                    BlockPos connectedPos = blockFace.getConnectedPos();
-                    if (!level.isLoaded(connectedPos) || blockFace.isEquivalent(start)) {
-                        continue;
-                    }
-
-                    if (hasReachedValidEndpoint(level, blockFace, pull)) {
-                        node(pipeGraph, currentPos, distance).connections.put(face, pull);
-                        targets.add(blockFace);
-                        continue;
-                    }
-
-                    FluidTransportBehaviour connectedPipe = FluidPropagator.getPipe(level, connectedPos);
-                    if (connectedPipe == null || level.getBlockEntity(connectedPos) instanceof PumpBlockEntity
-                            || visited.contains(connectedPos)) {
-                        continue;
-                    }
-                    if (distance + 1 >= maxDistance) {
-                        node(pipeGraph, currentPos, distance).connections.put(face, pull);
-                        targets.add(blockFace);
-                        continue;
-                    }
-
-                    node(pipeGraph, currentPos, distance).connections.put(face, pull);
-                    node(pipeGraph, connectedPos, distance + 1).connections.put(face.getOpposite(), !pull);
-                    frontier.add(new PipePathNode(distance + 1, connectedPos));
-                }
-            }
-        }
-
-        Map<Integer, Set<BlockFace>> validFaces = new HashMap<>();
-        searchForEndpointRecursively(pipeGraph, targets, validFaces,
-                new BlockFace(start.getPos(), start.getOppositeFace()), pull);
-
-        boolean applied = false;
-        for (Set<BlockFace> faces : validFaces.values()) {
-            int parallelBranches = Math.max(1, faces.size() - 1);
-            for (BlockFace face : faces) {
-                BlockPos pipePos = face.getPos();
-                if (pipePos.equals(worldPosition)) {
-                    continue;
-                }
-                PipeGraphNode graphNode = pipeGraph.get(pipePos);
-                if (graphNode == null) {
-                    continue;
-                }
-                Boolean inbound = graphNode.connections.get(face.getFace());
-                FluidTransportBehaviour pipe = FluidPropagator.getPipe(level, pipePos);
-                if (inbound == null || pipe == null) {
-                    continue;
-                }
-                pipe.addPressure(face.getFace(), inbound, pressure / parallelBranches);
-                applied = true;
-            }
-        }
-        return applied;
-    }
-
-    private static PipeGraphNode node(Map<BlockPos, PipeGraphNode> graph, BlockPos pos, int distance) {
-        return graph.computeIfAbsent(pos, ignored -> new PipeGraphNode(distance));
-    }
-
-    private static boolean hasReachedValidEndpoint(Level world, BlockFace blockFace, boolean pull) {
-        BlockPos connectedPos = blockFace.getConnectedPos();
-        BlockState connectedState = world.getBlockState(connectedPos);
-        BlockEntity blockEntity = world.getBlockEntity(connectedPos);
-        Direction face = blockFace.getFace();
-
-        if (PumpBlock.isPump(connectedState)
-                && connectedState.getValue(PumpBlock.FACING).getAxis() == face.getAxis()
-                && blockEntity instanceof PumpBlockEntity pump) {
-            boolean pumpFrontFacesCurrentPipe = connectedState.getValue(PumpBlock.FACING) == face.getOpposite();
-            return pump.isPullingOnSide(pumpFrontFacesCurrentPipe) != pull;
-        }
-
-        FluidTransportBehaviour pipe = FluidPropagator.getPipe(world, connectedPos);
-        if (pipe != null && pipe.canHaveFlowToward(connectedState, face.getOpposite())) {
-            return false;
-        }
-
-        if (blockEntity != null) {
-            IFluidHandler capability = world.getCapability(Capabilities.FluidHandler.BLOCK, connectedPos,
-                    face.getOpposite());
-            if (capability != null) {
-                return true;
-            }
-        }
-
-        return FluidPropagator.isOpenEnd(world, blockFace.getPos(), face);
-    }
-
-    private static boolean searchForEndpointRecursively(Map<BlockPos, PipeGraphNode> pipeGraph,
-                                                         Set<BlockFace> targets,
-                                                         Map<Integer, Set<BlockFace>> validFaces,
-                                                         BlockFace currentFace,
-                                                         boolean pull) {
-        PipeGraphNode current = pipeGraph.get(currentFace.getPos());
-        if (current == null) {
-            return false;
-        }
-
-        boolean successful = false;
-        for (Direction nextFacing : Direction.values()) {
-            if (nextFacing == currentFace.getFace()) {
-                continue;
-            }
-            Boolean directionPull = current.connections.get(nextFacing);
-            if (directionPull == null) {
-                continue;
-            }
-
-            BlockFace localTarget = new BlockFace(currentFace.getPos(), nextFacing);
-            if (targets.contains(localTarget)) {
-                validFaces.computeIfAbsent(current.distance, ignored -> new HashSet<>()).add(localTarget);
-                successful = true;
-                continue;
-            }
-            if (directionPull != pull) {
-                continue;
-            }
-            if (!searchForEndpointRecursively(pipeGraph, targets, validFaces,
-                    new BlockFace(currentFace.getPos().relative(nextFacing), nextFacing.getOpposite()), pull)) {
-                continue;
-            }
-
-            validFaces.computeIfAbsent(current.distance, ignored -> new HashSet<>()).add(localTarget);
-            successful = true;
-        }
-
-        if (successful) {
-            validFaces.computeIfAbsent(current.distance, ignored -> new HashSet<>()).add(currentFace);
-        }
-        return successful;
     }
 
     private static String modeKey(PortMode mode) {
@@ -662,15 +649,4 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
         requestFluidPressureRefresh();
     }
 
-    private record PipePathNode(int distance, BlockPos pos) {
-    }
-
-    private static final class PipeGraphNode {
-        private final int distance;
-        private final Map<Direction, Boolean> connections = new HashMap<>();
-
-        private PipeGraphNode(int distance) {
-            this.distance = distance;
-        }
-    }
 }
