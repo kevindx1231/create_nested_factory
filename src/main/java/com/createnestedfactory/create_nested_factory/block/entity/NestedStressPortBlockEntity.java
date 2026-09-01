@@ -165,10 +165,10 @@ public class NestedStressPortBlockEntity extends GeneratingKineticBlockEntity {
 
     @Override
     protected void write(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
-        // These values are derived from a live external reservation. Persisting them server-side
-        // would briefly restore free stress after a restart, before the factory settles again.
+        // Preserve only the last local RPM on disk. Capacity and reservation are intentionally
+        // not restored: the owning factory must validate and reserve stress again after loading.
+        tag.putFloat("IncomingSpeed", Float.isFinite(incomingSpeed) ? incomingSpeed : 0f);
         if (clientPacket) {
-            tag.putFloat("IncomingSpeed", incomingSpeed);
             tag.putFloat("IncomingCapacity", incomingCapacity);
             tag.putFloat("RequestedSU", requestedSU);
             tag.putFloat("AllocatedSU", allocatedSU);
@@ -179,14 +179,16 @@ public class NestedStressPortBlockEntity extends GeneratingKineticBlockEntity {
 
     @Override
     protected void read(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
+        float restoredSpeed = tag.getFloat("IncomingSpeed");
+        incomingSpeed = Float.isFinite(restoredSpeed) ? restoredSpeed : 0f;
         if (clientPacket) {
-            incomingSpeed = tag.getFloat("IncomingSpeed");
             incomingCapacity = tag.getFloat("IncomingCapacity");
             requestedSU = tag.getFloat("RequestedSU");
             allocatedSU = tag.getFloat("AllocatedSU");
             sourceSatisfied = tag.getBoolean("SourceSatisfied");
         } else {
-            incomingSpeed = 0f;
+            // Keep rotation available while Create rebuilds the loaded kinetic network, but do
+            // not restore any reservation or capacity until the factory settles this port again.
             incomingCapacity = 0f;
             requestedSU = 0f;
             allocatedSU = 0f;
@@ -213,7 +215,8 @@ public class NestedStressPortBlockEntity extends GeneratingKineticBlockEntity {
     public void onLoad() {
         super.onLoad();
         if (level != null && !level.isClientSide()) {
-            clearStressAllocation();
+            // Do not clear the restored RPM here. Create is still rebuilding the surrounding
+            // kinetic network; the factory will replace it with a validated allocation on tick.
             registerStressPort();
         }
     }

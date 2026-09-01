@@ -19,6 +19,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
@@ -111,6 +112,15 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
             markInputConsumer(side, false, factory);
         }
         return factory.getRoomItemHandler(targetPortId, side);
+    }
+
+    /** Receives a Create package in Pocket, unpacks it, and exposes its contents through OUTPUT. */
+    public boolean acceptUnpackedItems(List<ItemStack> items, boolean simulate) {
+        if (items == null || items.isEmpty()) {
+            return false;
+        }
+        NestedFactoryBlockEntity factory = findFactory();
+        return factory != null && factory.acceptRoomUnpackedItems(targetPortId, items, simulate);
     }
 
     public IFluidHandler getFluidHandler(Direction side) {

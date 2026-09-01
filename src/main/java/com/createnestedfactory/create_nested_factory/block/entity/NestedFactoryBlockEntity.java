@@ -1888,6 +1888,30 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         return true;
     }
 
+    /** Atomically accepts the contents of a package at an OUTPUT room port. */
+    public boolean acceptRoomUnpackedItems(int portId, List<ItemStack> stacks, boolean simulate) {
+        if (stacks == null || stacks.isEmpty() || isSimulatedMode()
+                || !hasRoomPort(portId) || getFacesForPortId(portId).stream()
+                .noneMatch(face -> faceModes[face.get3DDataValue()] == PortMode.OUTPUT)) {
+            return false;
+        }
+        FactoryPortChannels.PortResourceChannel resourceChannel = portChannel(portId);
+        if (simulate) {
+            return resourceChannel.canAcceptOutputItemBatch(currentGameTime(), stacks);
+        }
+        if (!resourceChannel.insertOutputItemBatch(currentGameTime(), stacks)) {
+            return false;
+        }
+        for (ItemStack stack : stacks) {
+            if (!stack.isEmpty()) {
+                recordItemTransfer(false, stack, stack.getCount());
+            }
+        }
+        setChanged();
+        invalidateResourceCapabilities();
+        return true;
+    }
+
     public IFluidHandler getFluidHandler(Direction side) {
         if (side == null || faceModes[side.get3DDataValue()] == PortMode.NONE) {
             return null;
@@ -2166,8 +2190,9 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         if (fluid) {
             return true;
         }
-        return hasExternalOutputConsumer(portId, false)
-                && portChannel(portId).canAcceptOutputItems(currentGameTime());
+        // OUTPUT is also a room-side source for Create's Packager. Do not require the
+        // external face to have been queried first; the shared handoff channel is the source.
+        return portChannel(portId).canAcceptOutputItems(currentGameTime());
     }
 
     private long currentGameTime() {
@@ -2723,14 +2748,19 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             }
             return mode() == PortMode.INPUT
                     ? portChannel(portId).inputItems().slots()
-                    : canAcceptRoomOutput(portId, false) ? 1 : 0;
+                    // Keep one stable virtual slot so brass funnels, chutes and other Create
+                    // pullers continue polling before the first output item arrives.
+                    : hasRoomPort(portId) ? 1 : 0;
         }
 
         @Override
         public ItemStack getStackInSlot(int slot) {
-            return !isSimulatedMode() && mode() == PortMode.INPUT
+            if (isSimulatedMode() || !hasRoomPort(portId)) {
+                return ItemStack.EMPTY;
+            }
+            return mode() == PortMode.INPUT
                     ? portChannel(portId).inputItems().stackInSlot(slot)
-                    : ItemStack.EMPTY;
+                    : portChannel(portId).outputItems().stackInSlot(slot);
         }
 
         @Override
@@ -2761,14 +2791,24 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
 
         @Override
         public ItemStack extractItem(int slot, int amount, boolean simulate) {
-            if (isSimulatedMode() || mode() != PortMode.INPUT) {
+            if (isSimulatedMode() || (mode() != PortMode.INPUT && mode() != PortMode.OUTPUT)) {
                 return ItemStack.EMPTY;
             }
             FactoryPortChannels.PortResourceChannel resourceChannel = portChannel(portId);
-            ItemStack result = resourceChannel.inputItems().extract(slot, amount, simulate);
+            if (mode() == PortMode.INPUT) {
+                ItemStack result = resourceChannel.inputItems().extract(slot, amount, simulate);
+                if (!simulate && !result.isEmpty()) {
+                    resourceChannel.markInputItemExtracted(result.getCount());
+                    recordItemTransfer(true, result, result.getCount());
+                    setChanged();
+                }
+                return result;
+            }
+            // Items inserted by room machines are already recorded as OUTPUT boundary handoff;
+            // extracting them for a packager must only release the output credit.
+            ItemStack result = resourceChannel.outputItems().extract(slot, amount, simulate);
             if (!simulate && !result.isEmpty()) {
-                resourceChannel.markInputItemExtracted(result.getCount());
-                recordItemTransfer(true, result, result.getCount());
+                resourceChannel.markOutputItemExtracted(result.getCount());
                 setChanged();
             }
             return result;

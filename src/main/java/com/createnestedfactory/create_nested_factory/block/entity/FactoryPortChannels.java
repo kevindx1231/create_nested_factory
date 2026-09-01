@@ -191,6 +191,25 @@ public final class FactoryPortChannels {
             return outputItemCredits > 0;
         }
 
+        public boolean canAcceptOutputItemBatch(long ignoredGameTime, List<ItemStack> stacks) {
+            long total = totalItemCount(stacks);
+            return total > 0 && total <= outputItemCredits && outputItems.canInsertAll(stacks);
+        }
+
+        public boolean insertOutputItemBatch(long ignoredGameTime, List<ItemStack> stacks) {
+            if (!canAcceptOutputItemBatch(ignoredGameTime, stacks)) {
+                return false;
+            }
+            long total = totalItemCount(stacks);
+            for (ItemStack stack : stacks) {
+                if (!stack.isEmpty()) {
+                    outputItems.insert(stack, false);
+                }
+            }
+            consumeOutputItems((int) total);
+            return true;
+        }
+
         public int inputItemOfferLimit(long ignoredGameTime, ItemStack stack) {
             return offerLimit(inputItemCredits, stack.isEmpty() ? 0 : stack.getCount());
         }
