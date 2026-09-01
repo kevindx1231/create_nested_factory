@@ -68,8 +68,9 @@ public class NestedPortBlock extends Block implements EntityBlock, IWrenchable {
         if (level.getBlockEntity(pos) instanceof NestedPortBlockEntity be) {
             be.cycleTargetPortId(player);
             if (player instanceof ServerPlayer serverPlayer) {
-                PlayerMessagePayload.sendTo(serverPlayer, Component.translatable("message.create_nested_factory.port.selected", be.getTargetPortId())
-                        .withStyle(ChatFormatting.AQUA), true);
+                PlayerMessagePayload.sendToWithoutGoggleHiding(serverPlayer,
+                        Component.translatable("message.create_nested_factory.port.selected", be.getTargetPortId())
+                                .withStyle(ChatFormatting.AQUA));
             }
         }
         return InteractionResult.SUCCESS;

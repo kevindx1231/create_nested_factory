@@ -24,6 +24,8 @@ import com.mojang.logging.LogUtils;
 import com.simibubi.create.content.fluids.FluidPropagator;
 import com.simibubi.create.content.fluids.FluidTransportBehaviour;
 import com.simibubi.create.content.fluids.PipeConnection;
+import com.simibubi.create.content.fluids.pump.PumpBlock;
+import com.simibubi.create.content.fluids.pump.PumpBlockEntity;
 import com.simibubi.create.content.kinetics.KineticNetwork;
 import com.simibubi.create.content.kinetics.belt.BeltBlockEntity;
 import com.simibubi.create.content.kinetics.base.GeneratingKineticBlockEntity;
@@ -63,6 +65,7 @@ import net.neoforged.neoforge.fluids.FluidStack;
 import net.neoforged.neoforge.fluids.capability.IFluidHandler;
 import net.neoforged.neoforge.items.IItemHandler;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -530,13 +533,120 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         if (level == null || level.isClientSide()) {
             return;
         }
-        for (Direction face : Direction.values()) {
+        refreshExternalFluidNetworks(Set.of(Direction.values()));
+    }
+
+    void refreshExternalFluidNetworks(int portId) {
+        if (level == null || level.isClientSide()) {
+            return;
+        }
+        refreshExternalFluidNetworks(new HashSet<>(getFacesForPortId(portId)));
+    }
+
+    /**
+     * Rebuilds Create's own cached state for every pipe in the affected chain. Calling only the
+     * factory-adjacent root is insufficient when a remote branch is added to an existing network.
+     */
+    private void refreshExternalFluidNetworks(Set<Direction> faces) {
+        if (faces.isEmpty()) {
+            return;
+        }
+        Set<BlockPos> visited = new HashSet<>();
+        Set<BlockPos> queued = new HashSet<>();
+        ArrayDeque<BlockPos> pending = new ArrayDeque<>();
+        for (Direction face : faces) {
             BlockPos adjacentPos = worldPosition.relative(face);
-            BlockState adjacentState = level.getBlockState(adjacentPos);
-            if (FluidPropagator.getPipe(level, adjacentPos) != null) {
-                FluidPropagator.propagateChangedPipe(level, adjacentPos, adjacentState);
+            BlockState state = level.getBlockState(adjacentPos);
+            FluidTransportBehaviour pipe = FluidPropagator.getPipe(level, adjacentPos);
+            if (pipe != null && pipe.canHaveFlowToward(state, face.getOpposite())
+                    && queued.add(adjacentPos)) {
+                pending.addLast(adjacentPos);
             }
         }
+        while (!pending.isEmpty()) {
+            BlockPos pipePos = pending.removeFirst();
+            if (!level.isLoaded(pipePos) || !visited.add(pipePos)) {
+                continue;
+            }
+            FluidTransportBehaviour pipe = FluidPropagator.getPipe(level, pipePos);
+            if (pipe == null) {
+                continue;
+            }
+            for (Direction face : FluidPropagator.getPipeConnections(level.getBlockState(pipePos), pipe)) {
+                BlockPos connectedPos = pipePos.relative(face);
+                if (level.isLoaded(connectedPos)
+                        && FluidPropagator.getPipe(level, connectedPos) != null
+                        && queued.add(connectedPos)) {
+                    pending.addLast(connectedPos);
+                }
+            }
+        }
+        for (BlockPos pipePos : visited) {
+            if (level.isLoaded(pipePos)) {
+                FluidPropagator.propagateChangedPipe(level, pipePos, level.getBlockState(pipePos));
+            }
+        }
+    }
+
+    /** Polls external pipe topology and rebuilds Create state after a remote branch changes. */
+    private void refreshExternalFluidNetworksIfSignatureChanged(int portId) {
+        if (level == null || level.isClientSide() || getFacesForPortId(portId).isEmpty()) {
+            return;
+        }
+        Set<FluidTopologyPoint> signature = externalFluidNetworkSignature(portId);
+        Set<FluidTopologyPoint> previous = externalFluidNetworkSignatures.put(portId, signature);
+        if (previous != null && previous.equals(signature)) {
+            return;
+        }
+        refreshExternalFluidNetworks(portId);
+        refreshRoomFluidNetworks(portId);
+    }
+
+    private Set<FluidTopologyPoint> externalFluidNetworkSignature(int portId) {
+        Set<FluidTopologyPoint> signature = new HashSet<>();
+        Set<BlockPos> visited = new HashSet<>();
+        Set<BlockPos> queued = new HashSet<>();
+        ArrayDeque<BlockPos> pending = new ArrayDeque<>();
+        for (Direction face : getFacesForPortId(portId)) {
+            BlockPos adjacentPos = worldPosition.relative(face);
+            BlockState state = level.getBlockState(adjacentPos);
+            FluidTransportBehaviour pipe = FluidPropagator.getPipe(level, adjacentPos);
+            if (pipe != null && pipe.canHaveFlowToward(state, face.getOpposite())
+                    && queued.add(adjacentPos)) {
+                pending.addLast(adjacentPos);
+            }
+        }
+        while (!pending.isEmpty()) {
+            BlockPos pipePos = pending.removeFirst();
+            if (!level.isLoaded(pipePos) || !visited.add(pipePos)) {
+                continue;
+            }
+            FluidTransportBehaviour pipe = FluidPropagator.getPipe(level, pipePos);
+            if (pipe == null) {
+                continue;
+            }
+            signature.add(new FluidTopologyPoint(pipePos, -1));
+            for (Direction face : FluidPropagator.getPipeConnections(level.getBlockState(pipePos), pipe)) {
+                signature.add(new FluidTopologyPoint(pipePos, face.get3DDataValue()));
+                BlockPos connectedPos = pipePos.relative(face);
+                if (!level.isLoaded(connectedPos)) {
+                    continue;
+                }
+                FluidTransportBehaviour connectedPipe = FluidPropagator.getPipe(level, connectedPos);
+                if (connectedPipe != null) {
+                    if (queued.add(connectedPos)) {
+                        pending.addLast(connectedPos);
+                    }
+                    continue;
+                }
+                if (FluidPropagator.isOpenEnd(level, pipePos, face)
+                        || level.getCapability(Capabilities.FluidHandler.BLOCK,
+                        connectedPos, face.getOpposite()) != null) {
+                    signature.add(new FluidTopologyPoint(connectedPos, face.getOpposite().get3DDataValue()));
+                }
+            }
+        }
+        return signature;
     }
 
     private void invalidateProductionBatch(Player player, String reason) {
@@ -1811,10 +1921,18 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         if (face == null || faceModes[face.get3DDataValue()] == PortMode.NONE) {
             return null;
         }
-        return new RoomFluidBridgeHandler(portId, roomPortPos, side);
+        return new RoomFluidBridgeHandler(portId);
     }
 
-    private final Map<Integer, Set<BlockPos>> roomFluidNetworkSignatures = new HashMap<>();
+    private final Map<Integer, Set<FluidTopologyPoint>> roomFluidNetworkSignatures = new HashMap<>();
+    /** External Create topology signatures are polled because no global pipe event is used. */
+    private final Map<Integer, Set<FluidTopologyPoint>> externalFluidNetworkSignatures = new HashMap<>();
+
+    private record FluidTopologyPoint(BlockPos pos, int side) {
+        private FluidTopologyPoint {
+            pos = pos.immutable();
+        }
+    }
 
     /** Refreshes every existing pipe face in one port group. */
     void refreshRoomFluidNetworks(int portId) {
@@ -1837,18 +1955,17 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
      * wiping healthy networks.
      */
     boolean refreshRoomFluidNetworksIfSignatureChanged(int portId) {
-        Set<BlockPos> signature = roomFluidNetworkSignature(portId);
-        Set<BlockPos> previous = roomFluidNetworkSignatures.put(portId, signature);
+        Set<FluidTopologyPoint> signature = roomFluidNetworkSignature(portId);
+        Set<FluidTopologyPoint> previous = roomFluidNetworkSignatures.put(portId, signature);
         if (previous != null && previous.equals(signature)) {
             return false;
         }
-        portChannel(portId).normalizeInputFluids(roomFluidEndpoints(portId));
         refreshRoomFluidNetworks(portId);
         return true;
     }
 
-    private Set<BlockPos> roomFluidNetworkSignature(int portId) {
-        Set<BlockPos> signature = new HashSet<>();
+    private Set<FluidTopologyPoint> roomFluidNetworkSignature(int portId) {
+        Set<FluidTopologyPoint> signature = new HashSet<>();
         ServerLevel pocket = pocketLevel();
         if (pocket == null) {
             return signature;
@@ -1880,16 +1997,34 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 continue;
             }
             BlockState pipeState = pocket.getBlockState(pipePos);
+            signature.add(new FluidTopologyPoint(pipePos, -1));
             for (Direction face : FluidPropagator.getPipeConnections(pipeState, pipe)) {
+                signature.add(new FluidTopologyPoint(pipePos, face.get3DDataValue()));
                 BlockPos connectedPos = pipePos.relative(face);
-                if (FluidPropagator.getPipe(pocket, connectedPos) != null) {
+                FluidTransportBehaviour connectedPipe = FluidPropagator.getPipe(pocket, connectedPos);
+                if (connectedPipe != null) {
                     pendingPipes.add(connectedPos);
+                    continue;
+                }
+                BlockState connectedState = pocket.getBlockState(connectedPos);
+                if (PumpBlock.isPump(connectedState)
+                        && pocket.getBlockEntity(connectedPos) instanceof PumpBlockEntity pump) {
+                    signature.add(new FluidTopologyPoint(connectedPos,
+                            1000 + System.identityHashCode(pump)));
+                    signature.add(new FluidTopologyPoint(connectedPos,
+                            1100 + connectedState.getValue(PumpBlock.FACING).get3DDataValue()));
+                    for (Direction pumpSide : Direction.values()) {
+                        signature.add(new FluidTopologyPoint(connectedPos,
+                                1200 + pumpSide.get3DDataValue() * 2
+                                        + (pump.isPullingOnSide(connectedState.getValue(PumpBlock.FACING)
+                                        == pumpSide.getOpposite()) ? 1 : 0)));
+                    }
                     continue;
                 }
                 if (FluidPropagator.isOpenEnd(pocket, pipePos, face)
                         || pocket.getCapability(Capabilities.FluidHandler.BLOCK,
                         connectedPos, face.getOpposite()) != null) {
-                    signature.add(connectedPos.immutable());
+                    signature.add(new FluidTopologyPoint(connectedPos, face.getOpposite().get3DDataValue()));
                 }
             }
         }
@@ -2038,7 +2173,6 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     private long currentGameTime() {
         return level == null ? 0L : level.getGameTime();
     }
-
     private FactoryPortChannels.PortResourceChannel portChannel(int portId) {
         return portChannels.channel(portId);
     }
@@ -2104,21 +2238,6 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             }
         }
         return handlers;
-    }
-
-    private Set<FactoryPortChannels.FluidEndpoint> roomFluidEndpoints(int portId) {
-        Set<FactoryPortChannels.FluidEndpoint> endpoints = new HashSet<>();
-        ServerLevel pocket = pocketLevel();
-        if (pocket == null) {
-            return endpoints;
-        }
-        for (BlockPos portPos : PocketRegistry.getPorts(roomOrigin(), portId)) {
-            if (pocket.getBlockEntity(portPos) instanceof NestedPortBlockEntity port
-                    && port.getTargetPortId() == portId) {
-                port.collectFluidEndpoints(endpoints);
-            }
-        }
-        return endpoints;
     }
 
     private List<IFluidHandler> resolveExternalFluidHandlers(int portId, FluidStack request,
@@ -2375,6 +2494,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         invalidateProductionBatch(player, "port_routing_changed");
         portChannels.clearFluids();
         roomFluidNetworkSignatures.clear();
+        externalFluidNetworkSignatures.clear();
         setChanged();
     }
 
@@ -2775,8 +2895,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 return direct;
             }
             int buffered = remaining <= 0 ? 0
-                    : portChannel(portId()).fillInputFluids(roomFluidEndpoints(portId()),
-                    offered.copyWithAmount(remaining), action);
+                    : portChannel(portId()).fillInputFluids(offered.copyWithAmount(remaining), action);
             int moved = direct + buffered;
             if (action.execute() && moved > 0) {
                 recordFluidTransfer(true, offered, moved);
@@ -2874,11 +2993,8 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
 
     private final class RoomFluidBridgeHandler implements IFluidHandler {
         private final int portId;
-        private final FactoryPortChannels.FluidEndpoint endpoint;
-
-        private RoomFluidBridgeHandler(int portId, BlockPos roomPortPos, Direction roomSide) {
+        private RoomFluidBridgeHandler(int portId) {
             this.portId = portId;
-            this.endpoint = new FactoryPortChannels.FluidEndpoint(roomPortPos, roomSide);
         }
 
         private PortMode mode() {
@@ -2897,7 +3013,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         @Override
         public FluidStack getFluidInTank(int tank) {
             return !isSimulatedMode() && mode() == PortMode.INPUT
-                    ? portChannel(portId).inputFluids(endpoint).fluidInTank(tank) : FluidStack.EMPTY;
+                    ? portChannel(portId).inputFluids().fluidInTank(tank) : FluidStack.EMPTY;
         }
 
         @Override
@@ -2941,7 +3057,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             if (isSimulatedMode() || mode() != PortMode.INPUT || resource == null || resource.isEmpty()) {
                 return FluidStack.EMPTY;
             }
-            FluidStack result = portChannel(portId).drainInputFluid(endpoint, resource, action);
+            FluidStack result = portChannel(portId).drainInputFluid(resource, action);
             int remaining = resource.getAmount() - result.getAmount();
             FluidStack external = FluidStack.EMPTY;
             if (remaining > 0) {
@@ -2962,7 +3078,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             if (isSimulatedMode() || mode() != PortMode.INPUT || maxDrain <= 0) {
                 return FluidStack.EMPTY;
             }
-            FluidStack result = portChannel(portId).drainInputFluid(endpoint, maxDrain, action);
+            FluidStack result = portChannel(portId).drainInputFluid(maxDrain, action);
             int remaining = maxDrain - result.getAmount();
             FluidStack external = FluidStack.EMPTY;
             if (remaining > 0) {
@@ -3214,6 +3330,11 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         }
         if (usesRuntimeIndex()) {
             ensureRuntimeIndex(pocketLevel());
+        }
+        if (level.getGameTime() % 5 == 0 && !isSimulatedMode()) {
+            for (int portId = 1; portId <= FactoryFacePortBindings.MAX_PORT_ID; portId++) {
+                refreshExternalFluidNetworksIfSignatureChanged(portId);
+            }
         }
         switch (operationMode) {
             case CHUNK_LOADED -> tickChunkLoaded();

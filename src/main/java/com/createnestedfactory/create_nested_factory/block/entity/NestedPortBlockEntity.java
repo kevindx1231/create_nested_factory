@@ -268,20 +268,6 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
         }
     }
 
-    void collectFluidEndpoints(Set<FactoryPortChannels.FluidEndpoint> endpoints) {
-        if (level == null || level.isClientSide() || mappedFaceMode == PortMode.NONE) {
-            return;
-        }
-        for (Direction side : Direction.values()) {
-            BlockPos adjacentPos = worldPosition.relative(side);
-            BlockState adjacentState = level.getBlockState(adjacentPos);
-            FluidTransportBehaviour pipe = FluidPropagator.getPipe(level, adjacentPos);
-            if (pipe != null && pipe.canHaveFlowToward(adjacentState, side.getOpposite())) {
-                endpoints.add(new FactoryPortChannels.FluidEndpoint(worldPosition, side));
-            }
-        }
-    }
-
     /**
      * Fully rebuilds every Create fluid network connected to this port. A pressure propagation
      * pass alone is insufficient when a downstream tank is added after the first pipe: Create
@@ -292,6 +278,7 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
         if (level == null || level.isClientSide()) {
             return;
         }
+        NestedFactoryBlockEntity factory = findFactory();
         Set<BlockPos> visitedPipes = new HashSet<>();
         Deque<BlockPos> pendingPipes = new ArrayDeque<>();
         for (Direction side : Direction.values()) {
@@ -334,6 +321,11 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
                 FluidPropagator.propagateChangedPipe(level, adjacentPos, adjacentState);
             }
         }
+        if (factory != null) {
+            // Rebuild the external root after the room-side pump network is rebuilt. The
+            // external chain itself did not change, but its virtual endpoint did.
+            factory.refreshExternalFluidNetworks(targetPortId);
+        }
     }
 
     /** Clears stale injected pressure when the mapped face or room-side fluid bridge disappears. */
@@ -369,6 +361,27 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
     }
 
     /**
+     * The pressure bridge writes into the same Create connection that it later reads. Ignore the
+     * portion owned by this port, otherwise an internal pump is misclassified as an external pump
+     * on the next tick and both pressure directions oscillate.
+     */
+    private NestedFactoryBlockEntity.FluidPortPressure externalPressureWithoutOwnDrive(
+            NestedFactoryBlockEntity.FluidPortPressure raw) {
+        if (!outwardPressureApplied || outwardPressure <= PRESSURE_EPSILON) {
+            return raw;
+        }
+        float towardFactory = raw.towardFactory();
+        float awayFromFactory = raw.awayFromFactory();
+        if (outwardPull && towardFactory <= outwardPressure + PRESSURE_EPSILON) {
+            towardFactory = 0f;
+        }
+        if (!outwardPull && awayFromFactory <= outwardPressure + PRESSURE_EPSILON) {
+            awayFromFactory = 0f;
+        }
+        return new NestedFactoryBlockEntity.FluidPortPressure(towardFactory, awayFromFactory);
+    }
+
+    /**
      * Reads the pressure on the corresponding exterior Create pipe connection, then applies
      * the same pressure to the room-side pipe graph. The external and room graphs remain
      * separate Create networks; this is the explicit bridge between them.
@@ -383,7 +396,7 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
         boolean nextPull = false;
         if (factory != null) {
             NestedFactoryBlockEntity.FluidPortPressure exterior =
-                    factory.getExternalFluidPortPressure(targetPortId);
+                    externalPressureWithoutOwnDrive(factory.getExternalFluidPortPressure(targetPortId));
             if (mappedFaceMode == PortMode.INPUT) {
                 // Exterior pipe -> factory; expose the factory tank as a pressure-driven source in the room.
                 nextPressure = exterior.towardFactory();
@@ -434,8 +447,10 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
             return;
         }
 
-        NestedFactoryBlockEntity.FluidPortPressure exterior =
+        NestedFactoryBlockEntity.FluidPortPressure rawExterior =
                 factory.getExternalFluidPortPressure(targetPortId);
+        NestedFactoryBlockEntity.FluidPortPressure exterior =
+                externalPressureWithoutOwnDrive(rawExterior);
         boolean externalDrivesThisPort = mappedFaceMode == PortMode.INPUT
                 ? exterior.towardFactory() > PRESSURE_EPSILON
                 : exterior.awayFromFactory() > PRESSURE_EPSILON;

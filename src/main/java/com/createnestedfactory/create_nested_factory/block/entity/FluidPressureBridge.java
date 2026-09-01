@@ -12,7 +12,6 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.neoforge.capabilities.Capabilities;
-import net.neoforged.neoforge.fluids.FluidStack;
 import net.neoforged.neoforge.fluids.capability.IFluidHandler;
 
 import java.util.ArrayDeque;
@@ -27,13 +26,6 @@ import java.util.Set;
 /** Shared Create pipe pressure traversal used by both sides of a nested factory fluid port. */
 public final class FluidPressureBridge {
     private FluidPressureBridge() {
-    }
-
-    /** Compatibility helper for callers that need a simulation-only destination probe. */
-    public static boolean canReachFluidDestination(Level level, BlockPos sourcePos, Direction startSide,
-                                                   FluidStack resource) {
-        return !FluidNetworkEndpointResolver.find(level, sourcePos, startSide, resource,
-                FluidNetworkEndpointResolver.Operation.FILL).isEmpty();
     }
 
     public static boolean apply(Level level, BlockPos sourcePos, Direction startSide, boolean pull, float pressure) {

@@ -1,7 +1,5 @@
 package com.createnestedfactory.create_nested_factory.block.entity;
 
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -14,7 +12,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Persistent, unbounded-in-gameplay transit channels for a factory's six logical ports.
@@ -23,13 +20,6 @@ import java.util.Set;
  */
 public final class FactoryPortChannels {
     private static final int CHANNEL_COUNT = 6;
-
-    /** A concrete room-side fluid face participating in a logical port group. */
-    public record FluidEndpoint(BlockPos portPos, Direction side) {
-        public FluidEndpoint {
-            portPos = portPos.immutable();
-        }
-    }
 
     /** One small offer starts an otherwise empty item direction; later offers are paid for by real downstream extraction. */
     private static final long INITIAL_ITEM_PRIME_CREDITS = 64L;
@@ -123,24 +113,15 @@ public final class FactoryPortChannels {
             return outputFluids;
         }
 
-        /** Compatibility view: every room endpoint sees the same port-group ledger. */
-        public FluidLedger inputFluids(FluidEndpoint ignoredEndpoint) {
-            return inputFluids;
-        }
-
-        /** Shared ledger; endpoint membership is used by the caller for discovery/fairness only. */
-        public int fillInputFluids(Set<FluidEndpoint> endpoints, FluidStack resource,
-                                   IFluidHandler.FluidAction action) {
+        public int fillInputFluids(FluidStack resource, IFluidHandler.FluidAction action) {
             return inputFluids.fill(resource, action);
         }
 
-        public FluidStack drainInputFluid(FluidEndpoint ignoredEndpoint, FluidStack requested,
-                                          IFluidHandler.FluidAction action) {
+        public FluidStack drainInputFluid(FluidStack requested, IFluidHandler.FluidAction action) {
             return inputFluids.drain(requested, action);
         }
 
-        public FluidStack drainInputFluid(FluidEndpoint ignoredEndpoint, int maxDrain,
-                                          IFluidHandler.FluidAction action) {
+        public FluidStack drainInputFluid(int maxDrain, IFluidHandler.FluidAction action) {
             return inputFluids.drain(maxDrain, action);
         }
 
@@ -154,10 +135,6 @@ public final class FactoryPortChannels {
 
         public FluidStack drainOutputFluids(int maxDrain, IFluidHandler.FluidAction action) {
             return outputFluids.drain(maxDrain, action);
-        }
-
-        /** Legacy endpoint cleanup is intentionally a no-op: the port group owns one shared ledger. */
-        public void normalizeInputFluids(Set<FluidEndpoint> ignoredEndpoints) {
         }
 
         public boolean isEmpty() {

@@ -25,14 +25,16 @@ public final class PlayerMessageOverlay {
     private static final long MESSAGE_DURATION_MS = 2_000L;
 
     private static Component message;
+    private static boolean hideGoggle;
     private static long expiresAt;
 
     private PlayerMessageOverlay() {
     }
 
-    public static void show(Component message) {
+    public static void show(Component message, boolean hideGoggle) {
         // Color is owned by this overlay; preserve the payload text without adding a bold style.
         PlayerMessageOverlay.message = message.copy();
+        PlayerMessageOverlay.hideGoggle = hideGoggle;
         expiresAt = System.currentTimeMillis() + MESSAGE_DURATION_MS;
     }
 
@@ -40,7 +42,7 @@ public final class PlayerMessageOverlay {
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public static void hideGoggleWhileMessageVisible(RenderGuiLayerEvent.Pre event) {
-        if (CREATE_GOGGLE_LAYER.equals(event.getName()) && isVisible()) {
+        if (CREATE_GOGGLE_LAYER.equals(event.getName()) && hideGoggle && isVisible()) {
             event.setCanceled(true);
         }
     }
@@ -68,6 +70,7 @@ public final class PlayerMessageOverlay {
         }
         if (System.currentTimeMillis() >= expiresAt) {
             message = null;
+            hideGoggle = false;
             return false;
         }
         return true;
