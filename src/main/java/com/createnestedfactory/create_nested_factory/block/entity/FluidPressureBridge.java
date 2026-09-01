@@ -29,59 +29,11 @@ public final class FluidPressureBridge {
     private FluidPressureBridge() {
     }
 
-    /**
-     * Checks whether a Create pipe graph has a real capability endpoint that can accept the
-     * supplied fluid. This is deliberately a simulation-only probe: it is used before a port
-     * reports an external fill as accepted, so a full downstream tank propagates backpressure
-     * instead of being hidden in the cross-tick handoff ledger.
-     */
+    /** Compatibility helper for callers that need a simulation-only destination probe. */
     public static boolean canReachFluidDestination(Level level, BlockPos sourcePos, Direction startSide,
                                                    FluidStack resource) {
-        if (level == null || sourcePos == null || startSide == null || resource == null || resource.isEmpty()) {
-            return false;
-        }
-        BlockPos firstPipePos = sourcePos.relative(startSide);
-        if (FluidPropagator.getPipe(level, firstPipePos) == null) {
-            IFluidHandler direct = level.getCapability(Capabilities.FluidHandler.BLOCK,
-                    firstPipePos, startSide.getOpposite());
-            return direct != null && direct.fill(resource, IFluidHandler.FluidAction.SIMULATE) > 0;
-        }
-
-        int maxDistance = Math.max(1, FluidPropagator.getPumpRange());
-        Deque<PipePathNode> pending = new ArrayDeque<>();
-        Set<BlockPos> visited = new HashSet<>();
-        pending.add(new PipePathNode(1, firstPipePos));
-        while (!pending.isEmpty()) {
-            PipePathNode entry = pending.removeFirst();
-            if (entry.distance() > maxDistance || !level.isLoaded(entry.pos())
-                    || !visited.add(entry.pos())) {
-                continue;
-            }
-            FluidTransportBehaviour pipe = FluidPropagator.getPipe(level, entry.pos());
-            if (pipe == null) {
-                continue;
-            }
-            BlockState state = level.getBlockState(entry.pos());
-            for (Direction face : FluidPropagator.getPipeConnections(state, pipe)) {
-                BlockPos connectedPos = entry.pos().relative(face);
-                if (!level.isLoaded(connectedPos)) {
-                    continue;
-                }
-                FluidTransportBehaviour connectedPipe = FluidPropagator.getPipe(level, connectedPos);
-                if (connectedPipe != null) {
-                    if (entry.distance() < maxDistance) {
-                        pending.addLast(new PipePathNode(entry.distance() + 1, connectedPos));
-                    }
-                    continue;
-                }
-                IFluidHandler capability = level.getCapability(Capabilities.FluidHandler.BLOCK,
-                        connectedPos, face.getOpposite());
-                if (capability != null && capability.fill(resource, IFluidHandler.FluidAction.SIMULATE) > 0) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        return !FluidNetworkEndpointResolver.find(level, sourcePos, startSide, resource,
+                FluidNetworkEndpointResolver.Operation.FILL).isEmpty();
     }
 
     public static boolean apply(Level level, BlockPos sourcePos, Direction startSide, boolean pull, float pressure) {

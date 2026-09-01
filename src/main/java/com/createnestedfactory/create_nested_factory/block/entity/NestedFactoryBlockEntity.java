@@ -2121,66 +2121,42 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         return endpoints;
     }
 
-    private FluidStack drainExternalInput(int portId, FluidStack requested, IFluidHandler.FluidAction action) {
-        if (requested == null || requested.isEmpty()) {
-            return FluidStack.EMPTY;
-        }
-        return drainHandlers(externalFluidHandlers(portId), requested, action);
-    }
-
-    private FluidStack drainExternalInput(int portId, int maxDrain, IFluidHandler.FluidAction action) {
-        if (maxDrain <= 0) {
-            return FluidStack.EMPTY;
-        }
-        return drainHandlers(externalFluidHandlers(portId), maxDrain, action);
-    }
-
-    private int fillExternalOutput(int portId, FluidStack resource, IFluidHandler.FluidAction action) {
-        if (resource == null || resource.isEmpty()) {
-            return 0;
-        }
-        int moved = 0;
-        int remaining = resource.getAmount();
-        for (IFluidHandler handler : externalFluidHandlers(portId)) {
-            if (remaining <= 0) {
-                break;
-            }
-            int accepted = handler.fill(resource.copyWithAmount(remaining), action);
-            moved += accepted;
-            remaining -= accepted;
-        }
-        return moved;
-    }
-
-    private int fillRoomInput(int portId, FluidStack resource, IFluidHandler.FluidAction action) {
-        if (resource == null || resource.isEmpty()) {
-            return 0;
-        }
-        int moved = 0;
-        int remaining = resource.getAmount();
-        for (IFluidHandler handler : roomFluidHandlers(portId)) {
-            if (remaining <= 0) {
-                break;
-            }
-            int accepted = handler.fill(resource.copyWithAmount(remaining), action);
-            moved += accepted;
-            remaining -= accepted;
-        }
-        return moved;
-    }
-
-    private boolean canReachRoomFluidDestination(int portId, FluidStack resource) {
-        if (resource == null || resource.isEmpty()) {
-            return false;
-        }
-        for (IFluidHandler handler : roomFluidHandlers(portId)) {
-            if (handler.fill(resource, IFluidHandler.FluidAction.SIMULATE) > 0) {
-                return true;
+    private List<IFluidHandler> resolveExternalFluidHandlers(int portId, FluidStack request,
+                                                               FluidNetworkEndpointResolver.Operation operation) {
+        List<IFluidHandler> result = new ArrayList<>();
+        Set<IFluidHandler> seen = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Direction face : getFacesForPortId(portId)) {
+            for (IFluidHandler handler : FluidNetworkEndpointResolver.find(level, worldPosition, face,
+                    request, operation)) {
+                if (seen.add(handler)) {
+                    result.add(handler);
+                }
             }
         }
+        return result;
+    }
+
+    private List<IFluidHandler> resolveExternalFluidHandlers(int portId, int maxDrain) {
+        List<IFluidHandler> result = new ArrayList<>();
+        Set<IFluidHandler> seen = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Direction face : getFacesForPortId(portId)) {
+            for (IFluidHandler handler : FluidNetworkEndpointResolver.findDrain(level, worldPosition, face,
+                    maxDrain)) {
+                if (seen.add(handler)) {
+                    result.add(handler);
+                }
+            }
+        }
+        return result;
+    }
+
+    private List<IFluidHandler> resolveRoomFluidHandlers(int portId, FluidStack request,
+                                                          FluidNetworkEndpointResolver.Operation operation) {
+        List<IFluidHandler> result = new ArrayList<>();
+        Set<IFluidHandler> seen = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
         ServerLevel pocket = pocketLevel();
         if (pocket == null) {
-            return false;
+            return result;
         }
         for (BlockPos portPos : PocketRegistry.getPorts(roomOrigin(), portId)) {
             if (!(pocket.getBlockEntity(portPos) instanceof NestedPortBlockEntity port)
@@ -2188,38 +2164,139 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 continue;
             }
             for (Direction side : Direction.values()) {
-                if (FluidPressureBridge.canReachFluidDestination(pocket, portPos, side, resource)) {
-                    return true;
+                for (IFluidHandler handler : FluidNetworkEndpointResolver.find(pocket, portPos, side,
+                        request, operation)) {
+                    if (seen.add(handler)) {
+                        result.add(handler);
+                    }
                 }
             }
         }
-        return false;
+        return result;
+    }
+
+    private List<IFluidHandler> resolveRoomFluidHandlers(int portId, int maxDrain) {
+        List<IFluidHandler> result = new ArrayList<>();
+        Set<IFluidHandler> seen = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+        ServerLevel pocket = pocketLevel();
+        if (pocket == null) {
+            return result;
+        }
+        for (BlockPos portPos : PocketRegistry.getPorts(roomOrigin(), portId)) {
+            if (!(pocket.getBlockEntity(portPos) instanceof NestedPortBlockEntity port)
+                    || port.getTargetPortId() != portId) {
+                continue;
+            }
+            for (Direction side : Direction.values()) {
+                for (IFluidHandler handler : FluidNetworkEndpointResolver.findDrain(pocket, portPos, side,
+                        maxDrain)) {
+                    if (seen.add(handler)) {
+                        result.add(handler);
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    private FluidStack drainExternalInput(int portId, FluidStack requested, IFluidHandler.FluidAction action) {
+        if (requested == null || requested.isEmpty()) {
+            return FluidStack.EMPTY;
+        }
+        return drainHandlers(resolveExternalFluidHandlers(portId, requested,
+                FluidNetworkEndpointResolver.Operation.DRAIN), requested, action);
+    }
+
+    private FluidStack drainExternalInput(int portId, int maxDrain, IFluidHandler.FluidAction action) {
+        if (maxDrain <= 0) {
+            return FluidStack.EMPTY;
+        }
+        return drainHandlers(resolveExternalFluidHandlers(portId, maxDrain), maxDrain, action);
+    }
+
+    private int fillExternalOutput(int portId, FluidStack resource, IFluidHandler.FluidAction action) {
+        if (resource == null || resource.isEmpty()) {
+            return 0;
+        }
+        return fillHandlers(resolveExternalFluidHandlers(portId, resource,
+                FluidNetworkEndpointResolver.Operation.FILL), resource, action);
+    }
+
+    private int fillRoomInput(int portId, FluidStack resource, IFluidHandler.FluidAction action) {
+        if (resource == null || resource.isEmpty()) {
+            return 0;
+        }
+        return fillHandlers(resolveRoomFluidHandlers(portId, resource,
+                FluidNetworkEndpointResolver.Operation.FILL), resource, action);
+    }
+
+    private boolean canReachRoomFluidDestination(int portId, FluidStack resource) {
+        return !resolveRoomFluidHandlers(portId, resource,
+                FluidNetworkEndpointResolver.Operation.FILL).isEmpty();
     }
 
     private boolean canReachExternalFluidDestination(int portId, FluidStack resource) {
-        if (resource == null || resource.isEmpty()) {
-            return false;
-        }
-        for (IFluidHandler handler : externalFluidHandlers(portId)) {
-            if (handler.fill(resource, IFluidHandler.FluidAction.SIMULATE) > 0) {
-                return true;
-            }
-        }
-        for (Direction face : getFacesForPortId(portId)) {
-            if (FluidPressureBridge.canReachFluidDestination(level, worldPosition, face, resource)) {
-                return true;
-            }
-        }
-        return false;
+        return !resolveExternalFluidHandlers(portId, resource,
+                FluidNetworkEndpointResolver.Operation.FILL).isEmpty();
     }
 
     private FluidStack drainRoomOutput(int portId, FluidStack requested, IFluidHandler.FluidAction action) {
         return requested == null || requested.isEmpty()
-                ? FluidStack.EMPTY : drainHandlers(roomFluidHandlers(portId), requested, action);
+                ? FluidStack.EMPTY
+                : drainHandlers(resolveRoomFluidHandlers(portId, requested,
+                FluidNetworkEndpointResolver.Operation.DRAIN), requested, action);
     }
 
     private FluidStack drainRoomOutput(int portId, int maxDrain, IFluidHandler.FluidAction action) {
-        return maxDrain <= 0 ? FluidStack.EMPTY : drainHandlers(roomFluidHandlers(portId), maxDrain, action);
+        return maxDrain <= 0 ? FluidStack.EMPTY
+                : drainHandlers(resolveRoomFluidHandlers(portId, maxDrain), maxDrain, action);
+    }
+
+    private int fillHandlers(List<IFluidHandler> handlers, FluidStack resource,
+                              IFluidHandler.FluidAction action) {
+        if (handlers.isEmpty() || resource == null || resource.isEmpty()) {
+            return 0;
+        }
+        int requested = resource.getAmount();
+        List<Integer> capacities = new ArrayList<>(handlers.size());
+        long totalCapacity = 0L;
+        for (IFluidHandler handler : handlers) {
+            int capacity = Math.max(0, handler.fill(resource, IFluidHandler.FluidAction.SIMULATE));
+            capacities.add(capacity);
+            totalCapacity = Math.min((long) requested, totalCapacity + capacity);
+        }
+        if (totalCapacity <= 0L) {
+            return 0;
+        }
+        int remaining = (int) Math.min(totalCapacity, requested);
+        int moved = 0;
+        int active = handlers.size();
+        while (remaining > 0 && active > 0) {
+            int share = Math.max(1, (remaining + active - 1) / active);
+            boolean progress = false;
+            for (int index = 0; index < handlers.size() && remaining > 0; index++) {
+                int capacity = capacities.get(index);
+                if (capacity <= 0) {
+                    continue;
+                }
+                int offered = Math.min(share, Math.min(capacity, remaining));
+                int accepted = action.execute()
+                        ? handlers.get(index).fill(resource.copyWithAmount(offered), action)
+                        : offered;
+                accepted = Math.max(0, Math.min(accepted, offered));
+                capacities.set(index, capacity - accepted);
+                remaining -= accepted;
+                moved += accepted;
+                progress |= accepted > 0;
+                if (capacities.get(index) == 0) {
+                    active--;
+                }
+            }
+            if (!progress) {
+                break;
+            }
+        }
+        return moved;
     }
 
     /**
