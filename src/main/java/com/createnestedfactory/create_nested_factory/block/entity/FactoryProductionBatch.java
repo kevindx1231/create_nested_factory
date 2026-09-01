@@ -97,6 +97,46 @@ public final class FactoryProductionBatch {
         return accepted;
     }
 
+    /**
+     * Accepts all non-empty package stacks as one production-batch transaction.
+     * Item identity includes stack components through {@link ItemVariant}.
+     */
+    public boolean acceptItemInputs(BlackboxData recipe, List<ItemStack> stacks, boolean simulate) {
+        if (stacks == null || phase == Phase.DELIVERING_OUTPUT || !matchesRecipe(recipe)) {
+            return false;
+        }
+
+        Map<ItemVariant, Long> requested = new HashMap<>();
+        for (ItemStack stack : stacks) {
+            if (stack == null || stack.isEmpty()) {
+                continue;
+            }
+            ItemVariant variant = ItemVariant.of(stack);
+            long previous = requested.getOrDefault(variant, 0L);
+            if (Long.MAX_VALUE - previous < stack.getCount()) {
+                return false;
+            }
+            requested.put(variant, previous + stack.getCount());
+        }
+        if (requested.isEmpty()) {
+            return false;
+        }
+        for (Map.Entry<ItemVariant, Long> entry : requested.entrySet()) {
+            if (entry.getValue() > remainingItemInput(recipe, entry.getKey())) {
+                return false;
+            }
+        }
+        if (simulate) {
+            return true;
+        }
+
+        ensureRecipe(recipe);
+        phase = Phase.COLLECTING_INPUT;
+        requested.forEach((variant, amount) -> committedItems.merge(variant, amount, FactoryProductionBatch::safeAdd));
+        updateInputPhase(recipe);
+        return true;
+    }
+
     public int acceptFluidInput(BlackboxData recipe, FluidStack stack, boolean simulate) {
         if (stack.isEmpty() || phase == Phase.DELIVERING_OUTPUT || !matchesRecipe(recipe)) {
             return 0;

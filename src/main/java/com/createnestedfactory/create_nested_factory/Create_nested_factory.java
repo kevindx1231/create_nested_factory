@@ -3,6 +3,8 @@ package com.createnestedfactory.create_nested_factory;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity;
 import com.createnestedfactory.create_nested_factory.client.ModClientEvents;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedPortBlockEntity;
+import com.createnestedfactory.create_nested_factory.integration.NestedFactoryUnpackingHandler;
+import com.simibubi.create.api.packager.unpacking.UnpackingHandler;
 import com.createnestedfactory.create_nested_factory.network.PlayerMessagePayload;
 import com.createnestedfactory.create_nested_factory.network.RenameFactoryPayload;
 import com.createnestedfactory.create_nested_factory.registry.ModAttachments;
@@ -54,6 +56,8 @@ public class Create_nested_factory {
     }
 
     private void commonSetup(final FMLCommonSetupEvent event) {
+        event.enqueueWork(() -> UnpackingHandler.REGISTRY.register(
+                ModBlocks.NESTED_FACTORY.get(), NestedFactoryUnpackingHandler.INSTANCE));
         LOGGER.info("Nested Factory common setup");
     }
 

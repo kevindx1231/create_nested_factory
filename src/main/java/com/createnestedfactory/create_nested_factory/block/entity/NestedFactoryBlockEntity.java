@@ -104,6 +104,42 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     private String customName = null;
     private final IItemHandler[] faceItemHandlers = new IItemHandler[6];
     private final IFluidHandler[] faceFluidHandlers = new IFluidHandler[6];
+
+    /**
+     * Create's Packager placement probes adjacent inventories with a null side before choosing its facing.
+     * This probe advertises that the block participates in item logistics without exposing an unsided route.
+     */
+    private static final IItemHandler UNSIDED_ITEM_HANDLER_PROBE = new IItemHandler() {
+        @Override
+        public int getSlots() {
+            return 0;
+        }
+
+        @Override
+        public ItemStack getStackInSlot(int slot) {
+            return ItemStack.EMPTY;
+        }
+
+        @Override
+        public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) {
+            return stack;
+        }
+
+        @Override
+        public ItemStack extractItem(int slot, int amount, boolean simulate) {
+            return ItemStack.EMPTY;
+        }
+
+        @Override
+        public int getSlotLimit(int slot) {
+            return 0;
+        }
+
+        @Override
+        public boolean isItemValid(int slot, ItemStack stack) {
+            return false;
+        }
+    };
     private final FactoryProductionBatch productionBatch = new FactoryProductionBatch();
     /** Real-time, no-fixed-capacity resource channels shared by all room ports with the same id. */
     private final FactoryPortChannels portChannels = new FactoryPortChannels();
@@ -1643,7 +1679,10 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     public IItemHandler getItemHandler(Direction side) {
-        if (side == null || faceModes[side.get3DDataValue()] == PortMode.NONE) {
+        if (side == null) {
+            return UNSIDED_ITEM_HANDLER_PROBE;
+        }
+        if (faceModes[side.get3DDataValue()] == PortMode.NONE) {
             return null;
         }
         if (faceModes[side.get3DDataValue()] == PortMode.INPUT
@@ -1654,6 +1693,45 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             markExternalOutputConsumer(side, false);
         }
         return faceItemHandlers[side.get3DDataValue()];
+    }
+
+    /**
+     * Create package-unpacking entry point. A package is one boundary handoff: it is either
+     * accepted in full or left untouched for the packager to retry.
+     */
+    public boolean acceptUnpackedItems(Direction side, List<ItemStack> stacks, boolean simulate) {
+        if (side == null || stacks == null || stacks.isEmpty()) {
+            return false;
+        }
+        int faceIndex = side.get3DDataValue();
+        if (faceModes[faceIndex] != PortMode.INPUT || operationMode == OperationMode.BLACKBOX_DRAINING) {
+            return false;
+        }
+
+        if (isSimulatedMode()) {
+            boolean accepted = productionBatch.acceptItemInputs(blackbox, stacks, simulate);
+            if (accepted && !simulate) {
+                setChanged();
+            }
+            return accepted;
+        }
+
+        int portId = portIds[faceIndex];
+        if (!canAcceptInput(portId, false)) {
+            return false;
+        }
+        FactoryPortChannels.PortResourceChannel resourceChannel = portChannel(portId);
+        if (simulate) {
+            return resourceChannel.canAcceptInputItemBatch(currentGameTime(), stacks);
+        }
+
+        boolean wasEmpty = resourceChannel.inputItems().isEmpty();
+        if (!resourceChannel.insertInputItemBatch(currentGameTime(), stacks)) {
+            return false;
+        }
+        setChanged();
+        notifyChannelBecameAvailable(wasEmpty, resourceChannel.inputItems().isEmpty());
+        return true;
     }
 
     public IFluidHandler getFluidHandler(Direction side) {

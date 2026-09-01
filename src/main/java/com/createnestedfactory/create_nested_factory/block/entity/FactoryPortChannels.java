@@ -141,6 +141,32 @@ public final class FactoryPortChannels {
             return inputItemCredits > 0;
         }
 
+        /**
+         * Checks whether one package-sized item batch can cross this INPUT boundary as one commit.
+         * This remains bounded by the existing handoff credits and does not create general storage.
+         */
+        public boolean canAcceptInputItemBatch(long ignoredGameTime, List<ItemStack> stacks) {
+            long total = totalItemCount(stacks);
+            return total > 0 && total <= inputItemCredits && inputItems.canInsertAll(stacks);
+        }
+
+        /**
+         * Commits a previously validated input batch. A failure leaves the channel unchanged.
+         */
+        public boolean insertInputItemBatch(long ignoredGameTime, List<ItemStack> stacks) {
+            if (!canAcceptInputItemBatch(ignoredGameTime, stacks)) {
+                return false;
+            }
+            long total = totalItemCount(stacks);
+            for (ItemStack stack : stacks) {
+                if (!stack.isEmpty()) {
+                    inputItems.insert(stack, false);
+                }
+            }
+            consumeInputItems((int) total);
+            return true;
+        }
+
         public boolean canAcceptOutputItems(long ignoredGameTime) {
             return outputItemCredits > 0;
         }
@@ -190,6 +216,23 @@ public final class FactoryPortChannels {
                 return 0;
             }
             return (int) Math.min(credits, requested);
+        }
+
+        private static long totalItemCount(List<ItemStack> stacks) {
+            if (stacks == null) {
+                return -1L;
+            }
+            long total = 0L;
+            for (ItemStack stack : stacks) {
+                if (stack == null || stack.isEmpty()) {
+                    continue;
+                }
+                if (Long.MAX_VALUE - total < stack.getCount()) {
+                    return -1L;
+                }
+                total += stack.getCount();
+            }
+            return total;
         }
 
         public void consumeInputItems(int amount) {
@@ -259,6 +302,32 @@ public final class FactoryPortChannels {
                 values.put(variant, current + stack.getCount());
             }
             return ItemStack.EMPTY;
+        }
+
+        /** Verifies every stack as one batch, including repeated variants and long overflow. */
+        public boolean canInsertAll(List<ItemStack> stacks) {
+            if (stacks == null) {
+                return false;
+            }
+            Map<ItemVariant, Long> additions = new HashMap<>();
+            for (ItemStack stack : stacks) {
+                if (stack == null || stack.isEmpty()) {
+                    continue;
+                }
+                ItemVariant variant = ItemVariant.of(stack);
+                long previous = additions.getOrDefault(variant, 0L);
+                if (Long.MAX_VALUE - previous < stack.getCount()) {
+                    return false;
+                }
+                additions.put(variant, previous + stack.getCount());
+            }
+            for (Map.Entry<ItemVariant, Long> entry : additions.entrySet()) {
+                long current = values.getOrDefault(entry.getKey(), 0L);
+                if (Long.MAX_VALUE - current < entry.getValue()) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         public ItemStack extract(int slot, int amount, boolean simulate) {
