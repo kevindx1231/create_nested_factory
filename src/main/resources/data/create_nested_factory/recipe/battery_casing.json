@@ -1,0 +1,24 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "S": {
+      "item": "create:sturdy_sheet"
+    },
+    "A": {
+      "item": "create_nested_factory:sturdy_alloy_sheet"
+    },
+    "B": {
+      "item": "create:blaze_cake_base"
+    }
+  },
+  "pattern": [
+    "SAS",
+    "ABA",
+    "SAS"
+  ],
+  "result": {
+    "id": "create_nested_factory:battery_casing",
+    "count": 1
+  }
+}

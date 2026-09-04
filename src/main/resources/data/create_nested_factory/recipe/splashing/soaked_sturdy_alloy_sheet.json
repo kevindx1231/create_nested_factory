@@ -1,0 +1,14 @@
+{
+  "type": "create:splashing",
+  "ingredients": [
+    {
+      "item": "create_nested_factory:soaked_sturdy_alloy_sheet"
+    }
+  ],
+  "results": [
+    {
+      "id": "create_nested_factory:sturdy_alloy_sheet",
+      "count": 1
+    }
+  ]
+}

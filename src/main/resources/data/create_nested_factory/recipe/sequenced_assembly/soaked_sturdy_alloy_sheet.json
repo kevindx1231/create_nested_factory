@@ -1,0 +1,49 @@
+{
+  "type": "create:sequenced_assembly",
+  "ingredient": {
+    "item": "create_nested_factory:soaked_sturdy_alloy_ingot"
+  },
+  "loops": 4,
+  "results": [
+    {
+      "id": "create_nested_factory:soaked_sturdy_alloy_sheet",
+      "count": 2
+    }
+  ],
+  "sequence": [
+    {
+      "type": "create:filling",
+      "ingredients": [
+        {
+          "item": "create_nested_factory:incomplete_soaked_sturdy_alloy_sheet"
+        },
+        {
+          "type": "neoforge:single",
+          "fluid": "minecraft:lava",
+          "amount": 250
+        }
+      ],
+      "results": [
+        {
+          "id": "create_nested_factory:incomplete_soaked_sturdy_alloy_sheet"
+        }
+      ]
+    },
+    {
+      "type": "create:pressing",
+      "ingredients": [
+        {
+          "item": "create_nested_factory:incomplete_soaked_sturdy_alloy_sheet"
+        }
+      ],
+      "results": [
+        {
+          "id": "create_nested_factory:incomplete_soaked_sturdy_alloy_sheet"
+        }
+      ]
+    }
+  ],
+  "transitional_item": {
+    "id": "create_nested_factory:incomplete_soaked_sturdy_alloy_sheet"
+  }
+}

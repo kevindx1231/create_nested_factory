@@ -1,7 +1,7 @@
 ﻿{
   "type": "create:sequenced_assembly",
   "ingredient": {
-    "item": "create_nested_factory:sturdy_alloy_ingot"
+    "item": "create_nested_factory:soaked_sturdy_alloy_ingot"
   },
   "results": [
     {
@@ -18,33 +18,51 @@
         {
           "type": "neoforge:single",
           "fluid": "minecraft:lava",
+          "amount": 250
+        }
+      ],
+      "results": [
+        {
+          "id": "create_nested_factory:incomplete_sturdy_casing"
+        }
+      ]
+    },
+    {
+      "type": "create:pressing",
+      "ingredients": [
+        {
+          "item": "create_nested_factory:incomplete_sturdy_casing"
+        }
+      ],
+      "results": [
+        {
+          "id": "create_nested_factory:incomplete_sturdy_casing"
+        }
+      ]
+    },
+    {
+      "type": "create:pressing",
+      "ingredients": [
+        {
+          "item": "create_nested_factory:incomplete_sturdy_casing"
+        }
+      ],
+      "results": [
+        {
+          "id": "create_nested_factory:incomplete_sturdy_casing"
+        }
+      ]
+    },
+    {
+      "type": "create:filling",
+      "ingredients": [
+        {
+          "item": "create_nested_factory:incomplete_sturdy_casing"
+        },
+        {
+          "type": "neoforge:single",
+          "fluid": "minecraft:water",
           "amount": 500
-        }
-      ],
-      "results": [
-        {
-          "id": "create_nested_factory:incomplete_sturdy_casing"
-        }
-      ]
-    },
-    {
-      "type": "create:pressing",
-      "ingredients": [
-        {
-          "item": "create_nested_factory:incomplete_sturdy_casing"
-        }
-      ],
-      "results": [
-        {
-          "id": "create_nested_factory:incomplete_sturdy_casing"
-        }
-      ]
-    },
-    {
-      "type": "create:pressing",
-      "ingredients": [
-        {
-          "item": "create_nested_factory:incomplete_sturdy_casing"
         }
       ],
       "results": [

@@ -246,6 +246,22 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
     }
 
     @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        if (overclockSlider != null && overclockSlider.isDragging()) {
+            return overclockSlider.handleMouseDragged(mouseX, mouseY, button, dragX, dragY);
+        }
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (overclockSlider != null && overclockSlider.isDragging()) {
+            return overclockSlider.handleMouseReleased(mouseX, mouseY, button);
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    @Override
     public void removed() {
         sendRename();
         super.removed();
@@ -437,6 +453,7 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
 
         private boolean dragging;
         private int knobOffset = KNOB_NORMAL_X;
+        private double dragGrabOffset;
         private OverclockTier pendingTier;
         private int pendingFrames;
 
@@ -458,12 +475,28 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
             }
             dragging = true;
             setFocused(true);
+            boolean onKnob = mouseX >= getX() + knobOffset
+                    && mouseX < getX() + knobOffset + KNOB_WIDTH;
+            dragGrabOffset = onKnob ? mouseX - (getX() + knobOffset) : KNOB_WIDTH / 2.0;
             updateDragPosition(mouseX);
             return true;
         }
 
         @Override
         public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+            return handleMouseDragged(mouseX, mouseY, button, dragX, dragY);
+        }
+
+        @Override
+        public boolean mouseReleased(double mouseX, double mouseY, int button) {
+            return handleMouseReleased(mouseX, mouseY, button);
+        }
+
+        private boolean isDragging() {
+            return dragging;
+        }
+
+        private boolean handleMouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
             if (!dragging || button != 0) {
                 return false;
             }
@@ -471,8 +504,7 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
             return true;
         }
 
-        @Override
-        public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        private boolean handleMouseReleased(double mouseX, double mouseY, int button) {
             if (!dragging || button != 0) {
                 return false;
             }
@@ -494,7 +526,7 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
 
         private void updateDragPosition(double mouseX) {
             int maxOffset = maximumOffset(menu.getOverclockBatteryCount());
-            knobOffset = Mth.clamp((int) Math.round(mouseX - getX() - KNOB_WIDTH / 2.0),
+            knobOffset = Mth.clamp((int) Math.round(mouseX - getX() - dragGrabOffset),
                     KNOB_MIN_X, maxOffset);
         }
 

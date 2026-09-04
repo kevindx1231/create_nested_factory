@@ -28,8 +28,22 @@ public class ModItems {
             ITEMS.register("sturdy_casing", () -> new Item(new Item.Properties()));
     public static final DeferredItem<Item> STURDY_ALLOY_INGOT =
             ITEMS.register("sturdy_alloy_ingot", () -> new Item(new Item.Properties()));
+    public static final DeferredItem<Item> STURDY_ALLOY_SHEET =
+            ITEMS.register("sturdy_alloy_sheet", () -> new Item(new Item.Properties()));
+    public static final DeferredItem<Item> SOAKED_STURDY_ALLOY_INGOT =
+            ITEMS.register("soaked_sturdy_alloy_ingot", () -> new Item(new Item.Properties()));
+    public static final DeferredItem<Item> SOAKED_STURDY_ALLOY_SHEET =
+            ITEMS.register("soaked_sturdy_alloy_sheet", () -> new Item(new Item.Properties()));
+    public static final DeferredItem<Item> INCOMPLETE_SOAKED_STURDY_ALLOY_SHEET =
+            ITEMS.register("incomplete_soaked_sturdy_alloy_sheet", () -> new Item(new Item.Properties()));
+    public static final DeferredItem<Item> BATTERY_CASING =
+            ITEMS.register("battery_casing", () -> new Item(new Item.Properties()));
+    public static final DeferredItem<Item> INACTIVE_BLAZE_BATTERY =
+            ITEMS.register("inactive_blaze_battery", () -> new Item(new Item.Properties()));
     public static final DeferredItem<Item> BLAZE_BATTERY =
             ITEMS.register("blaze_battery", () -> new Item(new Item.Properties().stacksTo(64)));
+    public static final DeferredItem<Item> INCOMPLETE_BLAZE_BATTERY =
+            ITEMS.register("incomplete_blaze_battery", () -> new Item(new Item.Properties()));
     public static final DeferredItem<Item> INCOMPLETE_STURDY_CASING =
             ITEMS.register("incomplete_sturdy_casing", () -> new Item(new Item.Properties()));
     public static final DeferredItem<Item> INCOMPLETE_SPACE_EXPAND_MECHANISM =

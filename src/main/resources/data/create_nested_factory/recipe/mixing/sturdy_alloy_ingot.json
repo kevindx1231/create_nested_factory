@@ -1,15 +1,8 @@
 ﻿{
-  "type": "create:mixing",
-  "heat_requirement": "superheated",
+  "type": "create:splashing",
   "ingredients": [
     {
-      "item": "create:sturdy_sheet"
-    },
-    {
-      "item": "create:sturdy_sheet"
-    },
-    {
-      "item": "minecraft:netherite_scrap"
+      "item": "create_nested_factory:soaked_sturdy_alloy_ingot"
     }
   ],
   "results": [

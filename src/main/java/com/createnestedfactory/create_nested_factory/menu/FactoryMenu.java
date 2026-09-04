@@ -76,7 +76,7 @@ public class FactoryMenu extends AbstractContainerMenu {
 
     private void addOverclockSlots() {
         int[][] positions = {
-                {90, 69},
+                {91, 69},
                 {130, 69},
                 {151, 69},
                 {172, 69}
