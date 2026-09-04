@@ -17,7 +17,7 @@ import net.neoforged.neoforge.client.event.ScreenEvent;
 /** Renders all mod player messages with one consistent, undimmed presentation. */
 @EventBusSubscriber(modid = Create_nested_factory.MODID, value = Dist.CLIENT)
 public final class PlayerMessageOverlay {
-    private static final int Y_OFFSET_FROM_BOTTOM = 95;
+    private static final int Y_OFFSET_FROM_BOTTOM = 60;
     private static final int MESSAGE_COLOR = 0xF8D97C;
     private static final int SHADOW_COLOR = 0x3D361F;
     /** Sub-pixel down-right shadow offset; GuiGraphics text coordinates themselves are integral. */

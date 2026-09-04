@@ -75,6 +75,14 @@ public class PocketRegistry {
         return FACTORIES.get(roomOrigin);
     }
 
+    public static boolean isFactoryRegistered(String factoryId) {
+        if (factoryId == null || factoryId.isBlank()) {
+            return false;
+        }
+        return FACTORIES.values().stream().anyMatch(location -> factoryId.equals(location.factoryId()))
+                || NESTED_SLOTS.values().stream().anyMatch(slot -> factoryId.equals(slot.location().factoryId()));
+    }
+
     public static Set<BlockPos> getRootOriginsInRegion(int regionX, int regionZ) {
         Set<BlockPos> origins = ROOT_REGIONS.get(regionKey(regionX, regionZ));
         return origins == null ? Set.of() : origins;
@@ -90,11 +98,20 @@ public class PocketRegistry {
         int slotX = slotXForId(slotId);
         int slotZ = slotZForId(slotId);
         SlotKey key = new SlotKey(slotX, slotZ);
+        NestedSlot existing = NESTED_SLOTS.get(key);
+        if (existing != null && !existing.location().equals(location)) {
+            return null;
+        }
         NestedSlot slot = new NestedSlot(slotId, slotX, slotZ, location);
         NESTED_SLOTS.put(key, slot);
         SLOT_KEYS_BY_ID.put(slotId, key);
         NestedFactorySaveData.get(level.getServer()).observeSlotId(slotId);
         return slot;
+    }
+
+    public static boolean canClaimNestedSlot(int slotId, FactoryLocation location) {
+        NestedSlot existing = getNestedSlotById(slotId);
+        return existing == null || existing.location().equals(location);
     }
 
     public static NestedSlot getNestedSlot(int slotX, int slotZ) {

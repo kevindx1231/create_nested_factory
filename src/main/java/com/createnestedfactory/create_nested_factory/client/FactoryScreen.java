@@ -79,7 +79,8 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
     private EditBox addressBox;   // 顶部改名输入框
     private AbstractButton[] faceButtons; // 6 个面的端口模式按钮
     private AbstractButton modeButton; // 黑盒/常加载切换按钮（透明热区）
-    private AbstractButton confirmButton; // 底部：背景中确认图标的透明点击热区
+    private AbstractButton destroyButton; // 左下：销毁图标的透明点击热区
+    private AbstractButton confirmButton; // 右下：关闭图标的透明点击热区
     private OverclockSlider overclockSlider;
 
     public FactoryScreen(FactoryMenu menu, Inventory playerInventory, Component title) {
@@ -108,7 +109,10 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
         addressBox.setFocused(false);
         addressBox.mouseClicked(0, 0, 0);
         // 输入文字时让输入框始终居中（跟着文字长度重新定位）
-        addressBox.setResponder(s -> addressBox.setX(nameBoxX(s, addressBox)));
+        addressBox.setResponder(s -> {
+            addressBox.setX(nameBoxX(s, addressBox));
+            sendRename();
+        });
         addressBox.setX(nameBoxX(addressBox.getValue(), addressBox));
         addRenderableWidget(addressBox);
 
@@ -132,7 +136,11 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
         modeButton = new ModeToggleButton(x + MODE_BUTTON_X, y + MODE_BUTTON_Y);
         addRenderableWidget(modeButton);
 
-        // —— 底部：主体纹理已经绘制确认图标，只添加 234,105 到 252,123 的点击热区 ——
+        // —— 左下：销毁按钮，点击热区为 90,105 到 108,123 ——
+        destroyButton = new DestroyButton(x + 90, y + 105);
+        addRenderableWidget(destroyButton);
+
+        // —— 右下：关闭按钮，点击热区为 234,105 到 252,123 ——
         confirmButton = new ConfirmButton(x + 234, y + 105);
         addRenderableWidget(confirmButton);
 
@@ -144,6 +152,12 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
     private int nameBoxX(String s, EditBox nameBox) {
         int textWidth = Math.min(font.width(s), nameBox.getWidth());
         return leftPos + HEADER_X + Math.max(0, (HEADER_WIDTH - textWidth) / 2);
+    }
+
+    private void sendRename() {
+        if (minecraft != null && addressBox != null) {
+            PacketDistributor.sendToServer(new RenameFactoryPayload(menu.containerId, addressBox.getValue()));
+        }
     }
 
     @Override
@@ -233,8 +247,7 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
 
     @Override
     public void removed() {
-        // 界面关闭时把改名结果发给服务器保存（frogport 也是关屏时才保存）。
-        PacketDistributor.sendToServer(new RenameFactoryPayload(menu.containerId, addressBox.getValue()));
+        sendRename();
         super.removed();
     }
 
@@ -307,6 +320,7 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
 
         @Override
         public void onPress() {
+            sendRename();
             if (minecraft != null && minecraft.player != null) {
                 minecraft.player.closeContainer();
             }
@@ -344,6 +358,63 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
             if (pressed) {
                 graphics.setColor(0.65f, 0.78f, 1.0f, 1.0f);
                 graphics.blit(GUI_TEXTURE, getX(), getY(), 234, 105, 18, 18,
+                        TEXTURE_WIDTH, TEXTURE_HEIGHT);
+                graphics.setColor(1.0f, 1.0f, 1.0f, 1.0f);
+            }
+        }
+
+        @Override
+        protected void updateWidgetNarration(NarrationElementOutput narrationElementOutput) {
+        }
+    }
+
+    private class DestroyButton extends AbstractButton {
+        private boolean pressed;
+
+        DestroyButton(int x, int y) {
+            super(x, y, 18, 18, Component.empty());
+        }
+
+        @Override
+        public void onPress() {
+            sendRename();
+            if (minecraft != null && minecraft.gameMode != null) {
+                minecraft.gameMode.handleInventoryButtonClick(menu.containerId, FactoryMenu.DESTROY_BUTTON_ID);
+            }
+        }
+
+        @Override
+        public boolean mouseClicked(double mx, double my, int button) {
+            if (button != 0 || !active || !visible || !isMouseOver(mx, my)) {
+                return false;
+            }
+            pressed = true;
+            setFocused(true);
+            if (minecraft != null) {
+                playDownSound(minecraft.getSoundManager());
+            }
+            return true;
+        }
+
+        @Override
+        public boolean mouseReleased(double mx, double my, int button) {
+            if (button != 0 || !pressed) {
+                return false;
+            }
+            boolean releaseInside = isMouseOver(mx, my);
+            pressed = false;
+            setFocused(false);
+            if (releaseInside) {
+                onPress();
+            }
+            return true;
+        }
+
+        @Override
+        protected void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+            if (pressed) {
+                graphics.setColor(0.65f, 0.78f, 1.0f, 1.0f);
+                graphics.blit(GUI_TEXTURE, getX(), getY(), 90, 105, 18, 18,
                         TEXTURE_WIDTH, TEXTURE_HEIGHT);
                 graphics.setColor(1.0f, 1.0f, 1.0f, 1.0f);
             }

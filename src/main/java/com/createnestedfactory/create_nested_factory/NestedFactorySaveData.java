@@ -3,15 +3,11 @@ package com.createnestedfactory.create_nested_factory;
 import com.createnestedfactory.create_nested_factory.block.NestedFactoryBlock;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
-import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.level.Level;
 import net.minecraft.world.level.saveddata.SavedData;
 
 import java.util.HashMap;
@@ -26,12 +22,7 @@ import java.util.Map;
 public final class NestedFactorySaveData extends SavedData {
     private static final String DATA_NAME = "create_nested_factory_slots";
     private static final int NO_ROOT_SLOT_ID = -1;
-
-    public record RootFactoryKey(String factoryId, ResourceKey<Level> dimension, BlockPos sourcePos) {
-        public RootFactoryKey {
-            sourcePos = sourcePos.immutable();
-        }
-    }
+    private static final int DATA_FORMAT = 2;
 
     public record RootAllocation(int slotId, BlockPos roomOrigin) {
         public RootAllocation {
@@ -41,8 +32,8 @@ public final class NestedFactorySaveData extends SavedData {
 
     private int nextSlotId;
     private int nextRootSlotId;
-    private final Map<RootFactoryKey, RootAllocation> rootAllocations = new HashMap<>();
-    private final Map<BlockPos, RootFactoryKey> rootOwnersByOrigin = new HashMap<>();
+    private final Map<String, RootAllocation> rootAllocations = new HashMap<>();
+    private final Map<BlockPos, String> rootOwnersByOrigin = new HashMap<>();
 
     public static NestedFactorySaveData get(MinecraftServer server) {
         ServerLevel overworld = server.overworld();
@@ -64,54 +55,50 @@ public final class NestedFactorySaveData extends SavedData {
         }
     }
 
-    /**
-     * Returns the one persistent room allocation for a root factory owner.
-     *
-     * <p>An existing owner reservation always wins. Otherwise an already serialized origin is
-     * reclaimed when safe. For pre-allocation saves, the legacy coordinate-derived origin is
-     * retained only if no other factory has claimed it; collided legacy factories receive a fresh
-     * empty slot instead.</p>
-     */
-    public synchronized RootAllocation claimRootAllocation(RootFactoryKey owner, int persistedSlotId,
-                                                             BlockPos persistedOrigin, BlockPos legacyOrigin) {
-        RootAllocation existing = rootAllocations.get(owner);
+    /** Returns the one persistent room allocation for a root factory ID. */
+    public synchronized RootAllocation claimRootAllocation(String factoryId, int persistedSlotId,
+                                                             BlockPos persistedOrigin) {
+        RootAllocation existing = rootAllocations.get(factoryId);
         if (existing != null) {
             return existing;
         }
 
-        RootAllocation persisted = reserveIfAvailable(owner, persistedSlotId, persistedOrigin);
+        RootAllocation persisted = reserveIfAvailable(factoryId, persistedSlotId, persistedOrigin);
         if (persisted != null) {
             return persisted;
-        }
-
-        RootAllocation legacy = reserveIfAvailable(owner, NO_ROOT_SLOT_ID, legacyOrigin);
-        if (legacy != null) {
-            return legacy;
         }
 
         while (true) {
             int slotId = nextRootSlotId++;
             BlockPos origin = NestedFactoryBlock.getRootRoomOrigin(slotId);
-            RootAllocation allocation = reserveIfAvailable(owner, slotId, origin);
+            RootAllocation allocation = reserveIfAvailable(factoryId, slotId, origin);
             if (allocation != null) {
                 return allocation;
             }
         }
     }
 
-    private RootAllocation reserveIfAvailable(RootFactoryKey owner, int slotId, BlockPos origin) {
+    public synchronized void releaseRootAllocation(String factoryId) {
+        RootAllocation allocation = rootAllocations.remove(factoryId);
+        if (allocation != null) {
+            rootOwnersByOrigin.remove(allocation.roomOrigin(), factoryId);
+            setDirty();
+        }
+    }
+
+    private RootAllocation reserveIfAvailable(String factoryId, int slotId, BlockPos origin) {
         if (origin == null) {
             return null;
         }
         BlockPos immutableOrigin = origin.immutable();
-        RootFactoryKey existingOwner = rootOwnersByOrigin.get(immutableOrigin);
-        if (existingOwner != null && !existingOwner.equals(owner)) {
+        String existingOwner = rootOwnersByOrigin.get(immutableOrigin);
+        if (existingOwner != null && !existingOwner.equals(factoryId)) {
             return null;
         }
 
         RootAllocation allocation = new RootAllocation(slotId, immutableOrigin);
-        rootAllocations.put(owner, allocation);
-        rootOwnersByOrigin.put(immutableOrigin, owner);
+        rootAllocations.put(factoryId, allocation);
+        rootOwnersByOrigin.put(immutableOrigin, factoryId);
         if (slotId >= nextRootSlotId) {
             nextRootSlotId = slotId + 1;
         }
@@ -121,31 +108,31 @@ public final class NestedFactorySaveData extends SavedData {
 
     public static NestedFactorySaveData load(CompoundTag tag, HolderLookup.Provider registries) {
         NestedFactorySaveData data = new NestedFactorySaveData();
+        if (tag.getInt("Format") != DATA_FORMAT) {
+            return data;
+        }
         data.nextSlotId = tag.getInt("NextSlotId");
         data.nextRootSlotId = tag.getInt("NextRootSlotId");
 
         for (Tag entryTag : tag.getList("RootAllocations", Tag.TAG_COMPOUND)) {
             CompoundTag entry = (CompoundTag) entryTag;
             String factoryId = entry.getString("FactoryId");
-            if (factoryId.isBlank() || !entry.contains("SourcePos") || !entry.contains("RoomOrigin")) {
+            if (factoryId.isBlank() || !entry.contains("RoomOrigin")) {
                 continue;
             }
             try {
-                ResourceKey<Level> dimension = ResourceKey.create(Registries.DIMENSION,
-                        ResourceLocation.parse(entry.getString("SourceDimension")));
-                RootFactoryKey owner = new RootFactoryKey(factoryId, dimension, BlockPos.of(entry.getLong("SourcePos")));
                 BlockPos origin = BlockPos.of(entry.getLong("RoomOrigin"));
-                if (data.rootAllocations.containsKey(owner) || data.rootOwnersByOrigin.containsKey(origin)) {
+                if (data.rootAllocations.containsKey(factoryId) || data.rootOwnersByOrigin.containsKey(origin)) {
                     continue;
                 }
                 int slotId = entry.contains("SlotId") ? entry.getInt("SlotId") : NO_ROOT_SLOT_ID;
-                data.rootAllocations.put(owner, new RootAllocation(slotId, origin));
-                data.rootOwnersByOrigin.put(origin, owner);
+                data.rootAllocations.put(factoryId, new RootAllocation(slotId, origin));
+                data.rootOwnersByOrigin.put(origin, factoryId);
                 if (slotId >= data.nextRootSlotId) {
                     data.nextRootSlotId = slotId + 1;
                 }
             } catch (IllegalArgumentException ignored) {
-                // Corrupt externally supplied dimension ids must not prevent the whole world data from loading.
+                // Corrupt coordinates must not prevent the whole world data from loading.
             }
         }
         return data;
@@ -153,17 +140,16 @@ public final class NestedFactorySaveData extends SavedData {
 
     @Override
     public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
+        tag.putInt("Format", DATA_FORMAT);
         tag.putInt("NextSlotId", nextSlotId);
         tag.putInt("NextRootSlotId", nextRootSlotId);
 
         ListTag roots = new ListTag();
-        for (Map.Entry<RootFactoryKey, RootAllocation> entry : rootAllocations.entrySet()) {
-            RootFactoryKey owner = entry.getKey();
+        for (Map.Entry<String, RootAllocation> entry : rootAllocations.entrySet()) {
+            String factoryId = entry.getKey();
             RootAllocation allocation = entry.getValue();
             CompoundTag root = new CompoundTag();
-            root.putString("FactoryId", owner.factoryId());
-            root.putString("SourceDimension", owner.dimension().location().toString());
-            root.putLong("SourcePos", owner.sourcePos().asLong());
+            root.putString("FactoryId", factoryId);
             root.putInt("SlotId", allocation.slotId());
             root.putLong("RoomOrigin", allocation.roomOrigin().asLong());
             roots.add(root);

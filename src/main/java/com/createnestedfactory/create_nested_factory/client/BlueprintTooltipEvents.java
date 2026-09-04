@@ -1,8 +1,10 @@
 package com.createnestedfactory.create_nested_factory.client;
 
 import com.createnestedfactory.create_nested_factory.Create_nested_factory;
+import com.createnestedfactory.create_nested_factory.block.FactoryPowerProfile;
 import com.createnestedfactory.create_nested_factory.blueprint.NestedFactoryBlueprint;
 import com.createnestedfactory.create_nested_factory.block.entity.ItemVariant;
+import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity;
 import com.simibubi.create.foundation.utility.CreateLang;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
@@ -10,6 +12,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.Style;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.material.Fluid;
 import net.neoforged.neoforge.fluids.FluidStack;
@@ -35,15 +38,20 @@ public final class BlueprintTooltipEvents {
         if (Minecraft.getInstance().level == null) {
             return;
         }
+        List<Component> tooltip = event.getToolTip();
+        boolean showExtended = event.getEntity() != null && Screen.hasShiftDown();
+        CompoundTag factoryData = NestedFactoryBlockEntity.getFactoryItemData(stack);
+        if (factoryData.getBoolean(NestedFactoryBlockEntity.PORTABLE_BINDING_KEY)) {
+            renderFactoryTooltip(tooltip, stack, factoryData, showExtended, Minecraft.getInstance());
+            return;
+        }
+
         NestedFactoryBlueprint blueprint = NestedFactoryBlueprint.fromItem(stack, Minecraft.getInstance().level.registryAccess());
         if (blueprint == null) {
             return;
         }
 
-        List<Component> tooltip = event.getToolTip();
         tooltip.clear();
-
-        boolean showExtended = event.getEntity() != null && Screen.hasShiftDown();
         if (!showExtended) {
             tooltip.add(Component.translatable("tooltip.create_nested_factory.nested_blueprint")
                     .withStyle(ChatFormatting.WHITE));
@@ -70,6 +78,39 @@ public final class BlueprintTooltipEvents {
         addStat(tooltip, "tooltip.create_nested_factory.blueprint.source_depth",
                 String.valueOf(blueprint.sourceDepth()));
         addUsageHint(tooltip);
+    }
+
+    private static void renderFactoryTooltip(List<Component> tooltip, ItemStack stack, CompoundTag data,
+            boolean showExtended, Minecraft minecraft) {
+        tooltip.clear();
+        tooltip.add(stack.getHoverName().copy().withStyle(ChatFormatting.WHITE));
+        if (!showExtended) {
+            tooltip.add(CreateLang.translateDirect("tooltip.holdForDescription",
+                            CreateLang.translateDirect("tooltip.keyShift").withStyle(ChatFormatting.GRAY))
+                    .withStyle(ChatFormatting.DARK_GRAY));
+            return;
+        }
+
+        addStat(tooltip, "tooltip.create_nested_factory.factory_id", data.getString("FactoryId"));
+        addStat(tooltip, "tooltip.create_nested_factory.factory_mode",
+                Component.translatable("gui.create_nested_factory.mode."
+                        + data.getString("OperationMode")).getString());
+        addStat(tooltip, "tooltip.create_nested_factory.factory_nesting",
+                data.getBoolean("Nested") ? data.getInt("NestingDepth") + "" : "0");
+        addStat(tooltip, "tooltip.create_nested_factory.factory_energy",
+                data.getInt("EnergyStored") + " FE");
+
+        if (data.getBoolean("Nested")) {
+            addStat(tooltip, "tooltip.create_nested_factory.factory_parent",
+                    data.getString("ParentFactoryId"));
+        }
+
+        FactoryPowerProfile profile = new FactoryPowerProfile();
+        profile.read(data.getCompound("PowerProfile"));
+        addStat(tooltip, "tooltip.create_nested_factory.blueprint.consumed_stress",
+                formatNumber(profile.consumedSU()) + " su");
+        addStat(tooltip, "tooltip.create_nested_factory.factory_energy_rate",
+                formatNumber(profile.consumedFE()) + " FE/t");
     }
 
     private static void addStat(List<Component> tooltip, String key, String value) {

@@ -379,6 +379,7 @@ public final class RoomMutationTaskManager extends SavedData {
                     removalInProgress.remove(factoryKey(task.factory));
                 }
             }
+            NestedFactorySaveData.get(server).releaseRootAllocation(task.factory.factoryId());
         }
     }
 

@@ -38,6 +38,7 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -54,8 +55,10 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
@@ -85,6 +88,7 @@ import org.slf4j.Logger;
 
 public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity implements MenuProvider {
     private static final Logger LOGGER = LogUtils.getLogger();
+    public static final String PORTABLE_BINDING_KEY = "PortableBinding";
     public static final int MAX_FE_PER_TICK = 10000;
     public static final int ENERGY_CAPACITY = 1_000_000;
     private static final int LEARNING_TICKS = 200;
@@ -201,8 +205,6 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     private int rootSlotId = -1;
     private BlockPos rootRoomOrigin = BlockPos.ZERO;
     private boolean rootRoomAllocated = false;
-    /** Set by NBT reads so only pre-slot saves are offered the legacy coordinate during migration. */
-    private boolean loadedFromDisk = false;
     private boolean nested = false;
     private boolean enterable = true;
     private boolean invalidNested = false;
@@ -217,6 +219,8 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     private BlockPos nestedRoomOrigin = BlockPos.ZERO;
     private String childFactoryId = "";
     private BlockPos childFactoryPos = null;
+    private boolean portableBinding = false;
+    private boolean bindingConflict = false;
     private boolean factoryStateInitialized = false;
     private int boundsVersion = 0;
 
@@ -507,6 +511,110 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         return factoryId;
     }
 
+    public static CompoundTag getFactoryItemData(ItemStack stack) {
+        return stack.getOrDefault(DataComponents.BLOCK_ENTITY_DATA, CustomData.EMPTY).copyTag();
+    }
+
+    public ItemStack createPortableItem(HolderLookup.Provider registries) {
+        CompoundTag data = saveWithFullMetadata(registries);
+        data.remove("id");
+        data.remove("x");
+        data.remove("y");
+        data.remove("z");
+        data.putBoolean(PORTABLE_BINDING_KEY, true);
+
+        ItemStack stack = new ItemStack(ModItems.NESTED_FACTORY.get());
+        BlockItem.setBlockEntityData(stack, ModBlockEntities.NESTED_FACTORY.get(), data);
+        if (customName != null && !customName.isBlank()) {
+            stack.set(DataComponents.CUSTOM_NAME, Component.literal(customName));
+        }
+        return stack;
+    }
+
+    public static void destroyPortableItem(ServerLevel sourceLevel, ItemEntity itemEntity) {
+        if (sourceLevel == null || sourceLevel.isClientSide() || itemEntity == null) {
+            return;
+        }
+        ItemStack stack = itemEntity.getItem();
+        if (!stack.is(ModItems.NESTED_FACTORY.get())) {
+            return;
+        }
+        CompoundTag data = getFactoryItemData(stack);
+        if (!data.getBoolean(PORTABLE_BINDING_KEY)) {
+            return;
+        }
+
+        String factoryId = data.getString("FactoryId");
+        if (factoryId.isBlank() || PocketRegistry.isFactoryRegistered(factoryId)) {
+            return;
+        }
+        BlockPos origin = data.getBoolean("Nested")
+                ? (data.contains("NestedRoomOrigin") ? BlockPos.of(data.getLong("NestedRoomOrigin")) : null)
+                : (data.contains("RootRoomOrigin") ? BlockPos.of(data.getLong("RootRoomOrigin")) : null);
+        int[] bounds = portableRoomBounds(data, origin);
+        MinecraftServer server = sourceLevel.getServer();
+        ServerLevel pocket = server == null ? null : server.getLevel(NestedFactoryBlock.POCKET_DIMENSION);
+        if (origin == null || bounds == null || pocket == null) {
+            return;
+        }
+
+        RoomMutationTaskManager tasks = RoomMutationTaskManager.get(server);
+        String rootFactoryId = data.getString("RootFactoryId");
+        if (rootFactoryId.isBlank()) {
+            rootFactoryId = factoryId;
+        }
+        RoomMutationTaskManager.FactoryRef reference = new RoomMutationTaskManager.FactoryRef(
+                sourceLevel.dimension(), BlockPos.containing(itemEntity.position()), factoryId,
+                rootFactoryId);
+        if (!tasks.scheduleDestroy(NestedFactoryBlock.POCKET_DIMENSION, origin, bounds, reference, true)) {
+            return;
+        }
+
+        evacuatePortableRoom(server, pocket, rootFactoryId, origin, bounds);
+    }
+
+    private static int[] portableRoomBounds(CompoundTag data, BlockPos origin) {
+        if (origin == null) {
+            return null;
+        }
+        int[] chunkBounds = data.getIntArray("Bounds");
+        if (chunkBounds.length != 6) {
+            return null;
+        }
+        PocketBounds bounds = new PocketBounds();
+        bounds.fromArray(chunkBounds);
+        return new int[]{bounds.minX(origin), bounds.minY(origin), bounds.minZ(origin),
+                bounds.maxX(origin), bounds.maxY(origin), bounds.maxZ(origin)};
+    }
+
+    private static void evacuatePortableRoom(MinecraftServer server, ServerLevel pocket,
+                                             String rootFactoryId, BlockPos origin, int[] bounds) {
+        int maxExits = Math.max(2, Config.maxNestingDepth + 2);
+        if (rootFactoryId != null && !rootFactoryId.isBlank()) {
+            for (ServerPlayer player : List.copyOf(server.getPlayerList().getPlayers())) {
+                ModAttachments.FactorySession session = player.getData(ModAttachments.FACTORY_SESSION);
+                if (!session.isActive() || !rootFactoryId.equals(session.rootFactoryId())) {
+                    continue;
+                }
+                for (int exits = 0; exits < maxExits && session.isActive(); exits++) {
+                    NestedFactoryBlock.exitCurrentFactory(player);
+                    session = player.getData(ModAttachments.FACTORY_SESSION);
+                }
+                if (session.isActive()) {
+                    NestedFactoryBlock.endSessionForPlayer(player);
+                }
+            }
+        }
+
+        AABB room = new AABB(bounds[0], bounds[1], bounds[2],
+                bounds[3] + 1.0, bounds[4] + 1.0, bounds[5] + 1.0);
+        for (Entity entity : List.copyOf(pocket.getEntitiesOfClass(Entity.class, room,
+                candidate -> !(candidate instanceof ServerPlayer)))) {
+            entity.discard();
+        }
+        PocketRegistry.clearRoomRegistrations(origin);
+    }
+
     public boolean isNested() {
         return nested;
     }
@@ -516,7 +624,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     public boolean isEnterable() {
-        return enterable && (!nested || !invalidNested);
+        return enterable && !bindingConflict && (!nested || !invalidNested);
     }
 
     public boolean isInvalidNested() {
@@ -554,6 +662,10 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
 
     public boolean hasRecordedChild() {
         return !childFactoryId.isEmpty();
+    }
+
+    public String getChildFactoryId() {
+        return childFactoryId;
     }
 
     public NestedFactoryBlockEntity getChildFactoryEntity() {
@@ -1654,15 +1766,6 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         MinecraftServer server = level.getServer();
         return server != null
                 && RoomMutationTaskManager.get(server).isRoomLocked(NestedFactoryBlock.POCKET_DIMENSION, roomOrigin());
-    }
-
-    public boolean isTaskManagerRemovingThisFactory() {
-        if (level == null || level.isClientSide()) {
-            return false;
-        }
-        MinecraftServer server = level.getServer();
-        return server != null
-                && RoomMutationTaskManager.get(server).isRemovingFactory(roomTaskReference());
     }
 
     private int[] roomBounds(BlockPos origin) {
@@ -3361,6 +3464,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         if (factoryId == null || factoryId.isEmpty()) {
             factoryId = UUID.randomUUID().toString();
         }
+        bindingConflict = false;
         nested = false;
         enterable = true;
         invalidNested = false;
@@ -3388,20 +3492,15 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             factoryId = UUID.randomUUID().toString();
         }
 
-        NestedFactorySaveData.RootFactoryKey owner = new NestedFactorySaveData.RootFactoryKey(
-                factoryId, level.dimension(), worldPosition);
         BlockPos persistedOrigin = rootRoomAllocated ? rootRoomOrigin : null;
         int persistedSlotId = rootRoomAllocated ? rootSlotId : -1;
-        BlockPos legacyOrigin = loadedFromDisk && !rootRoomAllocated
-                ? NestedFactoryBlock.getLegacyPocketOrigin(worldPosition)
-                : null;
 
         MinecraftServer server = level.getServer();
         if (server == null) {
             return;
         }
         NestedFactorySaveData.RootAllocation allocation = NestedFactorySaveData.get(server)
-                .claimRootAllocation(owner, persistedSlotId, persistedOrigin, legacyOrigin);
+                .claimRootAllocation(factoryId, persistedSlotId, persistedOrigin);
         if (!rootRoomAllocated || rootSlotId != allocation.slotId()
                 || !rootRoomOrigin.equals(allocation.roomOrigin())) {
             rootSlotId = allocation.slotId();
@@ -3416,6 +3515,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             factoryId = UUID.randomUUID().toString();
         }
         nested = true;
+        bindingConflict = false;
         NestedFactoryBlockEntity parent = NestedFactoryBlock.findFactoryAt((ServerLevel) level, worldPosition);
         if (parent == null || parent == this) {
             enterable = false;
@@ -3427,6 +3527,12 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             return;
         }
 
+        if (portableBinding && (parentFactoryId.isBlank() || !parentFactoryId.equals(parent.getFactoryId()))) {
+            enterable = false;
+            invalidNested = true;
+            return;
+        }
+
         parentFactoryId = parent.getFactoryId();
         parentFactoryPos = parent.getBlockPos().immutable();
         parentDimension = parent.level.dimension();
@@ -3435,7 +3541,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
 
         boolean buildable = parent.getBounds().isBuildableAt(parent.roomOrigin(), worldPosition);
         boolean depthAllowed = nestingDepth <= Config.maxNestingDepth;
-        boolean noSibling = !parent.hasRecordedChild();
+        boolean noSibling = !parent.hasRecordedChild() || factoryId.equals(parent.getChildFactoryId());
         if (!buildable || !depthAllowed || !noSibling) {
             enterable = false;
             invalidNested = true;
@@ -3444,8 +3550,16 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             return;
         }
 
-        PocketRegistry.NestedSlot slot = PocketRegistry.allocateAndRegisterNestedSlot(
-                new PocketRegistry.FactoryLocation(factoryId, level.dimension(), worldPosition), (ServerLevel) level);
+        PocketRegistry.FactoryLocation location =
+                new PocketRegistry.FactoryLocation(factoryId, level.dimension(), worldPosition);
+        PocketRegistry.NestedSlot slot = portableBinding && nestedSlotId >= 0
+                ? PocketRegistry.registerNestedSlot(nestedSlotId, location, (ServerLevel) level)
+                : PocketRegistry.allocateAndRegisterNestedSlot(location, (ServerLevel) level);
+        if (slot == null) {
+            enterable = false;
+            invalidNested = true;
+            return;
+        }
         nestedSlotId = slot.id();
         nestedSlotX = slot.slotX();
         nestedSlotZ = slot.slotZ();
@@ -3462,11 +3576,18 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         PocketRegistry.FactoryLocation location = new PocketRegistry.FactoryLocation(factoryId, level.dimension(), worldPosition);
         if (nested) {
             if (enterable && !invalidNested && nestedSlotId >= 0) {
-                PocketRegistry.registerNestedSlot(nestedSlotId, location, (ServerLevel) level);
+                if (PocketRegistry.registerNestedSlot(nestedSlotId, location, (ServerLevel) level) == null) {
+                    bindingConflict = true;
+                    return false;
+                }
             }
             return true;
         }
-        return rootRoomAllocated && PocketRegistry.registerRoot(roomOrigin(), location);
+        if (!rootRoomAllocated || PocketRegistry.registerRoot(roomOrigin(), location)) {
+            return rootRoomAllocated;
+        }
+        bindingConflict = true;
+        return false;
     }
 
     private void unregisterFactoryState() {
@@ -3500,6 +3621,22 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 && factoryId.equals(parent.childFactoryId)) {
             parent.setChildFactory(null);
         }
+    }
+
+    private void refreshChildFactoryBinding() {
+        NestedFactoryBlockEntity child = getChildFactoryEntity();
+        if (child != null) {
+            child.rebindParent(this);
+        }
+    }
+
+    private void rebindParent(NestedFactoryBlockEntity parent) {
+        parentFactoryId = parent.getFactoryId();
+        parentFactoryPos = parent.getBlockPos().immutable();
+        parentDimension = parent.level == null ? null : parent.level.dimension();
+        nestingDepth = parent.getNestingDepth() + 1;
+        rootFactoryId = parent.isRoot() ? parent.getFactoryId() : parent.getRootFactoryId();
+        setChanged();
     }
 
     public boolean requestRoomBuild() {
@@ -3555,6 +3692,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                         }
                     }
                 }
+                refreshChildFactoryBinding();
                 if (recoverSimulatedPowerProfileOnLoad) {
                     simulatedPowerProfileCaptured = true;
                     recoverSimulatedPowerProfileOnLoad = false;
@@ -3637,44 +3775,60 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         return reservedStressImpact;
     }
 
-    /**
-     * Queues Pocket cleanup before a normal player break. The actual block break is deliberately
-     * not cancelled: accepting the client-predicted removal avoids a remove -> restore -> remove
-     * visual bounce while the persistent task clears the detached Pocket room.
-     */
-    public boolean prepareForPlayerBreak(Player player) {
+    public Component requestSpaceDestruction(ServerPlayer player) {
+        if (level == null || level.isClientSide() || player == null) {
+            return Component.translatable("message.create_nested_factory.factory.destroy_failed");
+        }
         if (isRoomMutationLocked()) {
-            return false;
+            return Component.translatable("message.create_nested_factory.room_mutation.active");
         }
-        invalidateProductionBatch(player, "player_break");
+        if (hasPlayersInside()) {
+            return Component.translatable("message.create_nested_factory.factory.players_prevent_destroy");
+        }
+        if (hasChildFactoryInRoom()) {
+            return Component.translatable("message.create_nested_factory.factory.child_factory_prevents_destroy");
+        }
         if (!(nested ? isValidNestedFactory() : rootRoomAllocated)) {
-            return false;
+            return Component.translatable("message.create_nested_factory.factory.destroy_failed");
         }
+
         MinecraftServer server = level.getServer();
         if (server == null) {
-            return false;
+            return Component.translatable("message.create_nested_factory.factory.destroy_failed");
         }
+        RoomMutationTaskManager tasks = RoomMutationTaskManager.get(server);
+        RoomMutationTaskManager.FactoryRef reference = roomTaskReference();
+        if (!tasks.scheduleDestroy(NestedFactoryBlock.POCKET_DIMENSION, roomOrigin(), roomBounds(roomOrigin()),
+                reference, true)) {
+            return Component.translatable("message.create_nested_factory.room_mutation.active");
+        }
+
+        invalidateProductionBatch(player, "gui_destroy");
+        dropPendingPortItemsAndDiscardFluids();
+        dropInstalledOverclockBatteries();
         evacuateFactorySpace();
-        return RoomMutationTaskManager.get(server).scheduleDestroy(
-                NestedFactoryBlock.POCKET_DIMENSION, roomOrigin(), roomBounds(roomOrigin()), roomTaskReference(), false);
+        Block.popResource(level, worldPosition, new ItemStack(ModItems.NESTED_FACTORY.get()));
+        level.setBlock(worldPosition, Blocks.AIR.defaultBlockState(),
+                Block.UPDATE_NEIGHBORS | Block.UPDATE_CLIENTS);
+        return null;
     }
 
-    /** Invoked by the block only when this factory block is actually replaced or destroyed. */
-    public void onBlockDestroyed() {
-        if (level == null || level.isClientSide() || isTaskManagerRemovingThisFactory() || isRoomMutationLocked()) {
-            return;
+    private boolean hasChildFactoryInRoom() {
+        ServerLevel pocket = pocketLevel();
+        if (pocket == null) {
+            return false;
         }
-        MinecraftServer server = level.getServer();
-        if (server == null) {
-            return;
+        BlockPos origin = roomOrigin();
+        for (int x = bounds.minX(origin); x <= bounds.maxX(origin); x++) {
+            for (int y = bounds.minY(origin); y <= bounds.maxY(origin); y++) {
+                for (int z = bounds.minZ(origin); z <= bounds.maxZ(origin); z++) {
+                    if (pocket.getBlockEntity(new BlockPos(x, y, z)) instanceof NestedFactoryBlockEntity) {
+                        return true;
+                    }
+                }
+            }
         }
-        invalidateProductionBatch(null, "factory_destroyed");
-        dropInstalledOverclockBatteries();
-        if (nested ? isValidNestedFactory() : rootRoomAllocated) {
-            evacuateFactorySpace();
-            RoomMutationTaskManager.get(server).scheduleDestroy(
-                    NestedFactoryBlock.POCKET_DIMENSION, roomOrigin(), roomBounds(roomOrigin()), roomTaskReference(), false);
-        }
+        return false;
     }
 
     @Override
@@ -3812,6 +3966,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         tag.putInt("NestedSlotZ", nestedSlotZ);
         tag.putLong("NestedRoomOrigin", nestedRoomOrigin.asLong());
         tag.putString("ChildFactoryId", childFactoryId);
+        tag.putBoolean(PORTABLE_BINDING_KEY, portableBinding);
         if (parentFactoryPos != null) {
             tag.putLong("ParentFactoryPos", parentFactoryPos.asLong());
         }
@@ -3837,7 +3992,6 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
 
     @Override
     protected void read(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
-        loadedFromDisk = true;
         for (int i = 0; i < 6; i++) {
             String mode = tag.getString("FaceMode" + i);
             faceModes[i] = readPortMode(mode);
@@ -3888,9 +4042,10 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         if (tag.contains("PortChannels")) {
             portChannels.read(tag.getCompound("PortChannels"), registries);
         }
+        portableBinding = tag.getBoolean(PORTABLE_BINDING_KEY);
         if (tag.contains("FactoryId")) {
             factoryId = tag.getString("FactoryId");
-            factoryStateInitialized = true;
+            factoryStateInitialized = !portableBinding;
         }
         rootRoomAllocated = tag.getBoolean("RootRoomAllocated") && tag.contains("RootRoomOrigin");
         rootSlotId = rootRoomAllocated && tag.contains("RootSlotId") ? tag.getInt("RootSlotId") : -1;

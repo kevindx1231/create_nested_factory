@@ -36,8 +36,10 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.level.material.PushReaction;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -146,14 +148,31 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
 
     @Override
     public void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean movedByPiston) {
-        if (!level.isClientSide() && !state.is(newState.getBlock())
-                && level.getBlockEntity(pos) instanceof NestedFactoryBlockEntity factory) {
-            factory.dropInstalledOverclockBatteries();
-            if (!factory.isTaskManagerRemovingThisFactory()) {
-                factory.onBlockDestroyed();
-            }
-        }
         super.onRemove(state, level, pos, newState, movedByPiston);
+    }
+
+    @Override
+    public void playerDestroy(Level level, Player player, BlockPos pos, BlockState state,
+                               BlockEntity blockEntity, ItemStack tool) {
+        if (!level.isClientSide() && level instanceof ServerLevel server
+                && blockEntity instanceof NestedFactoryBlockEntity factory) {
+            Block.popResource(level, pos, factory.createPortableItem(server.registryAccess()));
+            return;
+        }
+        super.playerDestroy(level, player, pos, state, blockEntity, tool);
+    }
+
+    @Override
+    public boolean onDestroyedByPlayer(BlockState state, Level level, BlockPos pos, Player player,
+                                       boolean willHarvest, FluidState fluid) {
+        BlockEntity blockEntity = level.getBlockEntity(pos);
+        boolean destroyed = super.onDestroyedByPlayer(state, level, pos, player, willHarvest, fluid);
+        if (destroyed && player.isCreative() && !level.isClientSide()
+                && level instanceof ServerLevel server
+                && blockEntity instanceof NestedFactoryBlockEntity factory) {
+            Block.popResource(level, pos, factory.createPortableItem(server.registryAccess()));
+        }
+        return destroyed;
     }
 
     public static void enterFactory(ServerPlayer player, NestedFactoryBlockEntity factory) {

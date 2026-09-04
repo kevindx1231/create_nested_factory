@@ -3,6 +3,7 @@ package com.createnestedfactory.create_nested_factory.registry;
 import com.createnestedfactory.create_nested_factory.Create_nested_factory;
 import com.createnestedfactory.create_nested_factory.item.SpaceCollapserItem;
 import com.createnestedfactory.create_nested_factory.item.SpaceExpanderItem;
+import com.createnestedfactory.create_nested_factory.item.FactoryBlockItem;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.neoforged.neoforge.registries.DeferredItem;
@@ -11,7 +12,8 @@ import net.neoforged.neoforge.registries.DeferredRegister;
 public class ModItems {
     public static final DeferredRegister.Items ITEMS = DeferredRegister.createItems(Create_nested_factory.MODID);
 
-    public static final DeferredItem<BlockItem> NESTED_FACTORY = ITEMS.registerSimpleBlockItem("nested_factory", ModBlocks.NESTED_FACTORY);
+    public static final DeferredItem<FactoryBlockItem> NESTED_FACTORY = ITEMS.register("nested_factory",
+            () -> new FactoryBlockItem(ModBlocks.NESTED_FACTORY.get(), new Item.Properties().stacksTo(1)));
     public static final DeferredItem<BlockItem> NESTED_PORT = ITEMS.registerSimpleBlockItem("nested_port", ModBlocks.NESTED_PORT);
     public static final DeferredItem<BlockItem> NESTED_STRESS_PORT = ITEMS.registerSimpleBlockItem("nested_stress_port", ModBlocks.NESTED_STRESS_PORT);
     public static final DeferredItem<BlockItem> SNOW_WALL = ITEMS.registerSimpleBlockItem("snow_wall", ModBlocks.SNOW_WALL);

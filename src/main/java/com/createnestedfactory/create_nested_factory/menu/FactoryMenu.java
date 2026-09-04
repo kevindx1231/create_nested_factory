@@ -11,6 +11,7 @@ import com.createnestedfactory.create_nested_factory.registry.ModMenus;
 import com.createnestedfactory.create_nested_factory.registry.ModItems;
 import com.simibubi.create.content.kinetics.base.HorizontalKineticBlock;
 import net.minecraft.core.Direction;
+import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerPlayer;
@@ -53,6 +54,7 @@ public class FactoryMenu extends AbstractContainerMenu {
     private static final int PLAYER_HOTBAR_START = PLAYER_INVENTORY_START + 27;
     private static final int PLAYER_INVENTORY_END = PLAYER_INVENTORY_START + 36;
     private static final int RENAME_MAX_LENGTH = 25;
+    public static final int DESTROY_BUTTON_ID = 30;
 
     private final NestedFactoryBlockEntity factory;
     private final Container overclockInventory;
@@ -279,6 +281,14 @@ public class FactoryMenu extends AbstractContainerMenu {
                 return true;
             } else if (id >= 20 && id <= 25) {
                 return factory.selectOverclockTier(OverclockTier.byId(id - 20));
+            } else if (id == DESTROY_BUTTON_ID && player instanceof ServerPlayer serverPlayer) {
+                Component failure = factory.requestSpaceDestruction(serverPlayer);
+                if (failure == null) {
+                    serverPlayer.closeContainer();
+                } else {
+                    PlayerMessagePayload.sendTo(serverPlayer, failure.copy().withStyle(ChatFormatting.RED), false);
+                }
+                return true;
             }
         }
         return super.clickMenuButton(player, id);

@@ -1,7 +1,5 @@
 package com.createnestedfactory.create_nested_factory.event;
 
-import com.createnestedfactory.create_nested_factory.network.PlayerMessagePayload;
-
 import com.createnestedfactory.create_nested_factory.Create_nested_factory;
 import com.createnestedfactory.create_nested_factory.RoomMutationTaskManager;
 import com.createnestedfactory.create_nested_factory.blueprint.FactoryBlueprintInteractions;
@@ -11,9 +9,9 @@ import com.createnestedfactory.create_nested_factory.block.entity.NestedPortBloc
 import com.createnestedfactory.create_nested_factory.registry.ModAttachments;
 import com.simibubi.create.content.equipment.wrench.WrenchItem;
 import com.simibubi.create.AllItems;
-import net.minecraft.network.chat.Component;
-import net.minecraft.ChatFormatting;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.effect.MobEffectInstance;
@@ -22,6 +20,7 @@ import net.minecraft.world.level.Level;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
+import net.neoforged.neoforge.event.entity.EntityLeaveLevelEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.level.BlockEvent;
@@ -106,6 +105,22 @@ public class PocketEvents {
         }
     }
 
+    @SubscribeEvent
+    public static void onBoundFactoryItemLeaveLevel(EntityLeaveLevelEvent event) {
+        Entity entity = event.getEntity();
+        if (!(entity instanceof ItemEntity itemEntity)
+                || event.getLevel().isClientSide()
+                || itemEntity.getItem().isEmpty()) {
+            return;
+        }
+        if (itemEntity.getItem().is(com.createnestedfactory.create_nested_factory.registry.ModItems.NESTED_FACTORY.get())
+                && itemEntity.getRemovalReason() != Entity.RemovalReason.UNLOADED_TO_CHUNK
+                && itemEntity.getRemovalReason() != Entity.RemovalReason.UNLOADED_WITH_PLAYER
+                && itemEntity.getRemovalReason() != Entity.RemovalReason.CHANGED_DIMENSION) {
+            NestedFactoryBlockEntity.destroyPortableItem((net.minecraft.server.level.ServerLevel) event.getLevel(), itemEntity);
+        }
+    }
+
     private static void markPocketRoomIndexDirty(Level level, net.minecraft.core.BlockPos pos) {
         if (level.isClientSide() || !level.dimension().equals(NestedFactoryBlock.POCKET_DIMENSION)
                 || !(level instanceof net.minecraft.server.level.ServerLevel pocket)) {
@@ -153,37 +168,8 @@ public class PocketEvents {
             port.onBlockDestroyed(event.getPlayer());
             return;
         }
-        if (!(level.getBlockEntity(event.getPos()) instanceof NestedFactoryBlockEntity factory)) {
-            return;
-        }
-        if (factory.hasPendingPortResources()) {
-            factory.dropPendingPortItemsAndDiscardFluids();
-        }
-        if (factory.hasRecordedChild()) {
-            event.setCanceled(true);
-            if (event.getPlayer() instanceof ServerPlayer player) {
-                PlayerMessagePayload.sendTo(player, Component.translatable("message.create_nested_factory.factory.child_factory_prevents_break").withStyle(ChatFormatting.RED), false);
-            }
-            return;
-        }
-        if (factory.isNested() && factory.isEnterable() && !factory.isInvalidNested() && factory.hasPlayersInside()) {
-            event.setCanceled(true);
-            if (event.getPlayer() instanceof ServerPlayer player) {
-                PlayerMessagePayload.sendTo(player, Component.translatable("message.create_nested_factory.factory.players_prevent_break").withStyle(ChatFormatting.RED), false);
-            }
-            return;
-        }
-        if (factory.isRoomMutationLocked()) {
-            event.setCanceled(true);
-            if (event.getPlayer() instanceof ServerPlayer player) {
-                PlayerMessagePayload.sendTo(player, Component.translatable("message.create_nested_factory.room_mutation.active")
-                        .withStyle(ChatFormatting.YELLOW), false);
-            }
-            return;
-        }
-        // The destroy task has its own persistent room snapshot. Let normal block breaking
-        // complete so the client never receives a cancellation-driven block restoration.
-        factory.prepareForPlayerBreak(event.getPlayer());
+        // Ordinary factory breaking is a portable move. The block supplies a bound item drop
+        // and deliberately leaves its Pocket room intact.
     }
 
     @SubscribeEvent
