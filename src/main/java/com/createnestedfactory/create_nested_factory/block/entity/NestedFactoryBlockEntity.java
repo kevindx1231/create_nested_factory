@@ -14,12 +14,14 @@ import com.createnestedfactory.create_nested_factory.block.FactoryFacePortBindin
 import com.createnestedfactory.create_nested_factory.block.FactoryPowerProfile;
 import com.createnestedfactory.create_nested_factory.block.NestedFactoryBlock;
 import com.createnestedfactory.create_nested_factory.block.OperationMode;
+import com.createnestedfactory.create_nested_factory.block.OverclockTier;
 import com.createnestedfactory.create_nested_factory.block.PocketBounds;
 import com.createnestedfactory.create_nested_factory.block.PortMode;
 import com.createnestedfactory.create_nested_factory.energy.FactoryEnergyStorage;
 import com.createnestedfactory.create_nested_factory.menu.FactoryMenu;
 import com.createnestedfactory.create_nested_factory.registry.ModAttachments;
 import com.createnestedfactory.create_nested_factory.registry.ModBlockEntities;
+import com.createnestedfactory.create_nested_factory.registry.ModItems;
 import com.mojang.logging.LogUtils;
 import com.simibubi.create.content.fluids.FluidPropagator;
 import com.simibubi.create.content.fluids.FluidTransportBehaviour;
@@ -38,6 +40,8 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
@@ -45,6 +49,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.MenuProvider;
+import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
@@ -98,7 +103,26 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
 
     private OperationMode operationMode = OperationMode.CHUNK_LOADED;
     private final FactoryPowerProfile powerProfile = new FactoryPowerProfile();
+    private boolean simulatedPowerProfileCaptured;
+    private boolean recoverSimulatedPowerProfileOnLoad;
     private final BlackboxData blackbox = new BlackboxData();
+    private final SimpleContainer overclockInventory = new SimpleContainer(4) {
+        @Override
+        public void setChanged() {
+            super.setChanged();
+            onOverclockInventoryChanged();
+        }
+    };
+    private OverclockTier selectedOverclockTier = OverclockTier.NORMAL;
+    private OverclockTier activeOverclockTier = OverclockTier.NORMAL;
+    private boolean loadingOverclockInventory;
+    private boolean overclockBatteriesDropped;
+    private BlackboxData cachedOverclockRecipe;
+    private String cachedOverclockRecipeFingerprint = "";
+    private OverclockTier cachedOverclockRecipeTier = OverclockTier.NORMAL;
+    private BlackboxData cachedSelectedOverclockRecipe;
+    private String cachedSelectedOverclockRecipeFingerprint = "";
+    private OverclockTier cachedSelectedOverclockRecipeTier = OverclockTier.NORMAL;
     private boolean blueprintApplied = false;
     private NestedFactoryBlueprint appliedBlueprint = null;
     private FactoryRestoreSnapshot preBlueprintSnapshot = null;
@@ -275,22 +299,180 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     public FactoryPowerProfile getPowerProfile() {
-        return effectivePowerProfile();
+        return basePowerProfile();
     }
 
-    /**
-     * Blueprint execution is defined by the source factory's captured profile, not by
-     * mutable profile data on the target block entity.
-     */
-    private FactoryPowerProfile effectivePowerProfile() {
+    private FactoryPowerProfile basePowerProfile() {
         if (operationMode == OperationMode.BLUEPRINT && appliedBlueprint != null) {
             return appliedBlueprint.powerProfile();
         }
         return powerProfile;
     }
 
+    /**
+     * Blueprint execution is defined by the source factory's captured profile, while the
+     * target factory's active overclock scales the complete simulated profile.
+     */
+    private FactoryPowerProfile effectivePowerProfile() {
+        FactoryPowerProfile base = basePowerProfile();
+        float multiplier = effectiveOverclockMultiplier();
+        return multiplier == 1.0f ? base : base.scaled(multiplier);
+    }
+
+    private FactoryPowerProfile displayedPowerProfile() {
+        FactoryPowerProfile base = basePowerProfile();
+        float multiplier = selectedOverclockMultiplier();
+        return multiplier == 1.0f ? base : base.scaled(multiplier);
+    }
+
     public BlackboxData getBlackbox() {
         return blackbox;
+    }
+
+    public BlackboxData getDisplayedBlackbox() {
+        return isSimulatedMode() ? selectedOverclockRecipe() : blackbox;
+    }
+
+    public SimpleContainer getOverclockInventory() {
+        return overclockInventory;
+    }
+
+    public int getOverclockBatteryCount() {
+        int count = 0;
+        for (int i = 0; i < overclockInventory.getContainerSize(); i++) {
+            if (!overclockInventory.getItem(i).is(ModItems.BLAZE_BATTERY.get())) {
+                break;
+            }
+            count++;
+        }
+        return count;
+    }
+
+    public OverclockTier getSelectedOverclockTier() {
+        return selectedOverclockTier;
+    }
+
+    public OverclockTier getActiveOverclockTier() {
+        return activeOverclockTier;
+    }
+
+    public boolean canPlaceOverclockBattery(int slot, ItemStack stack) {
+        if (slot < 0 || slot >= overclockInventory.getContainerSize()
+                || stack.isEmpty() || !stack.is(ModItems.BLAZE_BATTERY.get())
+                || !overclockInventory.getItem(slot).isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < slot; i++) {
+            if (!overclockInventory.getItem(i).is(ModItems.BLAZE_BATTERY.get())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public boolean canRemoveOverclockBattery(int slot) {
+        if (slot < 0 || slot >= overclockInventory.getContainerSize()) {
+            return false;
+        }
+        for (int i = slot + 1; i < overclockInventory.getContainerSize(); i++) {
+            if (!overclockInventory.getItem(i).isEmpty()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public boolean selectOverclockTier(OverclockTier tier) {
+        if (!isSimulatedMode() || tier == null || !tier.unlockedBy(getOverclockBatteryCount())
+                || tier == OverclockTier.NORMAL) {
+            return false;
+        }
+        if (selectedOverclockTier == tier) {
+            return true;
+        }
+        selectedOverclockTier = tier;
+        applySelectedOverclockIfReady();
+        setChanged();
+        sendSync();
+        return true;
+    }
+
+    public float getEffectiveProductionEfficiency() {
+        float sourceEfficiency = operationMode == OperationMode.BLUEPRINT && appliedBlueprint != null
+                ? appliedBlueprint.productionEfficiency() : 1.0f;
+        return sourceEfficiency * selectedOverclockMultiplier();
+    }
+
+    private float effectiveOverclockMultiplier() {
+        return isSimulatedMode() ? activeOverclockTier.multiplier() : 1.0f;
+    }
+
+    private float selectedOverclockMultiplier() {
+        return isSimulatedMode() ? selectedOverclockTier.multiplier() : 1.0f;
+    }
+
+    private void onOverclockInventoryChanged() {
+        if (loadingOverclockInventory) {
+            return;
+        }
+        selectedOverclockTier = OverclockTier.normalizeSelection(
+                selectedOverclockTier, getOverclockBatteryCount());
+        applySelectedOverclockIfReady();
+        setChanged();
+        sendSync();
+    }
+
+    private void applySelectedOverclockIfReady() {
+        if (!productionBatch.isEmpty() || activeOverclockTier == selectedOverclockTier) {
+            return;
+        }
+        activeOverclockTier = selectedOverclockTier;
+        invalidateOverclockRecipe();
+        setChanged();
+        sendSync();
+    }
+
+    private void invalidateOverclockRecipe() {
+        cachedOverclockRecipe = null;
+        cachedOverclockRecipeFingerprint = "";
+        cachedOverclockRecipeTier = OverclockTier.NORMAL;
+        cachedSelectedOverclockRecipe = null;
+        cachedSelectedOverclockRecipeFingerprint = "";
+        cachedSelectedOverclockRecipeTier = OverclockTier.NORMAL;
+    }
+
+    private BlackboxData effectiveRecipe() {
+        if (level == null || !level.isClientSide()) {
+            applySelectedOverclockIfReady();
+        }
+        float multiplier = effectiveOverclockMultiplier();
+        if (multiplier == 1.0f) {
+            return blackbox;
+        }
+        String fingerprint = FactoryProductionBatch.fingerprint(blackbox);
+        if (cachedOverclockRecipe == null || cachedOverclockRecipeTier != activeOverclockTier
+                || !cachedOverclockRecipeFingerprint.equals(fingerprint)) {
+            cachedOverclockRecipe = blackbox.scaledRecipe(multiplier);
+            cachedOverclockRecipeTier = activeOverclockTier;
+            cachedOverclockRecipeFingerprint = fingerprint;
+        }
+        return cachedOverclockRecipe;
+    }
+
+    private BlackboxData selectedOverclockRecipe() {
+        float multiplier = selectedOverclockMultiplier();
+        if (multiplier == 1.0f) {
+            return blackbox;
+        }
+        String fingerprint = FactoryProductionBatch.fingerprint(blackbox);
+        if (cachedSelectedOverclockRecipe == null
+                || cachedSelectedOverclockRecipeTier != selectedOverclockTier
+                || !cachedSelectedOverclockRecipeFingerprint.equals(fingerprint)) {
+            cachedSelectedOverclockRecipe = blackbox.scaledRecipe(multiplier);
+            cachedSelectedOverclockRecipeTier = selectedOverclockTier;
+            cachedSelectedOverclockRecipeFingerprint = fingerprint;
+        }
+        return cachedSelectedOverclockRecipe;
     }
 
     public boolean isBlueprintApplied() {
@@ -418,7 +600,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     public int getMaxEnergyExtract() {
-        return (int) Math.min(MAX_FE_PER_TICK, Math.max(0f, effectivePowerProfile().netFE()));
+        return (int) Math.min(Integer.MAX_VALUE, Math.max(0f, effectivePowerProfile().netFE()));
     }
 
     public IEnergyStorage getEnergyStorage(Direction side) {
@@ -815,7 +997,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
 
     public int getInputMbPerSec() {
         float perSec = 0f;
-        for (float v : blackbox.getInputFluidRates().values()) {
+        for (float v : getDisplayedBlackbox().getInputFluidRates().values()) {
             perSec += v;
         }
         return (int) perSec;
@@ -823,7 +1005,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
 
     public int getOutputMbPerSec() {
         float perSec = 0f;
-        for (float v : blackbox.getOutputFluidRates().values()) {
+        for (float v : getDisplayedBlackbox().getOutputFluidRates().values()) {
             perSec += v;
         }
         return (int) perSec;
@@ -848,7 +1030,13 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             default -> { }
         }
 
-        FactoryPowerProfile displayedPowerProfile = effectivePowerProfile();
+        if (operationMode == OperationMode.BLACKBOX_ACTIVE) {
+            tooltip.add(GoggleTooltips.stat("goggles.create_nested_factory.blueprint.efficiency",
+                    String.format(Locale.ROOT, "%.0f%%", getEffectiveProductionEfficiency() * 100.0f),
+                    ChatFormatting.GOLD));
+        }
+
+        FactoryPowerProfile displayedPowerProfile = displayedPowerProfile();
 
         if (displayedPowerProfile.generatedSU() != 0f || displayedPowerProfile.consumedSU() != 0f) {
             tooltip.add(GoggleTooltips.section("goggles.create_nested_factory.stress"));
@@ -864,15 +1052,16 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             tooltip.add(GoggleTooltips.stat("goggles.create_nested_factory.net", fmt(displayedPowerProfile.netFE()) + " FE/t", ChatFormatting.GOLD));
         }
 
-        addItemRates(tooltip, "goggles.create_nested_factory.input_items", blackbox.getInputRates());
-        addItemRates(tooltip, "goggles.create_nested_factory.output_items", blackbox.getOutputRates());
+        BlackboxData displayedRecipe = getDisplayedBlackbox();
+        addItemRates(tooltip, "goggles.create_nested_factory.input_items", displayedRecipe.getInputRates());
+        addItemRates(tooltip, "goggles.create_nested_factory.output_items", displayedRecipe.getOutputRates());
 
         if (blueprintApplied && appliedBlueprint != null) {
             tooltip.add(GoggleTooltips.section("goggles.create_nested_factory.blueprint"));
             tooltip.add(GoggleTooltips.stat("goggles.create_nested_factory.blueprint.source_name",
                     Component.literal(appliedBlueprint.sourceFactoryName()).withStyle(ChatFormatting.AQUA)));
             tooltip.add(GoggleTooltips.stat("goggles.create_nested_factory.blueprint.efficiency",
-                    String.format(Locale.ROOT, "%.0f%%", appliedBlueprint.productionEfficiency() * 100.0f), ChatFormatting.GOLD));
+                    String.format(Locale.ROOT, "%.0f%%", getEffectiveProductionEfficiency() * 100.0f), ChatFormatting.GOLD));
             tooltip.add(GoggleTooltips.stat("goggles.create_nested_factory.blueprint.source_dimension",
                     appliedBlueprint.sourceDimension(), ChatFormatting.GRAY));
             tooltip.add(GoggleTooltips.stat("goggles.create_nested_factory.blueprint.source_pos",
@@ -882,8 +1071,8 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                     String.valueOf(appliedBlueprint.sourceDepth()), ChatFormatting.LIGHT_PURPLE));
         }
 
-        addFluidRates(tooltip, "goggles.create_nested_factory.input_fluids", blackbox.getInputFluidRates());
-        addFluidRates(tooltip, "goggles.create_nested_factory.output_fluids", blackbox.getOutputFluidRates());
+        addFluidRates(tooltip, "goggles.create_nested_factory.input_fluids", displayedRecipe.getInputFluidRates());
+        addFluidRates(tooltip, "goggles.create_nested_factory.output_fluids", displayedRecipe.getOutputFluidRates());
 
         if (nested && !isEnterable()) {
             tooltip.add(Component.literal("    ")
@@ -1101,8 +1290,11 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     private void enterActive() {
         blackbox.compileRecipe();
         blackbox.setRecording(false);
+        invalidateOverclockRecipe();
         scanPowerProfile(pocketLevel());
+        simulatedPowerProfileCaptured = true;
         operationMode = OperationMode.BLACKBOX_ACTIVE;
+        applySelectedOverclockIfReady();
         invalidateResourceCapabilities();
         removeChunkRef("load");
         setChanged();
@@ -1110,16 +1302,20 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     private void tickBlackbox() {
-        if (!productionBatch.matchesRecipe(blackbox)) {
+        applySelectedOverclockIfReady();
+        BlackboxData recipe = effectiveRecipe();
+        if (!productionBatch.matchesRecipe(recipe)) {
             invalidateProductionBatch(null, "recipe_changed");
+            applySelectedOverclockIfReady();
+            recipe = effectiveRecipe();
         }
-        productionBatch.ensureRecipe(blackbox);
+        productionBatch.ensureRecipe(recipe);
 
-        int cycle = Math.max(BlackboxData.RATE_WINDOW, blackbox.getRecipeCycleTicks());
+        int cycle = Math.max(BlackboxData.RATE_WINDOW, recipe.getRecipeCycleTicks());
         if (itemCycleCounter < cycle) {
             itemCycleCounter++;
         }
-        if (productionBatch.isDeliveringOutputs() || !productionBatch.inputsComplete(blackbox)
+        if (productionBatch.isDeliveringOutputs() || !productionBatch.inputsComplete(recipe)
                 || itemCycleCounter < cycle) {
             return;
         }
@@ -1131,18 +1327,18 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             return;
         }
 
-        float boundedNetFE = Math.max(-MAX_FE_PER_TICK, Math.min(MAX_FE_PER_TICK, activePowerProfile.netFE()));
-        long batchEnergy = Math.round(Math.abs(boundedNetFE) * cycle);
-        if (boundedNetFE < 0 && energyStored < batchEnergy) {
+        float netFE = activePowerProfile.netFE();
+        long batchEnergy = Math.round(Math.abs(netFE) * cycle);
+        if (netFE < 0 && energyStored < batchEnergy) {
             return;
         }
-        if (boundedNetFE < 0) {
+        if (netFE < 0) {
             energyStored -= (int) Math.min(batchEnergy, Integer.MAX_VALUE);
-        } else if (boundedNetFE > 0) {
+        } else if (netFE > 0) {
             energyStored = (int) Math.min(ENERGY_CAPACITY, energyStored + batchEnergy);
         }
 
-        productionBatch.commitOutputs(blackbox);
+        productionBatch.commitOutputs(recipe);
         itemCycleCounter = 0;
         setChanged();
     }
@@ -1863,7 +2059,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         }
 
         if (isSimulatedMode()) {
-            boolean accepted = productionBatch.acceptItemInputs(blackbox, stacks, simulate);
+            boolean accepted = productionBatch.acceptItemInputs(effectiveRecipe(), stacks, simulate);
             if (accepted && !simulate) {
                 setChanged();
             }
@@ -2614,9 +2810,10 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 return 0;
             }
             if (isSimulatedMode()) {
+                BlackboxData recipe = effectiveRecipe();
                 return mode() == PortMode.INPUT
-                        ? productionBatch.sortedInputItems(blackbox).size()
-                        : productionBatch.sortedOutputItems(blackbox).size();
+                        ? productionBatch.sortedInputItems(recipe).size()
+                        : productionBatch.sortedOutputItems(recipe).size();
             }
             if (mode() == PortMode.INPUT) {
                 return canAcceptInput(portId(), false) ? 1 : 0;
@@ -2627,7 +2824,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         @Override
         public ItemStack getStackInSlot(int slot) {
             if (mode() == PortMode.OUTPUT && isSimulatedMode()) {
-                List<ItemVariant> items = productionBatch.sortedOutputItems(blackbox);
+                List<ItemVariant> items = productionBatch.sortedOutputItems(effectiveRecipe());
                 if (slot >= 0 && slot < items.size()) {
                     ItemVariant item = items.get(slot);
                     long remaining = productionBatch.remainingItemOutput(item);
@@ -2648,11 +2845,12 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 return stack;
             }
             if (isSimulatedMode()) {
-                List<ItemVariant> items = productionBatch.sortedInputItems(blackbox);
+                BlackboxData recipe = effectiveRecipe();
+                List<ItemVariant> items = productionBatch.sortedInputItems(recipe);
                 if (slot < 0 || slot >= items.size() || !items.get(slot).matches(stack)) {
                     return stack;
                 }
-                int accepted = productionBatch.acceptItemInput(blackbox, stack, simulate);
+                int accepted = productionBatch.acceptItemInput(recipe, stack, simulate);
                 if (!simulate && accepted > 0) {
                     setChanged();
                 }
@@ -2689,7 +2887,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 return ItemStack.EMPTY;
             }
             if (isSimulatedMode()) {
-                List<ItemVariant> items = productionBatch.sortedOutputItems(blackbox);
+                List<ItemVariant> items = productionBatch.sortedOutputItems(effectiveRecipe());
                 if (slot < 0 || slot >= items.size()) {
                     return ItemStack.EMPTY;
                 }
@@ -2724,7 +2922,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             if (!isSimulatedMode()) {
                 return canAcceptInput(portId(), false);
             }
-            List<ItemVariant> items = productionBatch.sortedInputItems(blackbox);
+            List<ItemVariant> items = productionBatch.sortedInputItems(effectiveRecipe());
             return slot >= 0 && slot < items.size() && items.get(slot).matches(stack);
         }
     }
@@ -2847,9 +3045,10 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 return 0;
             }
             if (isSimulatedMode()) {
+                BlackboxData recipe = effectiveRecipe();
                 return mode() == PortMode.INPUT
-                        ? productionBatch.sortedInputFluids(blackbox).size()
-                        : productionBatch.sortedOutputFluids(blackbox).size();
+                        ? productionBatch.sortedInputFluids(recipe).size()
+                        : productionBatch.sortedOutputFluids(recipe).size();
             }
             return hasRoomPort(portId()) ? (mode() == PortMode.INPUT
                     ? 1 : Math.max(1, portChannel(portId()).outputFluids().tanks())) : 0;
@@ -2858,9 +3057,10 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         @Override
         public FluidStack getFluidInTank(int tank) {
             if (isSimulatedMode()) {
+                BlackboxData recipe = effectiveRecipe();
                 List<Fluid> fluids = mode() == PortMode.INPUT
-                        ? productionBatch.sortedInputFluids(blackbox)
-                        : productionBatch.sortedOutputFluids(blackbox);
+                        ? productionBatch.sortedInputFluids(recipe)
+                        : productionBatch.sortedOutputFluids(recipe);
                 if (tank < 0 || tank >= fluids.size()) {
                     return FluidStack.EMPTY;
                 }
@@ -2878,16 +3078,17 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         @Override
         public int getTankCapacity(int tank) {
             if (isSimulatedMode()) {
+                BlackboxData recipe = effectiveRecipe();
                 List<Fluid> fluids = mode() == PortMode.INPUT
-                        ? productionBatch.sortedInputFluids(blackbox)
-                        : productionBatch.sortedOutputFluids(blackbox);
+                        ? productionBatch.sortedInputFluids(recipe)
+                        : productionBatch.sortedOutputFluids(recipe);
                 if (tank < 0 || tank >= fluids.size()) {
                     return 0;
                 }
                 Fluid fluid = fluids.get(tank);
                 long capacity = mode() == PortMode.INPUT
-                        ? blackbox.getRecipeInputFluids().getOrDefault(fluid, 0L)
-                        : blackbox.getRecipeOutputFluids().getOrDefault(fluid, 0L);
+                        ? recipe.getRecipeInputFluids().getOrDefault(fluid, 0L)
+                        : recipe.getRecipeOutputFluids().getOrDefault(fluid, 0L);
                 return (int) Math.min(capacity, Integer.MAX_VALUE);
             }
             return hasRoomPort(portId()) && tank == 0 ? Integer.MAX_VALUE : 0;
@@ -2901,7 +3102,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             if (!isSimulatedMode()) {
                 return hasRoomPort(portId()) && stack != null && !stack.isEmpty();
             }
-            List<Fluid> fluids = productionBatch.sortedInputFluids(blackbox);
+            List<Fluid> fluids = productionBatch.sortedInputFluids(effectiveRecipe());
             return tank >= 0 && tank < fluids.size() && stack.is(fluids.get(tank));
         }
 
@@ -2912,7 +3113,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 return 0;
             }
             if (isSimulatedMode()) {
-                int accepted = productionBatch.acceptFluidInput(blackbox, resource, action.simulate());
+                int accepted = productionBatch.acceptFluidInput(effectiveRecipe(), resource, action.simulate());
                 if (action.execute() && accepted > 0) {
                     setChanged();
                 }
@@ -2983,7 +3184,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 return FluidStack.EMPTY;
             }
             if (isSimulatedMode()) {
-                for (Fluid fluid : productionBatch.sortedOutputFluids(blackbox)) {
+                for (Fluid fluid : productionBatch.sortedOutputFluids(effectiveRecipe())) {
                     FluidStack result = productionBatch.drainFluidOutput(fluid, maxDrain, action.simulate());
                     if (!result.isEmpty()) {
                         if (action.execute()) {
@@ -3339,7 +3540,26 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             blackbox.setRecording(false);
             if (!invalidNested && registerFactoryState()) {
                 ensureRoomGenerated();
-                rebuildRuntimeIndex(pocketLevel(), true);
+                // Black-box and blueprint execution use a frozen power profile. Rebuilding here
+                // would rescan an unloaded/idle room and overwrite its persisted stress demand.
+                if (usesRuntimeIndex() || recoverSimulatedPowerProfileOnLoad) {
+                    boolean recoveringFrozenProfile = recoverSimulatedPowerProfileOnLoad;
+                    if (recoveringFrozenProfile) {
+                        addChunkRef("power-profile-recovery");
+                    }
+                    try {
+                        rebuildRuntimeIndex(pocketLevel(), true);
+                    } finally {
+                        if (recoveringFrozenProfile) {
+                            removeChunkRef("power-profile-recovery");
+                        }
+                    }
+                }
+                if (recoverSimulatedPowerProfileOnLoad) {
+                    simulatedPowerProfileCaptured = true;
+                    recoverSimulatedPowerProfileOnLoad = false;
+                    setChanged();
+                }
                 refreshChunkRefsForMode();
             } else if (blueprintApplied) {
                 setChanged();
@@ -3362,6 +3582,9 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             clearExternalStressState();
             clearStressRelay();
             return;
+        }
+        if (operationMode == OperationMode.BLACKBOX_ACTIVE || operationMode == OperationMode.BLUEPRINT) {
+            applySelectedOverclockIfReady();
         }
         if (operationMode == OperationMode.BLACKBOX_ACTIVE || operationMode == OperationMode.BLUEPRINT) {
             settleSimulatedStress();
@@ -3446,6 +3669,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             return;
         }
         invalidateProductionBatch(null, "factory_destroyed");
+        dropInstalledOverclockBatteries();
         if (nested ? isValidNestedFactory() : rootRoomAllocated) {
             evacuateFactorySpace();
             RoomMutationTaskManager.get(server).scheduleDestroy(
@@ -3472,6 +3696,30 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
 
     private boolean isValidNestedFactory() {
         return nested && enterable && !invalidNested && nestedSlotId >= 0;
+    }
+
+    public void dropInstalledOverclockBatteries() {
+        if (overclockBatteriesDropped || level == null || level.isClientSide()) {
+            return;
+        }
+        overclockBatteriesDropped = true;
+        loadingOverclockInventory = true;
+        try {
+            for (int i = 0; i < overclockInventory.getContainerSize(); i++) {
+                ItemStack stack = overclockInventory.removeItemNoUpdate(i);
+                if (!stack.isEmpty()) {
+                    Block.popResource(level, worldPosition, stack);
+                }
+            }
+        } finally {
+            loadingOverclockInventory = false;
+        }
+        selectedOverclockTier = OverclockTier.NORMAL;
+        if (productionBatch.isEmpty()) {
+            activeOverclockTier = OverclockTier.NORMAL;
+        }
+        invalidateOverclockRecipe();
+        setChanged();
     }
 
     /** Returns every player in this root factory's nested tree before the root room is cleared. */
@@ -3538,9 +3786,14 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         tag.putInt("DrainStaticCount", drainStaticCount);
         tag.putInt("LearningTicksRemaining", learningTicksRemaining);
         tag.put("PowerProfile", powerProfile.write());
+        tag.putBoolean("SimulatedPowerProfileCaptured", simulatedPowerProfileCaptured);
         blackbox.write(tag, registries);
         tag.putInt("EnergyStored", energyStored);
         tag.put("ProductionBatch", productionBatch.write(new CompoundTag(), registries));
+        tag.putInt("OverclockBatteryFormat", 2);
+        tag.put("OverclockBatteries", writeOverclockBatteries(registries));
+        tag.putInt("SelectedOverclockTier", selectedOverclockTier.id());
+        tag.putInt("ActiveOverclockTier", activeOverclockTier.id());
         tag.put("PortChannels", portChannels.write(new CompoundTag(), registries));
         tag.putString("FactoryId", factoryId);
         tag.putBoolean("RootRoomAllocated", rootRoomAllocated);
@@ -3601,6 +3854,10 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         drainStaticCount = tag.getInt("DrainStaticCount");
         learningTicksRemaining = tag.getInt("LearningTicksRemaining");
         powerProfile.read(tag.getCompound("PowerProfile"));
+        simulatedPowerProfileCaptured = tag.getBoolean("SimulatedPowerProfileCaptured");
+        recoverSimulatedPowerProfileOnLoad = !clientPacket
+                && operationMode == OperationMode.BLACKBOX_ACTIVE
+                && !simulatedPowerProfileCaptured;
         blackbox.read(tag, registries);
         energyStored = tag.getInt("EnergyStored");
         if (tag.contains("ProductionBatch")) {
@@ -3608,6 +3865,26 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         } else {
             productionBatch.clear();
         }
+        loadingOverclockInventory = true;
+        int repairedCollapsedBatteryCount;
+        try {
+            repairedCollapsedBatteryCount = readOverclockBatteries(tag, registries);
+        } finally {
+            loadingOverclockInventory = false;
+        }
+        OverclockTier loadedSelectedTier = OverclockTier.byId(tag.getInt("SelectedOverclockTier"));
+        if (!clientPacket && repairedCollapsedBatteryCount > 1
+                && loadedSelectedTier == OverclockTier.DOUBLE) {
+            loadedSelectedTier = OverclockTier.highestForBatteries(repairedCollapsedBatteryCount);
+        }
+        selectedOverclockTier = clientPacket ? loadedSelectedTier
+                : OverclockTier.normalizeSelection(loadedSelectedTier, getOverclockBatteryCount());
+        activeOverclockTier = tag.contains("ActiveOverclockTier")
+                ? OverclockTier.byId(tag.getInt("ActiveOverclockTier")) : selectedOverclockTier;
+        if (!clientPacket && productionBatch.isEmpty()) {
+            activeOverclockTier = selectedOverclockTier;
+        }
+        invalidateOverclockRecipe();
         if (tag.contains("PortChannels")) {
             portChannels.read(tag.getCompound("PortChannels"), registries);
         }
@@ -3662,6 +3939,55 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             preBlueprintSnapshot = null;
         }
         super.read(tag, registries, clientPacket);
+    }
+
+    private ListTag writeOverclockBatteries(HolderLookup.Provider registries) {
+        ListTag batteries = new ListTag();
+        for (int slot = 0; slot < overclockInventory.getContainerSize(); slot++) {
+            ItemStack stack = overclockInventory.getItem(slot);
+            if (!stack.is(ModItems.BLAZE_BATTERY.get())) {
+                continue;
+            }
+            CompoundTag entry = new CompoundTag();
+            entry.putByte("Slot", (byte) slot);
+            entry.put("Stack", stack.copyWithCount(1).save(registries));
+            batteries.add(entry);
+        }
+        return batteries;
+    }
+
+    private int readOverclockBatteries(CompoundTag root, HolderLookup.Provider registries) {
+        overclockInventory.clearContent();
+        if (!root.contains("OverclockBatteries", Tag.TAG_LIST)) {
+            return 0;
+        }
+
+        List<ItemStack> batteries = new ArrayList<>();
+        int repairedCollapsedBatteryCount = 0;
+        for (Tag raw : root.getList("OverclockBatteries", Tag.TAG_COMPOUND)) {
+            CompoundTag entry = (CompoundTag) raw;
+            boolean currentFormat = entry.contains("Stack", Tag.TAG_COMPOUND);
+            CompoundTag stackTag = currentFormat ? entry.getCompound("Stack") : entry;
+            ItemStack stack = ItemStack.parseOptional(registries, stackTag);
+            if (!stack.is(ModItems.BLAZE_BATTERY.get())) {
+                continue;
+            }
+            if (!currentFormat && stack.getCount() > 1) {
+                repairedCollapsedBatteryCount = Math.max(repairedCollapsedBatteryCount, stack.getCount());
+            }
+            int copies = Math.min(stack.getCount(), overclockInventory.getContainerSize() - batteries.size());
+            for (int i = 0; i < copies; i++) {
+                batteries.add(stack.copyWithCount(1));
+            }
+            if (batteries.size() >= overclockInventory.getContainerSize()) {
+                break;
+            }
+        }
+
+        for (int slot = 0; slot < batteries.size(); slot++) {
+            overclockInventory.setItem(slot, batteries.get(slot));
+        }
+        return Math.min(repairedCollapsedBatteryCount, overclockInventory.getContainerSize());
     }
 
     private static FactoryRestoreSnapshot readRestoreSnapshot(CompoundTag tag) {

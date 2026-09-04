@@ -96,6 +96,28 @@ public final class BlackboxData {
                 && (!recipeOutputs.isEmpty() || !recipeOutputFluids.isEmpty());
     }
 
+    public BlackboxData scaledRecipe(float multiplier) {
+        BlackboxData scaled = new BlackboxData();
+        recipeInputs.forEach((variant, count) -> scaled.recipeInputs.put(variant, scaledCount(count, multiplier)));
+        recipeOutputs.forEach((variant, count) -> scaled.recipeOutputs.put(variant, scaledCount(count, multiplier)));
+        recipeInputFluids.forEach((fluid, count) -> scaled.recipeInputFluids.put(fluid, scaledCount(count, multiplier)));
+        recipeOutputFluids.forEach((fluid, count) -> scaled.recipeOutputFluids.put(fluid, scaledCount(count, multiplier)));
+        scaled.recipeCycleTicks = recipeCycleTicks;
+        scaled.syncDisplayRates();
+        return scaled;
+    }
+
+    private static long scaledCount(long count, float multiplier) {
+        if (count <= 0) {
+            return 0;
+        }
+        double scaled = Math.floor(count * (double) multiplier);
+        if (!Double.isFinite(scaled) || scaled >= Long.MAX_VALUE) {
+            return Long.MAX_VALUE;
+        }
+        return Math.max(1L, (long) scaled);
+    }
+
     public void setRecording(boolean recording) {
         this.recording = recording;
     }

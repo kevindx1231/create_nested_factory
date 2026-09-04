@@ -24,6 +24,7 @@ public final class ModCreativeModeTabs {
                         output.accept(ModItems.SPACE_COLLAPSE_MECHANISM.get());
                         output.accept(ModItems.STURDY_CASING.get());
                         output.accept(ModItems.STURDY_ALLOY_INGOT.get());
+                        output.accept(ModItems.BLAZE_BATTERY.get());
                     })
                     .build());
 

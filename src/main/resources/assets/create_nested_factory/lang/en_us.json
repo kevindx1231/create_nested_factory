@@ -8,6 +8,7 @@
   "item.create_nested_factory.space_collapse_mechanism": "Space Collapse Mechanism",
   "item.create_nested_factory.sturdy_casing": "Sturdy Casing",
   "item.create_nested_factory.sturdy_alloy_ingot": "Sturdy Alloy Ingot",
+  "item.create_nested_factory.blaze_battery": "Blaze Battery",
   "item.create_nested_factory.incomplete_sturdy_casing": "Incomplete Sturdy Casing",
   "item.create_nested_factory.incomplete_space_expand_mechanism": "Incomplete Space Expand Mechanism",
   "item.create_nested_factory.incomplete_space_collapse_mechanism": "Incomplete Space Collapse Mechanism",
@@ -102,6 +103,7 @@
   "message.create_nested_factory.blueprint.apply.players_inside": "Players are inside the target factory room, so the blueprint cannot be applied.",
   "message.create_nested_factory.blueprint.cancel.invalid_nested": "Blueprint cancelled. This block has no independent factory room, so it cannot switch to chunk-loaded or normal blackbox mode.",
   "message.create_nested_factory.production_batch.destroyed_fluid": "Batch invalidated; destroyed %s mB of fluid.",
+  "message.create_nested_factory.overclock.remove_later_first": "Remove the later Blaze Batteries first.",
   "message.create_nested_factory.face_mode.updated": "%s: %s (port %s)",
   "message.create_nested_factory.face_mode.updated_none": "%s: %s"
 }

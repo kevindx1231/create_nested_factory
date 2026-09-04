@@ -147,9 +147,11 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
     @Override
     public void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean movedByPiston) {
         if (!level.isClientSide() && !state.is(newState.getBlock())
-                && level.getBlockEntity(pos) instanceof NestedFactoryBlockEntity factory
-                && !factory.isTaskManagerRemovingThisFactory()) {
-            factory.onBlockDestroyed();
+                && level.getBlockEntity(pos) instanceof NestedFactoryBlockEntity factory) {
+            factory.dropInstalledOverclockBatteries();
+            if (!factory.isTaskManagerRemovingThisFactory()) {
+                factory.onBlockDestroyed();
+            }
         }
         super.onRemove(state, level, pos, newState, movedByPiston);
     }

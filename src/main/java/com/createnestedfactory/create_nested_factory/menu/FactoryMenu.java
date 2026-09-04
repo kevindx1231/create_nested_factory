@@ -1,11 +1,14 @@
 package com.createnestedfactory.create_nested_factory.menu;
 
 import com.createnestedfactory.create_nested_factory.block.OperationMode;
+import com.createnestedfactory.create_nested_factory.block.OverclockTier;
 import com.createnestedfactory.create_nested_factory.block.PortMode;
+import com.createnestedfactory.create_nested_factory.block.entity.BlackboxData;
 import com.createnestedfactory.create_nested_factory.block.entity.ItemVariant;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity;
 import com.createnestedfactory.create_nested_factory.network.PlayerMessagePayload;
 import com.createnestedfactory.create_nested_factory.registry.ModMenus;
+import com.createnestedfactory.create_nested_factory.registry.ModItems;
 import com.simibubi.create.content.kinetics.base.HorizontalKineticBlock;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
@@ -13,13 +16,20 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.Container;
+import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.ContainerData;
 import net.minecraft.world.inventory.SimpleContainerData;
+import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.material.Fluid;
 
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -29,17 +39,23 @@ import java.util.Map;
 public class FactoryMenu extends AbstractContainerMenu {
     private static final int DATA_MODE = 0;
     private static final int DATA_FACES = 1;
-    private static final int DATA_INPUT_TYPE = 7;
-    private static final int DATA_INPUT_ID = 8;
-    private static final int DATA_INPUT_RATE = 10;
-    private static final int DATA_OUTPUT_TYPE = 12;
-    private static final int DATA_OUTPUT_ID = 13;
-    private static final int DATA_OUTPUT_RATE = 15;
-    private static final int DATA_BLUEPRINT = 17;
-    private static final int DATA_COUNT = 18;
+    private static final int RESOURCE_ENTRY_SIZE = 5;
+    private static final int RESOURCE_ROWS = 6;
+    private static final int DATA_INPUTS_START = 7;
+    private static final int DATA_OUTPUTS_START = DATA_INPUTS_START + RESOURCE_ENTRY_SIZE * RESOURCE_ROWS;
+    private static final int DATA_BLUEPRINT = DATA_OUTPUTS_START + RESOURCE_ENTRY_SIZE * RESOURCE_ROWS;
+    private static final int DATA_BATTERY_COUNT = DATA_BLUEPRINT + 1;
+    private static final int DATA_SELECTED_OVERCLOCK = DATA_BATTERY_COUNT + 1;
+    private static final int DATA_ACTIVE_OVERCLOCK = DATA_SELECTED_OVERCLOCK + 1;
+    private static final int DATA_COUNT = DATA_ACTIVE_OVERCLOCK + 1;
+    private static final int BATTERY_SLOTS = 4;
+    private static final int PLAYER_INVENTORY_START = BATTERY_SLOTS;
+    private static final int PLAYER_HOTBAR_START = PLAYER_INVENTORY_START + 27;
+    private static final int PLAYER_INVENTORY_END = PLAYER_INVENTORY_START + 36;
     private static final int RENAME_MAX_LENGTH = 25;
 
     private final NestedFactoryBlockEntity factory;
+    private final Container overclockInventory;
     private final ContainerData data = new SimpleContainerData(DATA_COUNT);
 
     public FactoryMenu(int containerId, Inventory playerInventory) {
@@ -49,7 +65,35 @@ public class FactoryMenu extends AbstractContainerMenu {
     public FactoryMenu(int containerId, Inventory playerInventory, NestedFactoryBlockEntity factory) {
         super(ModMenus.FACTORY.get(), containerId);
         this.factory = factory;
+        this.overclockInventory = factory == null ? new SimpleContainer(BATTERY_SLOTS) : factory.getOverclockInventory();
+        checkContainerSize(overclockInventory, BATTERY_SLOTS);
+        addOverclockSlots();
+        addPlayerInventory(playerInventory);
         addDataSlots(data);
+    }
+
+    private void addOverclockSlots() {
+        int[][] positions = {
+                {90, 69},
+                {130, 69},
+                {151, 69},
+                {172, 69}
+        };
+        for (int i = 0; i < BATTERY_SLOTS; i++) {
+            addSlot(new OverclockSlot(overclockInventory, i, positions[i][0], positions[i][1]));
+        }
+    }
+
+    private void addPlayerInventory(Inventory inventory) {
+        for (int row = 0; row < 3; row++) {
+            for (int column = 0; column < 9; column++) {
+                addSlot(new Slot(inventory, column + row * 9 + 9,
+                        91 + column * 18, 137 + row * 18));
+            }
+        }
+        for (int column = 0; column < 9; column++) {
+            addSlot(new Slot(inventory, column, 91 + column * 18, 195));
+        }
     }
 
     @Override
@@ -60,9 +104,13 @@ public class FactoryMenu extends AbstractContainerMenu {
             for (int i = 0; i < 6; i++) {
                 data.set(DATA_FACES + i, factory.getFaceMode(faceForButton(facing, i)).ordinal());
             }
-            syncRate(DATA_INPUT_TYPE, factory.getBlackbox().getInputRates(), factory.getBlackbox().getInputFluidRates());
-            syncRate(DATA_OUTPUT_TYPE, factory.getBlackbox().getOutputRates(), factory.getBlackbox().getOutputFluidRates());
+            BlackboxData displayedRecipe = factory.getDisplayedBlackbox();
+            syncRates(DATA_INPUTS_START, displayedRecipe.getInputRates(), displayedRecipe.getInputFluidRates());
+            syncRates(DATA_OUTPUTS_START, displayedRecipe.getOutputRates(), displayedRecipe.getOutputFluidRates());
             data.set(DATA_BLUEPRINT, factory.isBlueprintApplied() ? 1 : 0);
+            data.set(DATA_BATTERY_COUNT, factory.getOverclockBatteryCount());
+            data.set(DATA_SELECTED_OVERCLOCK, factory.getSelectedOverclockTier().id());
+            data.set(DATA_ACTIVE_OVERCLOCK, factory.getActiveOverclockTier().id());
         }
         super.broadcastChanges();
     }
@@ -77,66 +125,109 @@ public class FactoryMenu extends AbstractContainerMenu {
         return data.get(DATA_BLUEPRINT) != 0;
     }
 
+    public int getOverclockBatteryCount() {
+        return Math.max(0, Math.min(BATTERY_SLOTS, data.get(DATA_BATTERY_COUNT)));
+    }
+
+    public OverclockTier getSelectedOverclockTier() {
+        return OverclockTier.byId(data.get(DATA_SELECTED_OVERCLOCK));
+    }
+
+    public OverclockTier getActiveOverclockTier() {
+        return OverclockTier.byId(data.get(DATA_ACTIVE_OVERCLOCK));
+    }
+
+    public boolean isOverclockEnabled() {
+        OperationMode mode = getMode();
+        return getOverclockBatteryCount() > 0
+                && (mode == OperationMode.BLACKBOX_ACTIVE || mode == OperationMode.BLUEPRINT);
+    }
+
     public PortMode getFaceMode(int buttonIndex) {
         int ordinal = data.get(DATA_FACES + buttonIndex);
         return ordinal >= 0 && ordinal < PortMode.values().length ? PortMode.values()[ordinal] : PortMode.NONE;
     }
 
-    public int getInputType() {
-        return data.get(DATA_INPUT_TYPE);
+    public int getInputType(int index) {
+        return readResourceType(DATA_INPUTS_START, index);
     }
 
-    public int getInputId() {
-        return readInt(DATA_INPUT_ID);
+    public int getInputId(int index) {
+        return readResourceInt(DATA_INPUTS_START, index);
     }
 
-    public float getInputRate() {
-        return readFloat(DATA_INPUT_RATE);
+    public float getInputRate(int index) {
+        return readResourceFloat(DATA_INPUTS_START, index);
     }
 
-    public int getOutputType() {
-        return data.get(DATA_OUTPUT_TYPE);
+    public int getOutputType(int index) {
+        return readResourceType(DATA_OUTPUTS_START, index);
     }
 
-    public int getOutputId() {
-        return readInt(DATA_OUTPUT_ID);
+    public int getOutputId(int index) {
+        return readResourceInt(DATA_OUTPUTS_START, index);
     }
 
-    public float getOutputRate() {
-        return readFloat(DATA_OUTPUT_RATE);
+    public float getOutputRate(int index) {
+        return readResourceFloat(DATA_OUTPUTS_START, index);
     }
 
-    private void syncRate(int typeSlot, Map<ItemVariant, Float> itemRates, Map<Fluid, Float> fluidRates) {
-        ItemVariant bestItem = null;
-        float bestItemRate = 0f;
+    private int resourceSlot(int start, int index) {
+        if (index < 0 || index >= RESOURCE_ROWS) {
+            return start;
+        }
+        return start + index * RESOURCE_ENTRY_SIZE;
+    }
+
+    private int readResourceType(int start, int index) {
+        return data.get(resourceSlot(start, index));
+    }
+
+    private int readResourceInt(int start, int index) {
+        return readInt(resourceSlot(start, index) + 1);
+    }
+
+    private float readResourceFloat(int start, int index) {
+        return readFloat(resourceSlot(start, index) + 3);
+    }
+
+    private void syncRates(int start, Map<ItemVariant, Float> itemRates, Map<Fluid, Float> fluidRates) {
+        List<ResourceRate> rates = new ArrayList<>();
         for (Map.Entry<ItemVariant, Float> entry : itemRates.entrySet()) {
-            if (Float.isFinite(entry.getValue()) && entry.getValue() > bestItemRate) {
-                bestItem = entry.getKey();
-                bestItemRate = entry.getValue();
+            float rate = entry.getValue();
+            if (Float.isFinite(rate) && rate > 0f) {
+                rates.add(new ResourceRate(1, BuiltInRegistries.ITEM.getId(entry.getKey().item()), rate,
+                        BuiltInRegistries.ITEM.getKey(entry.getKey().item()).toString()
+                                + "|" + entry.getKey().prototype().getComponentsPatch()));
             }
         }
-        Fluid bestFluid = null;
-        float bestFluidRate = 0f;
         for (Map.Entry<Fluid, Float> entry : fluidRates.entrySet()) {
-            if (Float.isFinite(entry.getValue()) && entry.getValue() > bestFluidRate) {
-                bestFluid = entry.getKey();
-                bestFluidRate = entry.getValue();
+            float rate = entry.getValue();
+            if (Float.isFinite(rate) && rate > 0f) {
+                rates.add(new ResourceRate(2, BuiltInRegistries.FLUID.getId(entry.getKey()), rate,
+                        BuiltInRegistries.FLUID.getKey(entry.getKey()).toString()));
             }
         }
 
-        if (bestItemRate > 0f && bestItemRate >= bestFluidRate) {
-            data.set(typeSlot, 1);
-            writeInt(typeSlot + 1, BuiltInRegistries.ITEM.getId(bestItem.item()));
-            writeFloat(typeSlot + 3, bestItemRate);
-        } else if (bestFluidRate > 0f) {
-            data.set(typeSlot, 2);
-            writeInt(typeSlot + 1, BuiltInRegistries.FLUID.getId(bestFluid));
-            writeFloat(typeSlot + 3, bestFluidRate);
-        } else {
-            data.set(typeSlot, 0);
-            writeInt(typeSlot + 1, 0);
-            writeFloat(typeSlot + 3, 0f);
+        rates.sort(Comparator.comparingDouble(ResourceRate::rate).reversed()
+                .thenComparing(ResourceRate::sortKey));
+
+        for (int i = 0; i < RESOURCE_ROWS; i++) {
+            int slot = resourceSlot(start, i);
+            if (i < rates.size()) {
+                ResourceRate rate = rates.get(i);
+                data.set(slot, rate.type());
+                writeInt(slot + 1, rate.id());
+                writeFloat(slot + 3, rate.rate());
+            } else {
+                data.set(slot, 0);
+                writeInt(slot + 1, 0);
+                writeFloat(slot + 3, 0f);
+            }
         }
+    }
+
+    private record ResourceRate(int type, int id, float rate, String sortKey) {
     }
 
     private void writeInt(int slot, int value) {
@@ -186,6 +277,8 @@ public class FactoryMenu extends AbstractContainerMenu {
             } else if (id == 7) {
                 factory.switchFromBlueprint(player, OperationMode.CHUNK_LOADED);
                 return true;
+            } else if (id >= 20 && id <= 25) {
+                return factory.selectOverclockTier(OverclockTier.byId(id - 20));
             }
         }
         return super.clickMenuButton(player, id);
@@ -193,7 +286,63 @@ public class FactoryMenu extends AbstractContainerMenu {
 
     @Override
     public ItemStack quickMoveStack(Player player, int index) {
-        return ItemStack.EMPTY;
+        if (index < 0 || index >= slots.size()) {
+            return ItemStack.EMPTY;
+        }
+        Slot slot = slots.get(index);
+        if (!slot.hasItem() || !slot.mayPickup(player)) {
+            return ItemStack.EMPTY;
+        }
+        ItemStack stack = slot.getItem();
+        ItemStack original = stack.copy();
+        if (index < BATTERY_SLOTS) {
+            if (!moveItemStackTo(stack, PLAYER_INVENTORY_START, PLAYER_INVENTORY_END, true)) {
+                return ItemStack.EMPTY;
+            }
+        } else {
+            int target = stack.is(ModItems.BLAZE_BATTERY.get()) ? nextBatterySlot() : BATTERY_SLOTS;
+            if (target < BATTERY_SLOTS) {
+                if (!moveItemStackTo(stack, target, target + 1, false)) {
+                    return ItemStack.EMPTY;
+                }
+            } else if (index < PLAYER_HOTBAR_START) {
+                if (!moveItemStackTo(stack, PLAYER_HOTBAR_START, PLAYER_INVENTORY_END, false)) {
+                    return ItemStack.EMPTY;
+                }
+            } else if (!moveItemStackTo(stack, PLAYER_INVENTORY_START, PLAYER_HOTBAR_START, false)) {
+                return ItemStack.EMPTY;
+            }
+        }
+        if (stack.isEmpty()) {
+            slot.setByPlayer(ItemStack.EMPTY);
+        } else {
+            slot.setChanged();
+        }
+        slot.onTake(player, stack);
+        return original;
+    }
+
+    @Override
+    public void clicked(int slotId, int button, ClickType clickType, Player player) {
+        if (factory != null && slotId >= 0 && slotId < BATTERY_SLOTS
+                && !overclockInventory.getItem(slotId).isEmpty()
+                && !factory.canRemoveOverclockBattery(slotId)) {
+            if (player instanceof ServerPlayer serverPlayer) {
+                PlayerMessagePayload.sendTo(serverPlayer, Component.translatable(
+                        "message.create_nested_factory.overclock.remove_later_first"), false);
+            }
+            return;
+        }
+        super.clicked(slotId, button, clickType, player);
+    }
+
+    private int nextBatterySlot() {
+        for (int i = 0; i < BATTERY_SLOTS; i++) {
+            if (overclockInventory.getItem(i).isEmpty()) {
+                return i;
+            }
+        }
+        return BATTERY_SLOTS;
     }
 
     @Override
@@ -218,5 +367,45 @@ public class FactoryMenu extends AbstractContainerMenu {
             case 4 -> facing.getCounterClockWise();
             default -> facing.getOpposite();
         };
+    }
+
+    private class OverclockSlot extends Slot {
+        OverclockSlot(Container container, int slot, int x, int y) {
+            super(container, slot, x, y);
+        }
+
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            if (factory != null) {
+                return factory.canPlaceOverclockBattery(getContainerSlot(), stack);
+            }
+            if (!stack.is(ModItems.BLAZE_BATTERY.get()) || !getItem().isEmpty()) {
+                return false;
+            }
+            for (int i = 0; i < getContainerSlot(); i++) {
+                if (!overclockInventory.getItem(i).is(ModItems.BLAZE_BATTERY.get())) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        @Override
+        public boolean mayPickup(Player player) {
+            if (factory != null) {
+                return factory.canRemoveOverclockBattery(getContainerSlot());
+            }
+            for (int i = getContainerSlot() + 1; i < BATTERY_SLOTS; i++) {
+                if (!overclockInventory.getItem(i).isEmpty()) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        @Override
+        public int getMaxStackSize() {
+            return 1;
+        }
     }
 }

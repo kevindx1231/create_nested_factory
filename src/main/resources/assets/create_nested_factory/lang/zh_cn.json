@@ -8,6 +8,7 @@
   "item.create_nested_factory.space_collapse_mechanism": "坍缩构件",
   "item.create_nested_factory.sturdy_casing": "坚固外壳",
   "item.create_nested_factory.sturdy_alloy_ingot": "坚固合金",
+  "item.create_nested_factory.blaze_battery": "烈焰电池",
   "item.create_nested_factory.incomplete_sturdy_casing": "坚固外壳（半成品）",
   "item.create_nested_factory.incomplete_space_expand_mechanism": "扩展构件（半成品）",
   "item.create_nested_factory.incomplete_space_collapse_mechanism": "坍缩构件（半成品）",
@@ -102,6 +103,7 @@
   "message.create_nested_factory.blueprint.apply.players_inside": "\u76ee\u6807\u5de5\u5382\u7a7a\u95f4\u5185\u5b58\u5728\u73a9\u5bb6\uff0c\u65e0\u6cd5\u5e94\u7528\u84dd\u56fe\u3002",
   "message.create_nested_factory.blueprint.cancel.invalid_nested": "\u84dd\u56fe\u5df2\u53d6\u6d88\u3002\u8be5\u65b9\u5757\u6ca1\u6709\u72ec\u7acb\u5de5\u5382\u7a7a\u95f4\uff0c\u65e0\u6cd5\u5207\u6362\u4e3a\u5e38\u52a0\u8f7d\u6216\u666e\u901a\u9ed1\u76d2\u6a21\u5f0f\u3002",
   "message.create_nested_factory.production_batch.destroyed_fluid": "\u6279\u6b21\u5931\u6548\uff0c\u5df2\u9500\u6bc1 %s mB \u6d41\u4f53",
+  "message.create_nested_factory.overclock.remove_later_first": "请先移除后面的烈焰电池",
   "message.create_nested_factory.face_mode.updated": "%s\uff1a%s\uff08\u7aef\u53e3 %s\uff09",
   "message.create_nested_factory.face_mode.updated_none": "%s\uff1a%s"
 }

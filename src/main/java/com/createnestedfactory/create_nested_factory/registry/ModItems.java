@@ -26,6 +26,8 @@ public class ModItems {
             ITEMS.register("sturdy_casing", () -> new Item(new Item.Properties()));
     public static final DeferredItem<Item> STURDY_ALLOY_INGOT =
             ITEMS.register("sturdy_alloy_ingot", () -> new Item(new Item.Properties()));
+    public static final DeferredItem<Item> BLAZE_BATTERY =
+            ITEMS.register("blaze_battery", () -> new Item(new Item.Properties().stacksTo(64)));
     public static final DeferredItem<Item> INCOMPLETE_STURDY_CASING =
             ITEMS.register("incomplete_sturdy_casing", () -> new Item(new Item.Properties()));
     public static final DeferredItem<Item> INCOMPLETE_SPACE_EXPAND_MECHANISM =

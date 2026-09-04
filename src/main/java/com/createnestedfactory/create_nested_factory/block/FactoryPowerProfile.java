@@ -89,6 +89,19 @@ public final class FactoryPowerProfile {
         return generatedFE - consumedFE;
     }
 
+    public FactoryPowerProfile scaled(float multiplier) {
+        float scale = Float.isFinite(multiplier) && multiplier >= 0f ? multiplier : 1.0f;
+        FactoryPowerProfile scaled = new FactoryPowerProfile();
+        scaled.generatedSU = generatedSU * scale;
+        scaled.consumedSU = consumedSU * scale;
+        scaled.generatedFE = generatedFE * scale;
+        scaled.consumedFE = consumedFE * scale;
+        scaled.measuredExternalStressDemandSU = measuredExternalStressDemandSU * scale;
+        scaled.hasMeasuredExternalStressDemand = hasMeasuredExternalStressDemand;
+        scaled.generatedSUExcludesRelayStress = generatedSUExcludesRelayStress;
+        return scaled;
+    }
+
     public CompoundTag write() {
         CompoundTag tag = new CompoundTag();
         tag.putFloat("GeneratedSU", generatedSU);
