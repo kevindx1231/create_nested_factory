@@ -1,0 +1,59 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "All Rights Reserved"
+
+[[mods]]
+modId = "create_nested_factory_logistics"
+version = "1.3.3"
+displayName = "create_nested_factory Logistics Compatibility"
+authors = ""
+description = '''Integrates create_nested_factory with Pipez and Mekanism transport capabilities.'''
+
+[[mixins]]
+config = "create_nested_factory_logistics.mixins.json"
+
+[[dependencies."create_nested_factory_logistics"]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies."create_nested_factory_logistics"]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21.1,1.22)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies."create_nested_factory_logistics"]]
+modId = "create"
+type = "required"
+versionRange = "[6.0.9,6.1.0)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies."create_nested_factory_logistics"]]
+modId = "create_nested_factory"
+type = "required"
+versionRange = "[1.3.3,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies."create_nested_factory_logistics"]]
+modId = "mekanism"
+type = "required"
+versionRange = "[10.7.0,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies."create_nested_factory_logistics"]]
+modId = "pipez"
+type = "optional"
+versionRange = "[0,)"
+ordering = "AFTER"
+side = "BOTH"
+
+
+
+

@@ -61,6 +61,14 @@ public final class FactoryPortChannels {
         }
     }
 
+    /** Clears fluid and optional integration handoff state during a routing replacement. */
+    public void clearFluidsAndExtensions() {
+        for (PortResourceChannel channel : channels) {
+            channel.clearFluids();
+            channel.clearExtensions();
+        }
+    }
+
     /** Materializes every pending item and discards every pending fluid. */
     public List<ItemStack> drainItemsAndDiscardFluids() {
         List<ItemStack> dropped = new ArrayList<>();
@@ -94,6 +102,8 @@ public final class FactoryPortChannels {
         private final FluidLedger inputFluids = new FluidLedger();
         /** Shared, unbounded-in-gameplay OUTPUT handoff state for the complete port group. */
         private final FluidLedger outputFluids = new FluidLedger();
+        /** Opaque state owned by optional logistics integrations. */
+        private final Map<String, CompoundTag> extensionData = new HashMap<>();
         private long inputItemCredits = INITIAL_ITEM_PRIME_CREDITS;
         private long outputItemCredits = INITIAL_ITEM_PRIME_CREDITS;
 
@@ -111,6 +121,15 @@ public final class FactoryPortChannels {
 
         public FluidLedger outputFluids() {
             return outputFluids;
+        }
+
+
+        /** Returns mutable persistent state owned by an optional integration namespace. */
+        public CompoundTag extensionData(String namespace) {
+            if (namespace == null || namespace.isBlank()) {
+                throw new IllegalArgumentException("Extension namespace must not be blank");
+            }
+            return extensionData.computeIfAbsent(namespace, ignored -> new CompoundTag());
         }
 
         public int fillInputFluids(FluidStack resource, IFluidHandler.FluidAction action) {
@@ -139,13 +158,15 @@ public final class FactoryPortChannels {
 
         public boolean isEmpty() {
             return inputItems.isEmpty() && outputItems.isEmpty()
-                    && inputFluids.isEmpty() && outputFluids.isEmpty();
+                    && inputFluids.isEmpty() && outputFluids.isEmpty()
+                    && extensionData.values().stream().allMatch(CompoundTag::isEmpty);
         }
 
         private void clear() {
             inputItems.clear();
             outputItems.clear();
             clearFluids();
+            extensionData.clear();
             inputItemCredits = INITIAL_ITEM_PRIME_CREDITS;
             outputItemCredits = INITIAL_ITEM_PRIME_CREDITS;
         }
@@ -155,11 +176,16 @@ public final class FactoryPortChannels {
             outputFluids.clear();
         }
 
+        private void clearExtensions() {
+            extensionData.clear();
+        }
+
         private void appendItemsAndDiscardFluids(List<ItemStack> dropped) {
             inputItems.appendAndClear(dropped);
             outputItems.appendAndClear(dropped);
             inputFluids.clear();
             outputFluids.clear();
+            extensionData.clear();
             inputItemCredits = INITIAL_ITEM_PRIME_CREDITS;
             outputItemCredits = INITIAL_ITEM_PRIME_CREDITS;
         }
@@ -263,6 +289,17 @@ public final class FactoryPortChannels {
             tag.put("OutputItems", outputItems.write(new CompoundTag(), registries));
             tag.put("InputFluids", inputFluids.write(new CompoundTag(), registries));
             tag.put("OutputFluids", outputFluids.write(new CompoundTag(), registries));
+            if (!extensionData.isEmpty()) {
+                CompoundTag extensions = new CompoundTag();
+                for (Map.Entry<String, CompoundTag> entry : extensionData.entrySet()) {
+                    if (!entry.getValue().isEmpty()) {
+                        extensions.put(entry.getKey(), entry.getValue().copy());
+                    }
+                }
+                if (!extensions.isEmpty()) {
+                    tag.put("Extensions", extensions);
+                }
+            }
             return tag;
         }
 
@@ -282,6 +319,11 @@ public final class FactoryPortChannels {
                 outputFluids.read(outputTag, registries);
             } else {
                 outputFluids.clear();
+            }
+            extensionData.clear();
+            CompoundTag extensions = tag.getCompound("Extensions");
+            for (String key : extensions.getAllKeys()) {
+                extensionData.put(key, extensions.getCompound(key).copy());
             }
             inputItemCredits = inputItems.isEmpty() ? INITIAL_ITEM_PRIME_CREDITS : 0L;
             outputItemCredits = outputItems.isEmpty() ? INITIAL_ITEM_PRIME_CREDITS : 0L;
@@ -454,7 +496,7 @@ public final class FactoryPortChannels {
                 return 0;
             }
             if (entry == null) {
-                entry = new FluidEntry(resource.copyWithAmount(0));
+                entry = new FluidEntry(resource.copyWithAmount(1));
                 if (action.execute()) {
                     entries.add(entry);
                 }
@@ -494,6 +536,7 @@ public final class FactoryPortChannels {
         public boolean isEmpty() {
             return entries.isEmpty();
         }
+
 
         private void clear() {
             entries.clear();
@@ -573,3 +616,5 @@ public final class FactoryPortChannels {
         return left + right;
     }
 }
+
+

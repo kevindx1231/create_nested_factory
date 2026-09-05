@@ -44,6 +44,11 @@ public final class FluidNetworkEndpointResolver {
                                               int maxDrain) {
             return List.of();
         }
+
+        /** Returns whether an optional transport network is connected at the boundary. */
+        default boolean hasEndpoint(Level level, BlockPos boundaryPos, Direction side, int portId) {
+            return false;
+        }
     }
 
     public static void registerAdapter(FluidNetworkAdapter adapter) {
@@ -54,6 +59,22 @@ public final class FluidNetworkEndpointResolver {
 
     public static void unregisterAdapter(FluidNetworkAdapter adapter) {
         ADAPTERS.remove(adapter);
+    }
+
+    public static boolean hasEndpoint(Level level, BlockPos boundaryPos, Direction side, int portId) {
+        if (level == null || boundaryPos == null || side == null) {
+            return false;
+        }
+        for (FluidNetworkAdapter adapter : ADAPTERS) {
+            try {
+                if (adapter.hasEndpoint(level, boundaryPos, side, portId)) {
+                    return true;
+                }
+            } catch (RuntimeException ignored) {
+                // Optional integrations must never break the base fluid path.
+            }
+        }
+        return false;
     }
 
     private static final int MAX_TRAVERSAL_DISTANCE = 256;
@@ -165,3 +186,5 @@ public final class FluidNetworkEndpointResolver {
     private record PipeNode(BlockPos pos, int distance) {
     }
 }
+
+

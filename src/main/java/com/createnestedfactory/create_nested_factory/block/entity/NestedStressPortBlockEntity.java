@@ -39,6 +39,9 @@ public class NestedStressPortBlockEntity extends GeneratingKineticBlockEntity {
     private float requestedSU = 0f;
     private float allocatedSU = 0f;
     private boolean sourceSatisfied = false;
+    private BlockPos boundRoomOrigin;
+    private BlockPos registeredRoomOrigin;
+    private boolean simulatedMoveInProgress;
 
     public NestedStressPortBlockEntity(BlockPos pos, BlockState state) {
         super(ModBlockEntities.NESTED_STRESS_PORT.get(), pos, state);
@@ -174,6 +177,9 @@ public class NestedStressPortBlockEntity extends GeneratingKineticBlockEntity {
             tag.putFloat("AllocatedSU", allocatedSU);
             tag.putBoolean("SourceSatisfied", sourceSatisfied);
         }
+        if (boundRoomOrigin != null) {
+            tag.putLong("BoundRoomOrigin", boundRoomOrigin.asLong());
+        }
         super.write(tag, registries, clientPacket);
     }
 
@@ -196,6 +202,7 @@ public class NestedStressPortBlockEntity extends GeneratingKineticBlockEntity {
             lastCapacityProvided = 0f;
             lastStressApplied = 0f;
         }
+        boundRoomOrigin = tag.contains("BoundRoomOrigin") ? BlockPos.of(tag.getLong("BoundRoomOrigin")) : null;
         super.read(tag, registries, clientPacket);
     }
 
@@ -221,11 +228,33 @@ public class NestedStressPortBlockEntity extends GeneratingKineticBlockEntity {
         }
     }
 
+    public void prepareForSimulatedMove() {
+        simulatedMoveInProgress = true;
+        if (level != null && !level.isClientSide()) {
+            if (registeredRoomOrigin == null) {
+                registeredRoomOrigin = boundRoomOrigin != null ? boundRoomOrigin : roomOrigin();
+            }
+            if (registeredRoomOrigin != null) {
+                PocketRegistry.unregisterStressPort(registeredRoomOrigin, worldPosition);
+            }
+            registeredRoomOrigin = null;
+            clearStressAllocation();
+        }
+    }
+
+    public void finishSimulatedMove() {
+        try {
+            registerStressPort();
+        } finally {
+            simulatedMoveInProgress = false;
+        }
+    }
+
     @Override
     public void remove() {
         super.remove();
-        if (level != null && !level.isClientSide()) {
-            BlockPos roomOrigin = roomOrigin();
+        if (!simulatedMoveInProgress && level != null && !level.isClientSide()) {
+            BlockPos roomOrigin = registeredRoomOrigin != null ? registeredRoomOrigin : roomOrigin();
             if (roomOrigin != null) {
                 PocketRegistry.unregisterStressPort(roomOrigin, worldPosition);
             }
@@ -236,9 +265,12 @@ public class NestedStressPortBlockEntity extends GeneratingKineticBlockEntity {
         if (level == null || level.isClientSide()) {
             return;
         }
-        BlockPos roomOrigin = roomOrigin();
+        BlockPos roomOrigin = boundRoomOrigin != null ? boundRoomOrigin : roomOrigin();
         if (roomOrigin != null) {
             PocketRegistry.registerStressPort(roomOrigin, worldPosition);
+            boundRoomOrigin = roomOrigin;
+            registeredRoomOrigin = roomOrigin;
         }
     }
+
 }

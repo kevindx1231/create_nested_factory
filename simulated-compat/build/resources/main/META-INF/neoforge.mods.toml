@@ -1,0 +1,55 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "All Rights Reserved"
+
+[[mods]]
+modId = "create_nested_factory_simulated"
+version = "1.3.3"
+displayName = "create_nested_factory Simulated Compatibility"
+authors = ""
+description = '''Integrates create_nested_factory with Simulated and Sable physics.'''
+
+[[mixins]]
+config = "create_nested_factory_simulated.mixins.json"
+
+[[dependencies."create_nested_factory_simulated"]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies."create_nested_factory_simulated"]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21.1,1.22)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies."create_nested_factory_simulated"]]
+modId = "create"
+type = "required"
+versionRange = "[6.0.9,6.1.0)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies."create_nested_factory_simulated"]]
+modId = "create_nested_factory"
+type = "required"
+versionRange = "[1.3.3,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies."create_nested_factory_simulated"]]
+modId = "simulated"
+type = "required"
+versionRange = "[1.0.0,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies."create_nested_factory_simulated"]]
+modId = "sable"
+type = "required"
+versionRange = "[2.0.0,3.0.0)"
+ordering = "AFTER"
+side = "BOTH"

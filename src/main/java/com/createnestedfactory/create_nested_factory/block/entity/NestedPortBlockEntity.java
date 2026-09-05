@@ -23,6 +23,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
+import net.neoforged.neoforge.energy.IEnergyStorage;
 import net.neoforged.neoforge.fluids.capability.IFluidHandler;
 import net.neoforged.neoforge.items.IItemHandler;
 
@@ -61,6 +62,10 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
     /** Cached local precondition for entering the cross-dimension fluid bridge. */
     private boolean roomSideFluidBridge = false;
     private boolean roomSideFluidBridgeDirty = true;
+    private String boundFactoryId = "";
+    private BlockPos boundRoomOrigin;
+    private BlockPos registeredRoomOrigin;
+    private boolean simulatedMoveInProgress;
 
     /** Runtime-only room-side consumers that have queried INPUT capabilities on this port. */
     private final Block[] itemInputConsumers = new Block[Direction.values().length];
@@ -94,13 +99,23 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
             if (factory != null) {
                 factory.onPortRoutingChanged(player);
             }
-            BlockPos roomOrigin = NestedFactoryBlock.findRoomOrigin((ServerLevel) level, worldPosition);
+            BlockPos roomOrigin = registeredRoomOrigin != null
+                    ? registeredRoomOrigin
+                    : boundRoomOrigin != null
+                    ? boundRoomOrigin
+                    : NestedFactoryBlock.findRoomOrigin((ServerLevel) level, worldPosition);
             if (roomOrigin != null) {
                 PocketRegistry.unregisterPort(roomOrigin, old, worldPosition);
             }
             level.invalidateCapabilities(worldPosition);
             registerPort();
         }
+    }
+
+    /** Energy is a mode-independent room-side egress. The port never accepts energy. */
+    public IEnergyStorage getEnergyStorage(Direction side) {
+        NestedFactoryBlockEntity factory = findFactory();
+        return factory == null ? null : factory.getPortEnergyStorage();
     }
 
     public IItemHandler getItemHandler(Direction side) {
@@ -598,7 +613,29 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
         if (level == null || level.isClientSide()) {
             return null;
         }
-        return NestedFactoryBlock.findFactoryAt((ServerLevel) level, worldPosition);
+        if (!boundFactoryId.isBlank()) {
+            PocketRegistry.FactoryLocation location = PocketRegistry.findFactoryLocationById(boundFactoryId);
+            if (location != null && level.getServer() != null) {
+                ServerLevel factoryLevel = level.getServer().getLevel(location.dimension());
+                if (factoryLevel != null
+                        && factoryLevel.getBlockEntity(location.pos()) instanceof NestedFactoryBlockEntity factory
+                        && boundFactoryId.equals(factory.getFactoryId())) {
+                    boundRoomOrigin = factory.roomOrigin();
+                    return factory;
+                }
+            }
+        }
+        NestedFactoryBlockEntity factory = NestedFactoryBlock.findFactoryAt((ServerLevel) level, worldPosition);
+        if (factory != null) {
+            boundFactoryId = factory.getFactoryId();
+            boundRoomOrigin = factory.roomOrigin();
+        }
+        return factory;
+    }
+
+    /** Exposes the bound factory to optional integration modules. */
+    public NestedFactoryBlockEntity getFactory() {
+        return findFactory();
     }
 
     @Override
@@ -614,6 +651,31 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
                 sendData();
             }
             requestFluidPressureRefresh();
+        }
+    }
+
+    public void prepareForSimulatedMove() {
+        simulatedMoveInProgress = true;
+        if (level != null && !level.isClientSide()) {
+            if (registeredRoomOrigin == null) {
+                registeredRoomOrigin = boundRoomOrigin != null
+                        ? boundRoomOrigin
+                        : NestedFactoryBlock.findRoomOrigin((ServerLevel) level, worldPosition);
+            }
+            if (registeredRoomOrigin != null) {
+                PocketRegistry.unregisterPort(registeredRoomOrigin, targetPortId, worldPosition);
+            }
+            registeredRoomOrigin = null;
+            clearMirroredPressure();
+        }
+    }
+
+    public void finishSimulatedMove() {
+        try {
+            registerPort();
+            requestFluidPressureRefresh();
+        } finally {
+            simulatedMoveInProgress = false;
         }
     }
 
@@ -637,9 +699,13 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
             // During server shutdown this method runs for every loaded port. Do not invoke
             // Create's pipe propagator unless this port actually injected mirrored pressure.
             clearMirroredPressure();
-            BlockPos roomOrigin = NestedFactoryBlock.findRoomOrigin((ServerLevel) level, worldPosition);
-            if (roomOrigin != null) {
-                PocketRegistry.unregisterPort(roomOrigin, targetPortId, worldPosition);
+            if (!simulatedMoveInProgress) {
+                BlockPos roomOrigin = registeredRoomOrigin != null
+                        ? registeredRoomOrigin
+                        : NestedFactoryBlock.findRoomOrigin((ServerLevel) level, worldPosition);
+                if (roomOrigin != null) {
+                    PocketRegistry.unregisterPort(roomOrigin, targetPortId, worldPosition);
+                }
             }
         }
         super.setRemoved();
@@ -649,9 +715,24 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
         if (level == null || level.isClientSide()) {
             return;
         }
-        BlockPos roomOrigin = NestedFactoryBlock.findRoomOrigin((ServerLevel) level, worldPosition);
+        BlockPos roomOrigin = boundRoomOrigin != null
+                ? boundRoomOrigin
+                : NestedFactoryBlock.findRoomOrigin((ServerLevel) level, worldPosition);
+        NestedFactoryBlockEntity factory = findFactory();
+        if (factory != null) {
+            boundFactoryId = factory.getFactoryId();
+            boundRoomOrigin = factory.roomOrigin();
+            roomOrigin = boundRoomOrigin;
+        }
         if (roomOrigin != null) {
             PocketRegistry.registerPort(roomOrigin, targetPortId, worldPosition);
+            registeredRoomOrigin = roomOrigin;
+            // Pipez caches endpoint capabilities. Rebuild the cache immediately after a port
+            // loads so an extracting Pipez side cannot retain an earlier null result.
+            level.invalidateCapabilities(worldPosition);
+            if (factory != null) {
+                factory.onRoomPortLogisticsConnectionChanged();
+            }
         }
     }
 
@@ -660,6 +741,12 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
         super.saveAdditional(tag, registries);
         tag.putInt("TargetPortId", targetPortId);
         tag.putString("MappedFaceMode", mappedFaceMode.getSerializedName());
+        if (!boundFactoryId.isBlank()) {
+            tag.putString("BoundFactoryId", boundFactoryId);
+        }
+        if (boundRoomOrigin != null) {
+            tag.putLong("BoundRoomOrigin", boundRoomOrigin.asLong());
+        }
     }
 
     @Override
@@ -671,7 +758,14 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
         }
         String mode = tag.getString("MappedFaceMode");
         mappedFaceMode = mode.isEmpty() ? PortMode.NONE : PortMode.valueOf(mode.toUpperCase(Locale.ROOT));
+        boundFactoryId = tag.getString("BoundFactoryId");
+        boundRoomOrigin = tag.contains("BoundRoomOrigin") ? BlockPos.of(tag.getLong("BoundRoomOrigin")) : null;
         requestFluidPressureRefresh();
     }
 
 }
+
+
+
+
+

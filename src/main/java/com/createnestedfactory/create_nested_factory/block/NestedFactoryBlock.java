@@ -225,7 +225,7 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
                         session.grantedFlight(), session.originalMayFly(), session.originalFlying(),
                         session.nightVisionGranted(), session.originalNightVision(), stack));
 
-        factory.onPlayerEntered();
+        factory.onPlayerEntered(player.serverLevel().dimension(), player.blockPosition());
         try {
             player.fallDistance = 0f;
             player.teleportTo(pocketLevel, origin.getX() + 1.5, origin.getY() + 2.0, origin.getZ() + 1.5,
@@ -331,7 +331,14 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
             recoverOrEndSession(player, session, "invalid_login_session");
             return;
         }
-        current.onPlayerEntered();
+        ModAttachments.ReturnFrame entryFrame = session.stack().isEmpty()
+                ? null
+                : session.stack().get(session.stack().size() - 1);
+        if (entryFrame != null) {
+            current.onPlayerEntered(entryFrame.dimension(), BlockPos.containing(entryFrame.pos()));
+        } else {
+            current.onPlayerEntered(player.serverLevel().dimension(), player.blockPosition());
+        }
         grantExplorationAbilities(player);
     }
 

@@ -90,11 +90,11 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     private static final Logger LOGGER = LogUtils.getLogger();
     public static final String PORTABLE_BINDING_KEY = "PortableBinding";
     public static final int MAX_FE_PER_TICK = 10000;
-    public static final int ENERGY_CAPACITY = 1_000_000;
     private static final int LEARNING_TICKS = 200;
     private static final int LEARNING_WARMUP_TICKS = 100;
     private static final int DRAIN_STABLE_TICKS = 60;
     private static final int DRAIN_TIMEOUT_TICKS = 1200;
+    private static final int ENERGY_SAMPLE_WINDOW_TICKS = 20;
     private static final float STRESS_EPSILON = 0.001f;
 
     private record ExternalStressCandidate(Direction face, KineticBlockEntity anchor,
@@ -130,8 +130,17 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     private boolean blueprintApplied = false;
     private NestedFactoryBlueprint appliedBlueprint = null;
     private FactoryRestoreSnapshot preBlueprintSnapshot = null;
-    private int energyStored = 0;
-    private final FactoryEnergyStorage energyStorage = new FactoryEnergyStorage(this);
+    private final FactoryEnergyStorage energyInputStorage = FactoryEnergyStorage.input(this);
+    private final FactoryEnergyStorage portEnergyStorage = FactoryEnergyStorage.output(this);
+    /** Runtime-only FE sampling state; the measured profile is persisted separately. */
+    private final Map<Long, Integer> energySampleLevels = new HashMap<>();
+    private long energySampleTick = Long.MIN_VALUE;
+    private long energySampleWindowTicks;
+    private float energyConsumedAccumulator;
+    private float energyGeneratedAccumulator;
+    private float sampledConsumedFE;
+    private float sampledGeneratedFE;
+    private boolean energySampleReady;
 
     private String customName = null;
     private final IItemHandler[] faceItemHandlers = new IItemHandler[6];
@@ -185,6 +194,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     private final Map<String, Integer> chunkRefCounts = new HashMap<>();
     private boolean pocketChunksForced = false;
     private long pocketChunksReleaseAt = -1;
+    private boolean simulatedMoveInProgress;
 
     /** Runtime-only virtual membership in the selected external Create network. */
     private KineticNetwork reservedExternalNetwork = null;
@@ -651,6 +661,21 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         return nested ? nestedRoomOrigin : rootRoomOrigin;
     }
 
+    /** Exposes the currently bound pocket level to optional integration modules. */
+    public ServerLevel getPocketLevel() {
+        return pocketLevel();
+    }
+
+    /** True only while the real room is loaded and live resource calls are allowed. */
+    public boolean isLiveResourceTransferMode() {
+        return operationMode == OperationMode.CHUNK_LOADED && !invalidNested && pocketLevel() != null;
+    }
+
+    /** Returns the shared channel for an optional resource integration. */
+    public FactoryPortChannels.PortResourceChannel getPortChannel(int portId) {
+        return portChannel(portId);
+    }
+
     public BlockPos getNestedRoomOrigin() {
         return nestedRoomOrigin;
     }
@@ -691,32 +716,207 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         setChanged();
     }
 
-    public int getEnergyStored() {
-        return energyStored;
+    private record ExternalEnergyCandidate(Direction face, IEnergyStorage storage, int available) {}
+
+    private List<IEnergyStorage> resolveRoomEnergySinks() {
+        ServerLevel pocket = pocketLevel();
+        if (pocket == null) {
+            return List.of();
+        }
+        List<IEnergyStorage> sinks = new ArrayList<>();
+        Set<IEnergyStorage> seen = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+        for (int portId = 1; portId <= FactoryFacePortBindings.MAX_PORT_ID; portId++) {
+            for (BlockPos portPos : PocketRegistry.getPorts(roomOrigin(), portId)) {
+                if (!(pocket.getBlockEntity(portPos) instanceof NestedPortBlockEntity port)
+                        || port.getTargetPortId() != portId) {
+                    continue;
+                }
+                for (Direction side : Direction.values()) {
+                    IEnergyStorage storage = pocket.getCapability(Capabilities.EnergyStorage.BLOCK,
+                            portPos.relative(side), side.getOpposite());
+                    if (storage != null && storage.canReceive() && seen.add(storage)) {
+                        sinks.add(storage);
+                    }
+                }
+            }
+        }
+        return sinks;
     }
 
-    public void setEnergyStored(int value) {
-        this.energyStored = Math.max(0, Math.min(ENERGY_CAPACITY, value));
+    public boolean canAcceptRoomEnergy() {
+        return !invalidNested && !resolveRoomEnergySinks().isEmpty();
     }
 
-    public int getEnergyCapacity() {
-        return ENERGY_CAPACITY;
+    /**
+     * Pushes an external request directly into room-side energy consumers. No amount is retained
+     * by the factory; the simulation pass must find enough destination demand before execution.
+     */
+    public int pushEnergyIntoRoom(int maxReceive, boolean simulate) {
+        int requested = Math.min(Math.max(0, maxReceive), MAX_FE_PER_TICK);
+        if (requested <= 0 || level == null || level.isClientSide() || invalidNested) {
+            return 0;
+        }
+        List<IEnergyStorage> sinks = resolveRoomEnergySinks();
+        int simulated = 0;
+        for (IEnergyStorage sink : sinks) {
+            simulated += sink.receiveEnergy(requested - simulated, true);
+            if (simulated >= requested) {
+                break;
+            }
+        }
+        if (simulated < requested) {
+            return 0;
+        }
+        if (simulate) {
+            return requested;
+        }
+        int delivered = 0;
+        for (IEnergyStorage sink : sinks) {
+            delivered += sink.receiveEnergy(requested - delivered, false);
+            if (delivered >= requested) {
+                break;
+            }
+        }
+        return delivered == requested ? delivered : 0;
     }
 
-    public boolean canExtractEnergy() {
-        return effectivePowerProfile().netFE() > 0 && energyStored > 0;
+
+    /**
+     * Finds one adjacent external energy source that can satisfy the complete request.
+     * Sources are never combined: this keeps the transfer atomic without a rollback buffer.
+     */
+    private ExternalEnergyCandidate findExternalEnergySource(int requested) {
+        if (requested <= 0 || level == null || level.isClientSide() || invalidNested) {
+            return null;
+        }
+        ExternalEnergyCandidate best = null;
+        for (Direction face : Direction.values()) {
+            BlockPos sourcePos = worldPosition.relative(face);
+            IEnergyStorage storage = level.getCapability(Capabilities.EnergyStorage.BLOCK,
+                    sourcePos, face.getOpposite());
+            if (storage == null || !storage.canExtract()) {
+                continue;
+            }
+            int available = Math.max(0, storage.extractEnergy(Integer.MAX_VALUE, true));
+            if (available < requested || best != null && available <= best.available()) {
+                continue;
+            }
+            best = new ExternalEnergyCandidate(face, storage, available);
+        }
+        return best;
     }
 
-    public boolean canReceiveEnergy() {
-        return effectivePowerProfile().netFE() < 0;
+    /** Returns the currently available energy from the best single external source without extracting it. */
+    public int getAvailableExternalEnergy(int limit) {
+        if (limit <= 0) {
+            return 0;
+        }
+        ExternalEnergyCandidate source = findExternalEnergySource(1);
+        return source == null ? 0 : Math.min(limit, source.available());
     }
 
-    public int getMaxEnergyExtract() {
-        return (int) Math.min(Integer.MAX_VALUE, Math.max(0f, effectivePowerProfile().netFE()));
+    public boolean canProvideEnergy() {
+        return findExternalEnergySource(1) != null;
+    }
+
+    /**
+     * Pulls energy synchronously from one external factory-face source. The simulated pass
+     * must be able to satisfy the full request before the execute pass is attempted.
+     */
+    public int pullEnergyFromExternalFaces(int requested, boolean simulate) {
+        if (requested <= 0) {
+            return 0;
+        }
+        ExternalEnergyCandidate source = findExternalEnergySource(requested);
+        if (source == null) {
+            return 0;
+        }
+        if (simulate) {
+            return requested;
+        }
+        int extracted = source.storage().extractEnergy(requested, false);
+        return extracted == requested ? extracted : 0;
+    }
+
+    /** Consumes simulated black-box demand directly from one external source, without buffering. */
+    private boolean consumeExternalEnergy(int amount) {
+        return amount <= 0 || pullEnergyFromExternalFaces(amount, false) == amount;
+    }
+
+    private void reconcileEnergySamples(ServerLevel pocketLevel) {
+        if (pocketLevel == null) {
+            return;
+        }
+        Set<Long> activePositions = new HashSet<>();
+        for (BlockPos pos : runtimeIndex.energyPositions()) {
+            activePositions.add(pos.asLong());
+            energySampleLevels.computeIfAbsent(pos.asLong(), ignored -> {
+                IEnergyStorage storage = findEnergyStorage(pocketLevel, pos);
+                return storage == null ? 0 : Math.max(0, storage.getEnergyStored());
+            });
+        }
+        energySampleLevels.keySet().removeIf(pos -> !activePositions.contains(pos));
+        if (energySampleTick == Long.MIN_VALUE && level != null) {
+            energySampleTick = level.getGameTime();
+        }
+    }
+
+    /**
+     * Samples actual energy-level decreases instead of treating a container's capacity as
+     * a power rating. A 20-tick window smooths idle/startup jitter while allowing an idle
+     * machine to settle back to zero consumption.
+     */
+    private void sampleLiveEnergyProfile(ServerLevel pocketLevel) {
+        if (pocketLevel == null || level == null || level.isClientSide()
+                || !usesRuntimeIndex() || runtimeIndex.needsRebuild()) {
+            return;
+        }
+        long gameTime = level.getGameTime();
+        if (energySampleTick == Long.MIN_VALUE) {
+            reconcileEnergySamples(pocketLevel);
+            energySampleTick = gameTime;
+            return;
+        }
+        long elapsed = gameTime - energySampleTick;
+        if (elapsed <= 0) {
+            return;
+        }
+        for (BlockPos pos : runtimeIndex.energyPositions()) {
+            IEnergyStorage storage = findEnergyStorage(pocketLevel, pos);
+            if (storage == null) {
+                continue;
+            }
+            long key = pos.asLong();
+            int current = Math.max(0, storage.getEnergyStored());
+            int previous = energySampleLevels.getOrDefault(key, current);
+            if (current < previous && storage.canReceive()) {
+                energyConsumedAccumulator += previous - current;
+            } else if (current > previous && storage.canExtract() && !storage.canReceive()) {
+                energyGeneratedAccumulator += current - previous;
+            }
+            energySampleLevels.put(key, current);
+        }
+        energySampleTick = gameTime;
+        energySampleWindowTicks += elapsed;
+        if (energySampleWindowTicks < ENERGY_SAMPLE_WINDOW_TICKS) {
+            return;
+        }
+
+        sampledConsumedFE = energyConsumedAccumulator / energySampleWindowTicks;
+        sampledGeneratedFE = energyGeneratedAccumulator / energySampleWindowTicks;
+        energyConsumedAccumulator = 0f;
+        energyGeneratedAccumulator = 0f;
+        energySampleWindowTicks = 0;
+        energySampleReady = true;
+        refreshPowerSnapshot(pocketLevel, new HashSet<>());
     }
 
     public IEnergyStorage getEnergyStorage(Direction side) {
-        return energyStorage;
+        return energyInputStorage;
+    }
+
+    public IEnergyStorage getPortEnergyStorage() {
+        return portEnergyStorage;
     }
 
     public void toggleBlackbox(Player player) {
@@ -1088,10 +1288,10 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         }
     }
 
-    public void onPlayerEntered() {
+    public void onPlayerEntered(ResourceKey<Level> sourceDimension, BlockPos sourcePosition) {
         playersInside++;
         if (playersInside == 1) {
-            setExternalAreaForced(true);
+            setExternalAreaForced(true, sourceDimension, sourcePosition);
             addChunkRef("player");
         }
     }
@@ -1100,7 +1300,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         if (playersInside > 0) {
             playersInside--;
             if (playersInside == 0) {
-                setExternalAreaForced(false);
+                setExternalAreaForced(false, null, null);
                 removeChunkRef("player");
             }
         }
@@ -1282,9 +1482,9 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         return chunks;
     }
 
-    private Set<ChunkPos> externalAreaChunks() {
-        int cx = worldPosition.getX() >> 4;
-        int cz = worldPosition.getZ() >> 4;
+    private Set<ChunkPos> externalAreaChunks(BlockPos center) {
+        int cx = center.getX() >> 4;
+        int cz = center.getZ() >> 4;
         Set<ChunkPos> chunks = new HashSet<>();
         for (int dx = -1; dx <= 1; dx++) {
             for (int dz = -1; dz <= 1; dz++) {
@@ -1315,14 +1515,25 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
      * factories execute this in the pocket dimension, so this must share ownership with the
      * parent factory's room ticket instead of directly toggling ServerLevel#setChunkForced.
      */
-    private void setExternalAreaForced(boolean forced) {
-        if (level == null || level.isClientSide() || !(level instanceof ServerLevel serverLevel)) {
+    private void setExternalAreaForced(boolean forced, ResourceKey<Level> sourceDimension, BlockPos sourcePosition) {
+        if (level == null || level.isClientSide()) {
+            return;
+        }
+        MinecraftServer server = level.getServer();
+        if (server == null) {
             return;
         }
         if (forced) {
-            PocketChunkForceManager.replace(serverLevel, externalChunkForceOwner(), externalAreaChunks());
+            if (sourceDimension == null || sourcePosition == null) {
+                return;
+            }
+            ServerLevel sourceLevel = server.getLevel(sourceDimension);
+            if (sourceLevel == null) {
+                return;
+            }
+            PocketChunkForceManager.replace(sourceLevel, externalChunkForceOwner(), externalAreaChunks(sourcePosition));
         } else {
-            PocketChunkForceManager.releaseAll(serverLevel.getServer(), externalChunkForceOwner());
+            PocketChunkForceManager.releaseAll(server, externalChunkForceOwner());
         }
     }
 
@@ -1424,11 +1635,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         productionBatch.ensureRecipe(recipe);
 
         int cycle = Math.max(BlackboxData.RATE_WINDOW, recipe.getRecipeCycleTicks());
-        if (itemCycleCounter < cycle) {
-            itemCycleCounter++;
-        }
-        if (productionBatch.isDeliveringOutputs() || !productionBatch.inputsComplete(recipe)
-                || itemCycleCounter < cycle) {
+        if (productionBatch.isDeliveringOutputs() || !productionBatch.inputsComplete(recipe)) {
             return;
         }
 
@@ -1440,14 +1647,15 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         }
 
         float netFE = activePowerProfile.netFE();
-        long batchEnergy = Math.round(Math.abs(netFE) * cycle);
-        if (netFE < 0 && energyStored < batchEnergy) {
+        int energyPerTick = netFE < 0
+                ? (int) Math.min(Integer.MAX_VALUE, Math.max(1L, Math.round(Math.abs(netFE))))
+                : 0;
+        if (itemCycleCounter < cycle) {
+            if (!consumeExternalEnergy(energyPerTick)) {
+                return;
+            }
+            itemCycleCounter++;
             return;
-        }
-        if (netFE < 0) {
-            energyStored -= (int) Math.min(batchEnergy, Integer.MAX_VALUE);
-        } else if (netFE > 0) {
-            energyStored = (int) Math.min(ENERGY_CAPACITY, energyStored + batchEnergy);
         }
 
         productionBatch.commitOutputs(recipe);
@@ -1833,7 +2041,11 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                     } else if (blockEntity instanceof KineticBlockEntity) {
                         runtimeIndex.kineticPositions().add(pos.immutable());
                     }
-                    if (findEnergyStorage(pocketLevel, pos) != null) {
+                    // Factory and port energy capabilities are boundary conduits, not room machines.
+                    // Do not count them as FE generators/consumers when sampling the room profile.
+                    if (!(blockEntity instanceof NestedFactoryBlockEntity)
+                            && !(blockEntity instanceof NestedPortBlockEntity)
+                            && findEnergyStorage(pocketLevel, pos) != null) {
                         runtimeIndex.energyPositions().add(pos.immutable());
                     }
                     if (findItemHandler(pocketLevel, pos) != null) {
@@ -1843,6 +2055,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             }
         }
         runtimeIndex.completeRebuild();
+        reconcileEnergySamples(pocketLevel);
         refreshPowerSnapshot(pocketLevel, new HashSet<>());
         if (propagateToParents) {
             propagatePowerSnapshotToParents(new HashSet<>());
@@ -1854,10 +2067,13 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             return;
         }
         try {
-            float genSU = 0f, conSU = 0f, genFE = 0f, conFE = 0f;
+            float genSU = 0f, conSU = 0f;
+            float genFE = energySampleReady ? sampledGeneratedFE : 0f;
+            float conFE = energySampleReady ? sampledConsumedFE : 0f;
             for (BlockPos pos : runtimeIndex.childFactoryPositions()) {
                 if (pocketLevel.getBlockEntity(pos) instanceof NestedFactoryBlockEntity childFactory) {
                     conSU += childFactory.stressDemandFromParent(visitingFactories);
+                    conFE += childFactory.energyDemandFromParent(visitingFactories);
                 }
             }
             for (BlockPos pos : runtimeIndex.kineticPositions()) {
@@ -1869,15 +2085,6 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 if (!(kbe instanceof NestedStressPortBlockEntity)) {
                     genSU += kbe.calculateAddedStressCapacity() * speed;
                 }
-            }
-            for (BlockPos pos : runtimeIndex.energyPositions()) {
-                IEnergyStorage storage = findEnergyStorage(pocketLevel, pos);
-                if (storage == null) {
-                    continue;
-                }
-                float rating = Math.min(storage.getMaxEnergyStored(), MAX_FE_PER_TICK);
-                if (storage.canExtract()) genFE += rating;
-                if (storage.canReceive()) conFE += rating;
             }
             powerProfile.set(genSU, conSU, genFE, conFE, liveExternalStressDemandSU);
         } finally {
@@ -1913,6 +2120,22 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             refreshPowerSnapshot(pocketLevel(), visitingFactories);
         }
         return effectivePowerProfile().externalStressDemandSU();
+    }
+
+    /**
+     * A nested factory is an energy ingress boundary, not a generic room energy container.
+     * Its parent still needs to account for the child's actual FE demand, but never for FE
+     * generation because generated energy cannot cross a factory boundary outward.
+     */
+    private float energyDemandFromParent(Set<String> visitingFactories) {
+        if (invalidNested && !blueprintApplied) {
+            return 0f;
+        }
+        if (operationMode != OperationMode.BLACKBOX_ACTIVE && operationMode != OperationMode.BLUEPRINT) {
+            ensureRuntimeIndex(pocketLevel());
+            refreshPowerSnapshot(pocketLevel(), visitingFactories);
+        }
+        return Math.max(0f, -effectivePowerProfile().netFE());
     }
     private static IEnergyStorage findEnergyStorage(ServerLevel level, BlockPos pos) {
         for (Direction d : Direction.values()) {
@@ -2094,7 +2317,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         }
         int index = face.get3DDataValue();
         invalidateProductionBatch(player, "face_mode_changed");
-        portChannels.clearFluids();
+        portChannels.clearFluidsAndExtensions();
         roomFluidNetworkSignatures.clear();
         faceModes[index] = faceModes[index].next();
         if (faceModes[index] == PortMode.NONE) {
@@ -2511,7 +2734,8 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             BlockState state = level.getBlockState(adjacentPos);
             if (level.getCapability(Capabilities.FluidHandler.BLOCK, adjacentPos, face.getOpposite()) != null
                     || (FluidPropagator.getPipe(level, adjacentPos) != null
-                    && FluidPropagator.getPipe(level, adjacentPos).canHaveFlowToward(state, face.getOpposite()))) {
+                    && FluidPropagator.getPipe(level, adjacentPos).canHaveFlowToward(state, face.getOpposite()))
+                    || FluidNetworkEndpointResolver.hasEndpoint(level, worldPosition, face, portId)) {
                 count++;
             }
         }
@@ -2674,13 +2898,39 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     private boolean canReachRoomFluidDestination(int portId, FluidStack resource) {
-        return !resolveRoomFluidHandlers(portId, resource,
-                FluidNetworkEndpointResolver.Operation.FILL).isEmpty();
+        if (!resolveRoomFluidHandlers(portId, resource,
+                FluidNetworkEndpointResolver.Operation.FILL).isEmpty()) {
+            return true;
+        }
+        ServerLevel pocket = pocketLevel();
+        if (pocket == null) {
+            return false;
+        }
+        for (BlockPos portPos : PocketRegistry.getPorts(roomOrigin(), portId)) {
+            if (!(pocket.getBlockEntity(portPos) instanceof NestedPortBlockEntity port)
+                    || port.getTargetPortId() != portId) {
+                continue;
+            }
+            for (Direction side : Direction.values()) {
+                if (FluidNetworkEndpointResolver.hasEndpoint(pocket, portPos, side, portId)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private boolean canReachExternalFluidDestination(int portId, FluidStack resource) {
-        return !resolveExternalFluidHandlers(portId, resource,
-                FluidNetworkEndpointResolver.Operation.FILL).isEmpty();
+        if (!resolveExternalFluidHandlers(portId, resource,
+                FluidNetworkEndpointResolver.Operation.FILL).isEmpty()) {
+            return true;
+        }
+        for (Direction face : getFacesForPortId(portId)) {
+            if (FluidNetworkEndpointResolver.hasEndpoint(level, worldPosition, face, portId)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private FluidStack drainRoomOutput(int portId, FluidStack requested, IFluidHandler.FluidAction action) {
@@ -2816,7 +3066,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
      */
     public void onPortRoutingChanged(Player player) {
         invalidateProductionBatch(player, "port_routing_changed");
-        portChannels.clearFluids();
+        portChannels.clearFluidsAndExtensions();
         roomFluidNetworkSignatures.clear();
         externalFluidNetworkSignatures.clear();
         setChanged();
@@ -3596,7 +3846,8 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         }
         if (nested) {
             if (nestedSlotId >= 0) {
-                PocketRegistry.unregisterNestedSlot(nestedSlotId);
+                PocketRegistry.unregisterNestedSlot(nestedSlotId,
+                        new PocketRegistry.FactoryLocation(factoryId, level.dimension(), worldPosition));
             }
             clearChildFromParent();
         } else if (rootRoomAllocated) {
@@ -3706,6 +3957,44 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         }
     }
 
+    /**
+     * Called by the optional Sable integration immediately before this block entity is
+     * transferred into or out of a physical SubLevel.
+     */
+    public void prepareForSimulatedMove() {
+        simulatedMoveInProgress = true;
+        if (level != null && !level.isClientSide()) {
+            clearExternalStressState();
+            clearStressRelay();
+        }
+    }
+
+    /**
+     * Rebuilds only transient registrations after a physical transfer. Persistent room
+     * identity and production state remain untouched.
+     */
+    public void finishSimulatedMove() {
+        try {
+            if (level != null && !level.isClientSide()) {
+                bindingConflict = false;
+                if (!registerFactoryState()) {
+                    bindingConflict = true;
+                }
+                markRuntimeIndexDirty();
+                refreshChildFactoryBinding();
+                refreshChunkRefsForMode();
+                setChanged();
+                sendSync();
+            }
+        } finally {
+            simulatedMoveInProgress = false;
+        }
+    }
+
+    public boolean isSimulatedMoveInProgress() {
+        return simulatedMoveInProgress;
+    }
+
     @Override
     public void addBehaviours(List<BlockEntityBehaviour> behaviours) {
     }
@@ -3730,7 +4019,10 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             settleLiveStressRelay();
         }
         if (usesRuntimeIndex()) {
-            ensureRuntimeIndex(pocketLevel());
+            ServerLevel pocket = pocketLevel();
+            ensureRuntimeIndex(pocket);
+            reconcileEnergySamples(pocket);
+            sampleLiveEnergyProfile(pocket);
         }
         if (level.getGameTime() % 5 == 0 && !isSimulatedMode()) {
             for (int portId = 1; portId <= FactoryFacePortBindings.MAX_PORT_ID; portId++) {
@@ -3833,7 +4125,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
 
     @Override
     public void remove() {
-        if (level != null && !level.isClientSide()) {
+        if (!simulatedMoveInProgress && level != null && !level.isClientSide()) {
             MinecraftServer server = level.getServer();
             if (server != null) {
                 clearExternalStressState();
@@ -3942,7 +4234,6 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         tag.put("PowerProfile", powerProfile.write());
         tag.putBoolean("SimulatedPowerProfileCaptured", simulatedPowerProfileCaptured);
         blackbox.write(tag, registries);
-        tag.putInt("EnergyStored", energyStored);
         tag.put("ProductionBatch", productionBatch.write(new CompoundTag(), registries));
         tag.putInt("OverclockBatteryFormat", 2);
         tag.put("OverclockBatteries", writeOverclockBatteries(registries));
@@ -4013,7 +4304,6 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 && operationMode == OperationMode.BLACKBOX_ACTIVE
                 && !simulatedPowerProfileCaptured;
         blackbox.read(tag, registries);
-        energyStored = tag.getInt("EnergyStored");
         if (tag.contains("ProductionBatch")) {
             productionBatch.read(tag.getCompound("ProductionBatch"), registries);
         } else {
@@ -4181,3 +4471,14 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         }
     }
 }
+
+
+
+
+
+
+
+
+
+
+

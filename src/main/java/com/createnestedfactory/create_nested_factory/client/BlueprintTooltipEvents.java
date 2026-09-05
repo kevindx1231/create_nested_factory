@@ -98,7 +98,7 @@ public final class BlueprintTooltipEvents {
         addStat(tooltip, "tooltip.create_nested_factory.factory_nesting",
                 data.getBoolean("Nested") ? data.getInt("NestingDepth") + "" : "0");
         addStat(tooltip, "tooltip.create_nested_factory.factory_energy",
-                data.getInt("EnergyStored") + " FE");
+                Component.translatable("tooltip.create_nested_factory.factory_energy_realtime"));
 
         if (data.getBoolean("Nested")) {
             addStat(tooltip, "tooltip.create_nested_factory.factory_parent",
@@ -114,10 +114,16 @@ public final class BlueprintTooltipEvents {
     }
 
     private static void addStat(List<Component> tooltip, String key, String value) {
+        addStat(tooltip, key, value == null || value.isBlank()
+                ? Component.literal("-")
+                : Component.literal(value));
+    }
+
+    private static void addStat(List<Component> tooltip, String key, Component value) {
         tooltip.add(Component.empty()
                 .append(Component.translatable(key).withStyle(ChatFormatting.GRAY))
                 .append(Component.literal(": ").withStyle(ChatFormatting.GRAY))
-                .append(Component.literal(value == null || value.isBlank() ? "-" : value).withStyle(INFO_STYLE)));
+                .append(value.copy().withStyle(INFO_STYLE)));
     }
 
     private static void addRateSection(List<Component> tooltip, String key, Map<ItemVariant, Float> itemRates,

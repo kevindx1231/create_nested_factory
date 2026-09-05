@@ -54,6 +54,8 @@ public class Create_nested_factory {
         NeoForge.EVENT_BUS.register(this);
 
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
+
+        OptionalCompatBootstrap.register(modEventBus);
     }
 
     private void commonSetup(final FMLCommonSetupEvent event) {
@@ -82,6 +84,8 @@ public class Create_nested_factory {
                 (be, side) -> be instanceof NestedPortBlockEntity port ? port.getItemHandler(side) : null);
         event.registerBlockEntity(Capabilities.FluidHandler.BLOCK, ModBlockEntities.NESTED_PORT.get(),
                 (be, side) -> be instanceof NestedPortBlockEntity port ? port.getFluidHandler(side) : null);
+        event.registerBlockEntity(Capabilities.EnergyStorage.BLOCK, ModBlockEntities.NESTED_PORT.get(),
+                (be, side) -> be instanceof NestedPortBlockEntity port ? port.getEnergyStorage(side) : null);
     }
 
     @SubscribeEvent

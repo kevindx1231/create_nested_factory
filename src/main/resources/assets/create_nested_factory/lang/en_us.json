@@ -52,6 +52,7 @@
   "tooltip.create_nested_factory.factory_parent": "Parent factory ID",
   "tooltip.create_nested_factory.factory_room": "Room origin",
   "tooltip.create_nested_factory.factory_batteries": "Blaze Batteries",
+  "tooltip.create_nested_factory.factory_energy_realtime": "Realtime pass-through",
   "tooltip.create_nested_factory.factory_energy_rate": "Energy consumption",
   "goggles.create_nested_factory.mode": "Mode",
   "goggles.create_nested_factory.blueprint": "Blueprint",

@@ -40,8 +40,13 @@ public class PocketRegistry {
      */
     public static boolean registerRoot(BlockPos roomOrigin, FactoryLocation location) {
         FactoryLocation existing = FACTORIES.putIfAbsent(roomOrigin, location);
-        if (existing != null && !existing.equals(location)) {
-            return false;
+        if (existing != null) {
+            if (!existing.factoryId().equals(location.factoryId())) {
+                return false;
+            }
+            // A physical transfer can change the block's current local position while
+            // preserving the same factory identity and room allocation.
+            FACTORIES.replace(roomOrigin, existing, location);
         }
         for (String region : rootRegionsForOrigin(roomOrigin)) {
             ROOT_REGIONS.computeIfAbsent(region, k -> ConcurrentHashMap.newKeySet()).add(roomOrigin);
@@ -83,6 +88,23 @@ public class PocketRegistry {
                 || NESTED_SLOTS.values().stream().anyMatch(slot -> factoryId.equals(slot.location().factoryId()));
     }
 
+    public static FactoryLocation findFactoryLocationById(String factoryId) {
+        if (factoryId == null || factoryId.isBlank()) {
+            return null;
+        }
+        for (FactoryLocation location : FACTORIES.values()) {
+            if (factoryId.equals(location.factoryId())) {
+                return location;
+            }
+        }
+        for (NestedSlot slot : NESTED_SLOTS.values()) {
+            if (factoryId.equals(slot.location().factoryId())) {
+                return slot.location();
+            }
+        }
+        return null;
+    }
+
     public static Set<BlockPos> getRootOriginsInRegion(int regionX, int regionZ) {
         Set<BlockPos> origins = ROOT_REGIONS.get(regionKey(regionX, regionZ));
         return origins == null ? Set.of() : origins;
@@ -99,8 +121,11 @@ public class PocketRegistry {
         int slotZ = slotZForId(slotId);
         SlotKey key = new SlotKey(slotX, slotZ);
         NestedSlot existing = NESTED_SLOTS.get(key);
-        if (existing != null && !existing.location().equals(location)) {
-            return null;
+        if (existing != null) {
+            if (!existing.location().factoryId().equals(location.factoryId())) {
+                return null;
+            }
+            location = new FactoryLocation(existing.location().factoryId(), location.dimension(), location.pos());
         }
         NestedSlot slot = new NestedSlot(slotId, slotX, slotZ, location);
         NESTED_SLOTS.put(key, slot);
@@ -127,6 +152,19 @@ public class PocketRegistry {
         SlotKey key = SLOT_KEYS_BY_ID.remove(slotId);
         if (key != null) {
             NESTED_SLOTS.remove(key);
+        }
+    }
+
+    public static void unregisterNestedSlot(int slotId, FactoryLocation expectedOwner) {
+        SlotKey key = SLOT_KEYS_BY_ID.get(slotId);
+        if (key == null) {
+            return;
+        }
+        NestedSlot existing = NESTED_SLOTS.get(key);
+        if (existing != null && existing.location().equals(expectedOwner)) {
+            if (NESTED_SLOTS.remove(key, existing)) {
+                SLOT_KEYS_BY_ID.remove(slotId, key);
+            }
         }
     }
 

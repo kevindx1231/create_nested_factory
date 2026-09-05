@@ -1,0 +1,14 @@
+{
+  "required": false,
+  "plugin": "com.createnestedfactory.create_nested_factory.OptionalCompatMixinPlugin",
+  "package": "com.createnestedfactory.create_nested_factory_logistics.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "minVersion": "0.8",
+  "mixins": [
+    "PipezFluidPipeTypeMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
+
