@@ -8,7 +8,6 @@ import java.util.Set;
 /** Runtime-only participant positions for one Pocket room. Never persisted. */
 final class RoomParticipantIndex {
     private final Set<BlockPos> kineticPositions = new HashSet<>();
-    private final Set<BlockPos> energyPositions = new HashSet<>();
     private final Set<BlockPos> inventoryPositions = new HashSet<>();
     private final Set<BlockPos> childFactoryPositions = new HashSet<>();
     private boolean built;
@@ -16,7 +15,6 @@ final class RoomParticipantIndex {
 
     void clear() {
         kineticPositions.clear();
-        energyPositions.clear();
         inventoryPositions.clear();
         childFactoryPositions.clear();
         built = false;
@@ -25,7 +23,6 @@ final class RoomParticipantIndex {
 
     void beginRebuild() {
         kineticPositions.clear();
-        energyPositions.clear();
         inventoryPositions.clear();
         childFactoryPositions.clear();
     }
@@ -47,10 +44,6 @@ final class RoomParticipantIndex {
         return kineticPositions;
     }
 
-    Set<BlockPos> energyPositions() {
-        return energyPositions;
-    }
-
     Set<BlockPos> inventoryPositions() {
         return inventoryPositions;
     }
@@ -61,10 +54,6 @@ final class RoomParticipantIndex {
 
     int kineticCount() {
         return kineticPositions.size();
-    }
-
-    int energyCount() {
-        return energyPositions.size();
     }
 
     int inventoryCount() {

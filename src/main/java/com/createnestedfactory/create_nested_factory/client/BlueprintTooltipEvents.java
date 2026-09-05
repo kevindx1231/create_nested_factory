@@ -97,8 +97,6 @@ public final class BlueprintTooltipEvents {
                         + data.getString("OperationMode")).getString());
         addStat(tooltip, "tooltip.create_nested_factory.factory_nesting",
                 data.getBoolean("Nested") ? data.getInt("NestingDepth") + "" : "0");
-        addStat(tooltip, "tooltip.create_nested_factory.factory_energy",
-                Component.translatable("tooltip.create_nested_factory.factory_energy_realtime"));
 
         if (data.getBoolean("Nested")) {
             addStat(tooltip, "tooltip.create_nested_factory.factory_parent",
@@ -109,8 +107,6 @@ public final class BlueprintTooltipEvents {
         profile.read(data.getCompound("PowerProfile"));
         addStat(tooltip, "tooltip.create_nested_factory.blueprint.consumed_stress",
                 formatNumber(profile.consumedSU()) + " su");
-        addStat(tooltip, "tooltip.create_nested_factory.factory_energy_rate",
-                formatNumber(profile.consumedFE()) + " FE/t");
     }
 
     private static void addStat(List<Component> tooltip, String key, String value) {

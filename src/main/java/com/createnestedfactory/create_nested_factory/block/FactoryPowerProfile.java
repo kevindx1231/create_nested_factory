@@ -2,12 +2,11 @@ package com.createnestedfactory.create_nested_factory.block;
 
 import net.minecraft.nbt.CompoundTag;
 
+/** Captured mechanical power profile for live, black-box, and blueprint operation. */
 public final class FactoryPowerProfile {
     private float generatedSU;
     private float consumedSU;
-    private float generatedFE;
-    private float consumedFE;
-    /** Exact boundary demand sampled from the room's de-duplicated stress-port groups. */
+    /** Exact external stress demand sampled from the room's de-duplicated stress-port groups. */
     private float measuredExternalStressDemandSU;
     private boolean hasMeasuredExternalStressDemand;
     // True only for profiles scanned after relay stress ports were excluded from generation.
@@ -16,27 +15,21 @@ public final class FactoryPowerProfile {
     public FactoryPowerProfile() {
     }
 
-    public FactoryPowerProfile(float generatedSU, float consumedSU, float generatedFE, float consumedFE) {
+    public FactoryPowerProfile(float generatedSU, float consumedSU) {
         this.generatedSU = generatedSU;
         this.consumedSU = consumedSU;
-        this.generatedFE = generatedFE;
-        this.consumedFE = consumedFE;
         this.measuredExternalStressDemandSU = Math.max(0f, consumedSU - generatedSU);
         this.hasMeasuredExternalStressDemand = true;
         this.generatedSUExcludesRelayStress = true;
     }
 
-    public void set(float generatedSU, float consumedSU, float generatedFE, float consumedFE) {
-        set(generatedSU, consumedSU, generatedFE, consumedFE,
-                Math.max(0f, consumedSU - generatedSU));
+    public void set(float generatedSU, float consumedSU) {
+        set(generatedSU, consumedSU, Math.max(0f, consumedSU - generatedSU));
     }
 
-    public void set(float generatedSU, float consumedSU, float generatedFE, float consumedFE,
-                    float measuredExternalStressDemandSU) {
+    public void set(float generatedSU, float consumedSU, float measuredExternalStressDemandSU) {
         this.generatedSU = generatedSU;
         this.consumedSU = consumedSU;
-        this.generatedFE = generatedFE;
-        this.consumedFE = consumedFE;
         this.measuredExternalStressDemandSU = Math.max(0f,
                 Float.isFinite(measuredExternalStressDemandSU) ? measuredExternalStressDemandSU : 0f);
         this.hasMeasuredExternalStressDemand = true;
@@ -52,32 +45,18 @@ public final class FactoryPowerProfile {
     }
 
     /**
-     * Generation that is safe to use in black-box simulation. Profiles saved before
-     * relay stress ports were excluded are treated conservatively as having no known
-     * internal generation, preventing historical external input from becoming free power.
+     * Generation that is safe to use in black-box simulation. Historical profiles that did not
+     * exclude relay stress are treated conservatively as having no known internal generation.
      */
     public float internalGeneratedSU() {
         return generatedSUExcludesRelayStress ? generatedSU : 0f;
-    }
-
-
-    public float generatedFE() {
-        return generatedFE;
-    }
-
-    public float consumedFE() {
-        return consumedFE;
     }
 
     public float netSU() {
         return generatedSU - consumedSU;
     }
 
-    /**
-     * Stress that must cross this factory boundary. Internal surplus is deliberately
-     * not exportable: a nested factory can offset its own load, but cannot create
-     * stress capacity for its parent without an explicit output port.
-     */
+    /** Stress that must cross this factory boundary. */
     public float externalStressDemandSU() {
         if (hasMeasuredExternalStressDemand) {
             return measuredExternalStressDemandSU;
@@ -85,17 +64,11 @@ public final class FactoryPowerProfile {
         return Math.max(0f, consumedSU - internalGeneratedSU());
     }
 
-    public float netFE() {
-        return generatedFE - consumedFE;
-    }
-
     public FactoryPowerProfile scaled(float multiplier) {
         float scale = Float.isFinite(multiplier) && multiplier >= 0f ? multiplier : 1.0f;
         FactoryPowerProfile scaled = new FactoryPowerProfile();
         scaled.generatedSU = generatedSU * scale;
         scaled.consumedSU = consumedSU * scale;
-        scaled.generatedFE = generatedFE * scale;
-        scaled.consumedFE = consumedFE * scale;
         scaled.measuredExternalStressDemandSU = measuredExternalStressDemandSU * scale;
         scaled.hasMeasuredExternalStressDemand = hasMeasuredExternalStressDemand;
         scaled.generatedSUExcludesRelayStress = generatedSUExcludesRelayStress;
@@ -106,8 +79,6 @@ public final class FactoryPowerProfile {
         CompoundTag tag = new CompoundTag();
         tag.putFloat("GeneratedSU", generatedSU);
         tag.putFloat("ConsumedSU", consumedSU);
-        tag.putFloat("GeneratedFE", generatedFE);
-        tag.putFloat("ConsumedFE", consumedFE);
         tag.putFloat("MeasuredExternalStressDemandSU", measuredExternalStressDemandSU);
         tag.putBoolean("HasMeasuredExternalStressDemand", hasMeasuredExternalStressDemand);
         tag.putBoolean("GeneratedSUExcludesRelayStress", generatedSUExcludesRelayStress);
@@ -117,8 +88,6 @@ public final class FactoryPowerProfile {
     public void read(CompoundTag tag) {
         generatedSU = tag.getFloat("GeneratedSU");
         consumedSU = tag.getFloat("ConsumedSU");
-        generatedFE = tag.getFloat("GeneratedFE");
-        consumedFE = tag.getFloat("ConsumedFE");
         hasMeasuredExternalStressDemand = tag.contains("HasMeasuredExternalStressDemand")
                 && tag.getBoolean("HasMeasuredExternalStressDemand");
         measuredExternalStressDemandSU = hasMeasuredExternalStressDemand

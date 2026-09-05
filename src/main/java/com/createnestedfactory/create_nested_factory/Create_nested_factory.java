@@ -78,14 +78,10 @@ public class Create_nested_factory {
                 (be, side) -> be instanceof NestedFactoryBlockEntity factory ? factory.getItemHandler(side) : null);
         event.registerBlockEntity(Capabilities.FluidHandler.BLOCK, ModBlockEntities.NESTED_FACTORY.get(),
                 (be, side) -> be instanceof NestedFactoryBlockEntity factory ? factory.getFluidHandler(side) : null);
-        event.registerBlockEntity(Capabilities.EnergyStorage.BLOCK, ModBlockEntities.NESTED_FACTORY.get(),
-                (be, side) -> be instanceof NestedFactoryBlockEntity factory ? factory.getEnergyStorage(side) : null);
         event.registerBlockEntity(Capabilities.ItemHandler.BLOCK, ModBlockEntities.NESTED_PORT.get(),
                 (be, side) -> be instanceof NestedPortBlockEntity port ? port.getItemHandler(side) : null);
         event.registerBlockEntity(Capabilities.FluidHandler.BLOCK, ModBlockEntities.NESTED_PORT.get(),
                 (be, side) -> be instanceof NestedPortBlockEntity port ? port.getFluidHandler(side) : null);
-        event.registerBlockEntity(Capabilities.EnergyStorage.BLOCK, ModBlockEntities.NESTED_PORT.get(),
-                (be, side) -> be instanceof NestedPortBlockEntity port ? port.getEnergyStorage(side) : null);
     }
 
     @SubscribeEvent

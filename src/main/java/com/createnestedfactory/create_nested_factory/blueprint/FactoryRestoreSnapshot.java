@@ -9,7 +9,7 @@ import java.util.Locale;
 /**
  * The configuration overwritten while a blueprint is applied.
  *
- * <p>This deliberately excludes energy, item/fluid contents, progress and all other runtime
+ * <p>This deliberately excludes item/fluid contents, progress and all other runtime
  * resources. Those values may have been consumed, produced or transferred while the blueprint
  * was active, so restoring them would duplicate resources.</p>
  */
@@ -36,7 +36,7 @@ public final class FactoryRestoreSnapshot {
     }
 
     /**
-     * Extra fields from older snapshots, including EnergyStored, are intentionally ignored.
+     * Extra fields from older snapshots are intentionally ignored.
      */
     public void read(CompoundTag tag) {
         blackbox = tag.getCompound("Blackbox").copy();

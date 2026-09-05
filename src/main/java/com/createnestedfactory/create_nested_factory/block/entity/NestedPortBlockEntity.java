@@ -23,7 +23,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
-import net.neoforged.neoforge.energy.IEnergyStorage;
+import net.neoforged.neoforge.capabilities.Capabilities;
 import net.neoforged.neoforge.fluids.capability.IFluidHandler;
 import net.neoforged.neoforge.items.IItemHandler;
 
@@ -112,12 +112,6 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
         }
     }
 
-    /** Energy is a mode-independent room-side egress. The port never accepts energy. */
-    public IEnergyStorage getEnergyStorage(Direction side) {
-        NestedFactoryBlockEntity factory = findFactory();
-        return factory == null ? null : factory.getPortEnergyStorage();
-    }
-
     public IItemHandler getItemHandler(Direction side) {
         NestedFactoryBlockEntity factory = findFactory();
         if (factory == null) {
@@ -194,6 +188,7 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
     public void onNeighborChanged(BlockPos neighborPos) {
         boolean changed = false;
         if (level != null && !level.isClientSide()) {
+            level.invalidateCapabilities(worldPosition);
             for (Direction side : Direction.values()) {
                 if (!worldPosition.relative(side).equals(neighborPos)) {
                     continue;
