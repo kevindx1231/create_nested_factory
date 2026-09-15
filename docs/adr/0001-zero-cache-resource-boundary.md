@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0014
 ---
 
 # 使用零缓存边界与单批次生产状态传输资源

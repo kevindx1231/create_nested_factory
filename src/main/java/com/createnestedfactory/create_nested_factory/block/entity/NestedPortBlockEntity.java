@@ -87,6 +87,9 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
             }
             return;
         }
+        if (factoryBeforeChange != null && !factoryBeforeChange.canChangePortRouting(player)) {
+            return;
+        }
         int old = targetPortId;
         clearInputConsumers();
         targetPortId = targetPortId % 6 + 1;
@@ -759,7 +762,6 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
     }
 
 }
-
 
 
 

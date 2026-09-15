@@ -16,8 +16,7 @@ import java.util.Locale;
 public final class FactoryRestoreSnapshot {
     private final PortMode[] faceModes = new PortMode[6];
     private final int[] portIds = new int[6];
-    private CompoundTag blackbox = new CompoundTag();
-    private CompoundTag powerProfile = new CompoundTag();
+    private CompoundTag plan = new CompoundTag();
 
     public FactoryRestoreSnapshot() {
         for (int i = 0; i < 6; i++) {
@@ -26,8 +25,7 @@ public final class FactoryRestoreSnapshot {
     }
 
     public CompoundTag write(CompoundTag tag) {
-        tag.put("Blackbox", blackbox.copy());
-        tag.put("PowerProfile", powerProfile.copy());
+        tag.put("Plan", plan.copy());
         for (int i = 0; i < 6; i++) {
             tag.putString("FaceMode" + i, faceModes[i].getSerializedName());
             tag.putInt("PortId" + i, portIds[i]);
@@ -39,8 +37,7 @@ public final class FactoryRestoreSnapshot {
      * Extra fields from older snapshots are intentionally ignored.
      */
     public void read(CompoundTag tag) {
-        blackbox = tag.getCompound("Blackbox").copy();
-        powerProfile = tag.getCompound("PowerProfile").copy();
+        plan = tag.getCompound("Plan").copy();
         for (int i = 0; i < 6; i++) {
             faceModes[i] = readPortMode(tag.getString("FaceMode" + i));
             portIds[i] = tag.getInt("PortId" + i);
@@ -56,12 +53,8 @@ public final class FactoryRestoreSnapshot {
         }
     }
 
-    public CompoundTag blackbox() {
-        return blackbox.copy();
-    }
-
-    public CompoundTag powerProfile() {
-        return powerProfile.copy();
+    public CompoundTag plan() {
+        return plan.copy();
     }
 
     public PortMode faceMode(int index) {
@@ -72,12 +65,8 @@ public final class FactoryRestoreSnapshot {
         return portIds[index];
     }
 
-    public void blackbox(CompoundTag blackbox) {
-        this.blackbox = blackbox.copy();
-    }
-
-    public void powerProfile(CompoundTag powerProfile) {
-        this.powerProfile = powerProfile.copy();
+    public void plan(CompoundTag plan) {
+        this.plan = plan.copy();
     }
 
     public void faceMode(int index, PortMode mode) {

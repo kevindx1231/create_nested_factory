@@ -9,6 +9,7 @@ import java.util.Set;
 final class RoomParticipantIndex {
     private final Set<BlockPos> kineticPositions = new HashSet<>();
     private final Set<BlockPos> inventoryPositions = new HashSet<>();
+    private final Set<BlockPos> fluidHandlerPositions = new HashSet<>();
     private final Set<BlockPos> childFactoryPositions = new HashSet<>();
     private boolean built;
     private boolean dirty = true;
@@ -16,6 +17,7 @@ final class RoomParticipantIndex {
     void clear() {
         kineticPositions.clear();
         inventoryPositions.clear();
+        fluidHandlerPositions.clear();
         childFactoryPositions.clear();
         built = false;
         dirty = true;
@@ -24,6 +26,7 @@ final class RoomParticipantIndex {
     void beginRebuild() {
         kineticPositions.clear();
         inventoryPositions.clear();
+        fluidHandlerPositions.clear();
         childFactoryPositions.clear();
     }
 
@@ -50,6 +53,10 @@ final class RoomParticipantIndex {
 
     Set<BlockPos> childFactoryPositions() {
         return childFactoryPositions;
+    }
+
+    Set<BlockPos> fluidHandlerPositions() {
+        return fluidHandlerPositions;
     }
 
     int kineticCount() {

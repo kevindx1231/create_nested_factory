@@ -1,6 +1,7 @@
 package com.createnestedfactory.create_nested_factory.block.entity;
 
 import net.minecraft.core.HolderLookup;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
@@ -26,6 +27,16 @@ public final class ItemVariant implements Comparable<ItemVariant> {
         return new ItemVariant(stack);
     }
 
+    /** A tool identity deliberately ignores its mutable damage component. */
+    public static ItemVariant toolSignature(ItemStack stack) {
+        if (stack.isEmpty() || !stack.isDamageableItem()) {
+            throw new IllegalArgumentException("A tool signature requires a damageable item");
+        }
+        ItemStack signature = stack.copyWithCount(1);
+        signature.remove(DataComponents.DAMAGE);
+        return new ItemVariant(signature);
+    }
+
     public static ItemVariant read(HolderLookup.Provider registries, CompoundTag tag) {
         ItemStack stack = ItemStack.parseOptional(registries, tag);
         return stack.isEmpty() ? null : of(stack);
@@ -48,8 +59,16 @@ public final class ItemVariant implements Comparable<ItemVariant> {
         return prototype.copyWithCount(count);
     }
 
+    public String canonicalKey() {
+        return canonicalKey;
+    }
+
     public boolean matches(ItemStack stack) {
         return !stack.isEmpty() && ItemStack.isSameItemSameComponents(prototype, stack);
+    }
+
+    public boolean matchesTool(ItemStack stack) {
+        return !stack.isEmpty() && stack.isDamageableItem() && equals(toolSignature(stack));
     }
 
     @Override
@@ -66,5 +85,10 @@ public final class ItemVariant implements Comparable<ItemVariant> {
     @Override
     public int hashCode() {
         return hashCode;
+    }
+
+    @Override
+    public String toString() {
+        return canonicalKey;
     }
 }

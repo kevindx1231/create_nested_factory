@@ -1,9 +1,8 @@
 package com.createnestedfactory.create_nested_factory.blueprint;
 
 import com.createnestedfactory.create_nested_factory.block.FactoryFacePortBindings;
-import com.createnestedfactory.create_nested_factory.block.FactoryPowerProfile;
 import com.createnestedfactory.create_nested_factory.block.PortMode;
-import com.createnestedfactory.create_nested_factory.block.entity.BlackboxData;
+import com.createnestedfactory.create_nested_factory.block.entity.FactoryPlan;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity;
 import com.simibubi.create.AllItems;
 import net.minecraft.core.BlockPos;
@@ -15,10 +14,10 @@ import net.minecraft.world.item.component.CustomData;
 
 import java.util.Locale;
 
-/** Version-2 blueprint format: every item recipe entry includes complete ItemStack components. */
+/** Version-8 blueprint format: a blueprint carries a plan template and never runtime ownership. */
 public final class NestedFactoryBlueprint {
     public static final String ITEM_KEY = "NestedFactoryBlueprint";
-    private static final String MARKER = "create_nested_factory:blueprint_v2";
+    private static final String MARKER = "create_nested_factory:blueprint_v8";
 
     private String displayName = "";
     private String sourceFactoryId = "";
@@ -26,9 +25,7 @@ public final class NestedFactoryBlueprint {
     private String sourceDimension = "";
     private BlockPos sourcePos = BlockPos.ZERO;
     private int sourceDepth;
-    private float productionEfficiency = 1.0f;
-    private final BlackboxData blackbox = new BlackboxData();
-    private final FactoryPowerProfile powerProfile = new FactoryPowerProfile();
+    private final FactoryPlan plan = new FactoryPlan();
     private final PortMode[] faceModes = new PortMode[6];
     private final int[] portIds = new int[6];
 
@@ -45,14 +42,32 @@ public final class NestedFactoryBlueprint {
         blueprint.sourceDimension = factory.getLevel().dimension().location().toString();
         blueprint.sourcePos = factory.getBlockPos().immutable();
         blueprint.sourceDepth = factory.getNestingDepth();
-        blueprint.productionEfficiency = 1.0f;
-        blueprint.blackbox.read(factory.getBlackbox().write(new CompoundTag(), registries), registries);
-        blueprint.powerProfile.read(factory.getPowerProfile().write());
+        blueprint.plan.read(factory.getPlan().write(new CompoundTag(), registries), registries);
         for (int i = 0; i < 6; i++) {
             blueprint.faceModes[i] = factory.getFaceMode(net.minecraft.core.Direction.from3DDataValue(i));
             blueprint.portIds[i] = factory.getPortId(net.minecraft.core.Direction.from3DDataValue(i));
         }
+        blueprint.ensureProvisioningInput();
         return blueprint;
+    }
+
+    /** A material-free source may have no input face, but its copy may still need capital or tools. */
+    private void ensureProvisioningInput() {
+        if (plan.getStartupCapitalItems().isEmpty() && plan.getRecipeToolDamageCosts().isEmpty()
+                && plan.getRecipeInputs().isEmpty() && plan.getRecipeInputFluids().isEmpty()) return;
+        for (PortMode mode : faceModes) if (mode == PortMode.INPUT) return;
+
+        int selected = 0;
+        for (int index = 0; index < faceModes.length; index++) {
+            if (faceModes[index] == PortMode.NONE) {
+                selected = index;
+                break;
+            }
+        }
+        int portId = FactoryFacePortBindings.allocateLowestUnused(faceModes, portIds, selected);
+        if (portId == 0) return;
+        faceModes[selected] = PortMode.INPUT;
+        portIds[selected] = portId;
     }
 
     public static NestedFactoryBlueprint fromItem(ItemStack stack, HolderLookup.Provider registries) {
@@ -82,9 +97,7 @@ public final class NestedFactoryBlueprint {
         tag.putString("SourceDimension", sourceDimension);
         tag.putLong("SourcePos", sourcePos.asLong());
         tag.putInt("SourceDepth", sourceDepth);
-        tag.putFloat("ProductionEfficiency", productionEfficiency);
-        tag.put("Blackbox", blackbox.write(new CompoundTag(), registries));
-        tag.put("PowerProfile", powerProfile.write());
+        tag.put("Plan", plan.write(new CompoundTag(), registries));
         for (int i = 0; i < 6; i++) {
             tag.putString("FaceMode" + i, faceModes[i].getSerializedName());
             tag.putInt("PortId" + i, portIds[i]);
@@ -99,13 +112,13 @@ public final class NestedFactoryBlueprint {
         sourceDimension = tag.getString("SourceDimension");
         sourcePos = tag.contains("SourcePos") ? BlockPos.of(tag.getLong("SourcePos")) : BlockPos.ZERO;
         sourceDepth = tag.getInt("SourceDepth");
-        productionEfficiency = tag.contains("ProductionEfficiency") ? tag.getFloat("ProductionEfficiency") : 1.0f;
-        blackbox.read(tag.getCompound("Blackbox"), registries);
-        powerProfile.read(tag.getCompound("PowerProfile"));
+        plan.read(tag.getCompound("Plan"), registries);
         for (int i = 0; i < 6; i++) {
             faceModes[i] = readPortMode(tag.getString("FaceMode" + i));
             portIds[i] = tag.getInt("PortId" + i);
         }
+        FactoryFacePortBindings.normalize(faceModes, portIds);
+        ensureProvisioningInput();
     }
 
     public NestedFactoryBlueprint copy(HolderLookup.Provider registries) {
@@ -114,7 +127,7 @@ public final class NestedFactoryBlueprint {
 
     public boolean hasCompleteRunData() {
         return sourceFactoryId != null && !sourceFactoryId.isBlank()
-                && hasValidFacePortBindings() && blackbox.hasCompleteRecipe();
+                && hasValidFacePortBindings() && plan.hasCompleteRecipe();
     }
 
     public boolean hasValidFacePortBindings() {
@@ -132,9 +145,7 @@ public final class NestedFactoryBlueprint {
     public String sourceDimension() { return sourceDimension; }
     public BlockPos sourcePos() { return sourcePos; }
     public int sourceDepth() { return sourceDepth; }
-    public float productionEfficiency() { return productionEfficiency; }
-    public BlackboxData blackbox() { return blackbox; }
-    public FactoryPowerProfile powerProfile() { return powerProfile; }
+    public FactoryPlan plan() { return plan; }
     public PortMode faceMode(int index) { return faceModes[index]; }
     public int portId(int index) { return portIds[index]; }
 }

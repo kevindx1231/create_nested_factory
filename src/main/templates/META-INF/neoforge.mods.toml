@@ -35,6 +35,9 @@ authors = "${mod_authors}" #optional
 description = '''${mod_description}'''
 
 [[mixins]]
+config = "create_nested_factory.mixins.json"
+
+[[mixins]]
 config = "create_nested_factory_simulated.mixins.json"
 
 [[mixins]]

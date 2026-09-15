@@ -6,7 +6,7 @@ import java.util.Locale;
 
 public enum OperationMode implements StringRepresentable {
     CHUNK_LOADED,
-    BLACKBOX_DRAINING,
+    BLACKBOX_PREPARING,
     BLACKBOX_LEARNING,
     BLACKBOX_ACTIVE,
     BLUEPRINT;

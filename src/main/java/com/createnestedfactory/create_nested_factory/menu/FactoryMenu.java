@@ -3,7 +3,6 @@ package com.createnestedfactory.create_nested_factory.menu;
 import com.createnestedfactory.create_nested_factory.block.OperationMode;
 import com.createnestedfactory.create_nested_factory.block.OverclockTier;
 import com.createnestedfactory.create_nested_factory.block.PortMode;
-import com.createnestedfactory.create_nested_factory.block.entity.BlackboxData;
 import com.createnestedfactory.create_nested_factory.block.entity.ItemVariant;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity;
 import com.createnestedfactory.create_nested_factory.network.PlayerMessagePayload;
@@ -106,9 +105,8 @@ public class FactoryMenu extends AbstractContainerMenu {
             for (int i = 0; i < 6; i++) {
                 data.set(DATA_FACES + i, factory.getFaceMode(faceForButton(facing, i)).ordinal());
             }
-            BlackboxData displayedRecipe = factory.getDisplayedBlackbox();
-            syncRates(DATA_INPUTS_START, displayedRecipe.getInputRates(), displayedRecipe.getInputFluidRates());
-            syncRates(DATA_OUTPUTS_START, displayedRecipe.getOutputRates(), displayedRecipe.getOutputFluidRates());
+            syncRates(DATA_INPUTS_START, factory.getGuiItemInputRates(), factory.getGuiFluidInputRates());
+            syncRates(DATA_OUTPUTS_START, factory.getGuiItemOutputRates(), factory.getGuiFluidOutputRates());
             data.set(DATA_BLUEPRINT, factory.isBlueprintApplied() ? 1 : 0);
             data.set(DATA_BATTERY_COUNT, factory.getOverclockBatteryCount());
             data.set(DATA_SELECTED_OVERCLOCK, factory.getSelectedOverclockTier().id());

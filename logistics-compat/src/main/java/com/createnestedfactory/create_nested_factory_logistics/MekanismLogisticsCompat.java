@@ -3,6 +3,8 @@ package com.createnestedfactory.create_nested_factory_logistics;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedPortBlockEntity;
 import com.createnestedfactory.create_nested_factory.block.entity.FluidNetworkEndpointResolver;
+import com.createnestedfactory.create_nested_factory.block.entity.FactoryTransit;
+import com.createnestedfactory.create_nested_factory_logistics.chemical.ChemicalLedger;
 import com.createnestedfactory.create_nested_factory_logistics.chemical.MekanismChemicalHandler;
 import com.createnestedfactory.create_nested_factory_logistics.heat.MekanismHeatHandler;
 import com.createnestedfactory.create_nested_factory_logistics.pipez.PipezFluidNetworkAdapter;
@@ -32,6 +34,7 @@ public final class MekanismLogisticsCompat {
                     IHeatHandler.class);
 
     public static void initialize(IEventBus modEventBus) {
+        FactoryTransit.registerParticipant(ChemicalLedger.PARTICIPANT_ID, ChemicalLedger::new);
         modEventBus.addListener(MekanismLogisticsCompat::registerCapabilities);
         FluidNetworkEndpointResolver.registerAdapter(PipezFluidNetworkAdapter.INSTANCE);
     }

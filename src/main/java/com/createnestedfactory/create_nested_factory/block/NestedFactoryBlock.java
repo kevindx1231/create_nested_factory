@@ -177,10 +177,14 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
 
     public static void enterFactory(ServerPlayer player, NestedFactoryBlockEntity factory) {
         if (factory == null || !factory.isEnterable()) {
+            if (factory != null) factory.blackboxDebug("factory_entry_rejected", () -> "reason=not_enterable, player="
+                    + player.getScoreboardName());
             PlayerMessagePayload.sendTo(player, Component.translatable("message.create_nested_factory.factory.not_enterable").withStyle(ChatFormatting.RED), false);
             return;
         }
         if (factory.getOperationMode() != OperationMode.CHUNK_LOADED) {
+            factory.blackboxDebug("factory_entry_rejected", () -> "reason=simulated_mode, player="
+                    + player.getScoreboardName());
             PlayerMessagePayload.sendTo(player, Component.translatable("message.create_nested_factory.factory.blackbox_entry_blocked").withStyle(ChatFormatting.RED), false);
             return;
         }
@@ -189,6 +193,8 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
         if (pocketLevel == null) return;
 
         if (factory.isRoomMutationLocked() || !factory.requestRoomBuild()) {
+            factory.blackboxDebug("factory_entry_rejected", () -> "reason=room_mutation_or_build_pending, player="
+                    + player.getScoreboardName());
             PlayerMessagePayload.sendTo(player, Component.translatable("message.create_nested_factory.room_mutation.wait").withStyle(ChatFormatting.YELLOW), false);
             return;
         }
@@ -206,6 +212,8 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
         } else {
             if (!session.hasCurrentFactoryReference()
                     || !session.currentFactoryId().equals(factory.getParentFactoryId())) {
+                factory.blackboxDebug("factory_entry_rejected", () -> "reason=nested_session_mismatch, player="
+                        + player.getScoreboardName());
                 PlayerMessagePayload.sendTo(player, Component.translatable("message.create_nested_factory.factory.nested_entry_blocked").withStyle(ChatFormatting.RED), false);
                 return;
             }
@@ -226,6 +234,8 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
                         session.nightVisionGranted(), session.originalNightVision(), stack));
 
         factory.onPlayerEntered(player.serverLevel().dimension(), player.blockPosition());
+        factory.blackboxDebug("factory_entry_started", () -> "player=" + player.getScoreboardName()
+                + ", pocketOrigin=" + origin);
         try {
             player.fallDistance = 0f;
             player.teleportTo(pocketLevel, origin.getX() + 1.5, origin.getY() + 2.0, origin.getZ() + 1.5,

@@ -64,13 +64,23 @@ public final class BlueprintTooltipEvents {
         // Shift information follows the requested source -> recipe -> power -> location order.
         addStat(tooltip, "tooltip.create_nested_factory.blueprint.source_name", blueprint.sourceFactoryName());
         addRateSection(tooltip, "tooltip.create_nested_factory.blueprint.input_items",
-                blueprint.blackbox().getInputRates(), blueprint.blackbox().getInputFluidRates());
+                blueprint.plan().getInputRates(), blueprint.plan().getInputFluidRates());
+        if (!blueprint.plan().getStartupCapitalItems().isEmpty()) {
+            tooltip.add(Component.translatable("tooltip.create_nested_factory.blueprint.startup_capital")
+                    .withStyle(ChatFormatting.GRAY));
+            blueprint.plan().getStartupCapitalItems().entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey()).forEach(entry -> tooltip.add(Component.literal("     ")
+                            .append(entry.getKey().prototype().getHoverName().copy().withStyle(ChatFormatting.GRAY))
+                            .append(Component.literal("  x" + entry.getValue()).withStyle(INFO_STYLE))));
+        }
         addRateSection(tooltip, "tooltip.create_nested_factory.blueprint.output_items",
-                blueprint.blackbox().getOutputRates(), blueprint.blackbox().getOutputFluidRates());
+                blueprint.plan().getOutputRates(), blueprint.plan().getOutputFluidRates());
         addStat(tooltip, "tooltip.create_nested_factory.blueprint.consumed_stress",
-                formatNumber(blueprint.powerProfile().consumedSU()) + " su");
+                formatNumber(blueprint.plan().getLearnedPeakExternalStressSU()) + " su");
+        addStat(tooltip, "tooltip.create_nested_factory.blueprint.internal_generated_stress",
+                formatNumber(blueprint.plan().getLearnedPeakInternalGeneratedSU()) + " su");
         addStat(tooltip, "tooltip.create_nested_factory.blueprint.machine_efficiency",
-                String.format(Locale.ROOT, "%.0f%%", blueprint.productionEfficiency() * 100.0f));
+                "100%");
         addStat(tooltip, "tooltip.create_nested_factory.blueprint.source_pos",
                 blueprint.sourcePos().getX() + " " + blueprint.sourcePos().getY() + " "
                         + blueprint.sourcePos().getZ());
@@ -129,13 +139,13 @@ public final class BlueprintTooltipEvents {
                 .sorted(Map.Entry.comparingByKey((left, right) ->
                         left.compareTo(right)))
                 .forEach(entry -> tooltip.add(rateLine(entry.getKey().prototype().getHoverName(),
-                        formatRate(entry.getValue()), "/s")));
+                        NestedFactoryBlockEntity.formatRate(entry.getValue()), "/s")));
         fluidRates.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey((left, right) ->
                         BuiltInRegistries.FLUID.getKey(left).toString()
                                 .compareTo(BuiltInRegistries.FLUID.getKey(right).toString())))
                 .forEach(entry -> tooltip.add(rateLine(new FluidStack(entry.getKey(), 1).getHoverName(),
-                        formatRate(entry.getValue()), "mB/s")));
+                        NestedFactoryBlockEntity.formatRate(entry.getValue()), "mB/s")));
     }
 
     private static Component rateLine(Component resourceName, String rate, String unit) {
@@ -151,10 +161,6 @@ public final class BlueprintTooltipEvents {
         tooltip.add(Component.literal(" ")
                 .append(Component.translatable("tooltip.create_nested_factory.blueprint.apply")
                         .withStyle(INFO_STYLE)));
-    }
-
-    private static String formatRate(float rate) {
-        return String.format(Locale.ROOT, "%.0f", rate);
     }
 
     private static String formatNumber(float value) {

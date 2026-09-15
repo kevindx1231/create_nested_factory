@@ -32,11 +32,13 @@ import com.simibubi.create.content.kinetics.belt.BeltBlockEntity;
 import com.simibubi.create.content.kinetics.base.GeneratingKineticBlockEntity;
 import com.simibubi.create.content.kinetics.base.IRotate;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
+import com.simibubi.create.content.logistics.box.PackageItem;
 import com.simibubi.create.foundation.blockEntity.behaviour.BlockEntityBehaviour;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
+import net.minecraft.core.SectionPos;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
@@ -64,6 +66,8 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.material.Fluid;
 import net.minecraft.world.phys.AABB;
 import net.neoforged.neoforge.capabilities.Capabilities;
@@ -82,19 +86,29 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 
 public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity implements MenuProvider {
+    private static final int SIMULATED_IO_FORMAT_VERSION = 2;
     private static final Logger LOGGER = LogUtils.getLogger();
     public static final String PORTABLE_BINDING_KEY = "PortableBinding";
-    private static final int LEARNING_TICKS = 200;
     private static final int LEARNING_WARMUP_TICKS = 100;
-    private static final int DRAIN_STABLE_TICKS = 60;
-    private static final int DRAIN_TIMEOUT_TICKS = 1200;
+    private static final int[] LEARNING_WINDOW_TICKS = {100, 200, 400, 800, 1600};
+    private static final int PREPARING_TICKS = 1;
+    private static final int RANDOM_TICK_SCAN_INTERVAL = 100;
     private static final float STRESS_EPSILON = 0.001f;
 
     private record ExternalStressCandidate(Direction face, KineticBlockEntity anchor,
                                            KineticNetwork network, float speed, float availableSU) {}
+
+    private record RuntimeToolSlot(FactoryRuntime runtime, FactoryPlan route, ItemVariant signature) {}
+
+    private enum LearningStage {
+        WARMUP,
+        OBSERVING
+    }
 
     private final PortMode[] faceModes = new PortMode[6];
     private final int[] portIds = new int[6];
@@ -103,9 +117,8 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
 
     private OperationMode operationMode = OperationMode.CHUNK_LOADED;
     private final FactoryPowerProfile powerProfile = new FactoryPowerProfile();
-    private boolean simulatedPowerProfileCaptured;
-    private boolean recoverSimulatedPowerProfileOnLoad;
-    private final BlackboxData blackbox = new BlackboxData();
+    private FactoryPlan plan = new FactoryPlan();
+    private final FactoryPlanCompiler planCompiler = new FactoryPlanCompiler();
     private final SimpleContainer overclockInventory = new SimpleContainer(4) {
         @Override
         public void setChanged() {
@@ -117,12 +130,9 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     private OverclockTier activeOverclockTier = OverclockTier.NORMAL;
     private boolean loadingOverclockInventory;
     private boolean overclockBatteriesDropped;
-    private BlackboxData cachedOverclockRecipe;
+    private FactoryPlan cachedOverclockRecipe;
     private String cachedOverclockRecipeFingerprint = "";
     private OverclockTier cachedOverclockRecipeTier = OverclockTier.NORMAL;
-    private BlackboxData cachedSelectedOverclockRecipe;
-    private String cachedSelectedOverclockRecipeFingerprint = "";
-    private OverclockTier cachedSelectedOverclockRecipeTier = OverclockTier.NORMAL;
     private boolean blueprintApplied = false;
     private NestedFactoryBlueprint appliedBlueprint = null;
     private FactoryRestoreSnapshot preBlueprintSnapshot = null;
@@ -165,20 +175,25 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             return false;
         }
     };
-    private final FactoryProductionBatch productionBatch = new FactoryProductionBatch();
+    private final FactoryRuntimeScheduler runtimeScheduler = new FactoryRuntimeScheduler();
+    /** Runtime-only measurements for the GUI; never grants or persists resource ownership. */
+    private final FactoryTransferTelemetry transferTelemetry = new FactoryTransferTelemetry();
     /** Real-time, no-fixed-capacity resource channels shared by all room ports with the same id. */
-    private final FactoryPortChannels portChannels = new FactoryPortChannels();
+    private final FactoryTransit factoryTransit = new FactoryTransit();
     /** Runtime-only external consumers that queried an OUTPUT face. */
     private final Block[] externalItemOutputConsumers = new Block[6];
     private final Block[] externalFluidOutputConsumers = new Block[6];
     /** Runtime-only positions of mechanical and inventory participants in this Pocket room. */
     private final RoomParticipantIndex runtimeIndex = new RoomParticipantIndex();
-    private int itemCycleCounter = 0;
     private int playersInside = 0;
     private final Map<String, Integer> chunkRefCounts = new HashMap<>();
     private boolean pocketChunksForced = false;
     private long pocketChunksReleaseAt = -1;
+    private boolean pocketRandomTicksForced;
+    private long nextRandomTickScan;
     private boolean simulatedMoveInProgress;
+    /** Persisted on descendants so an incidentally loaded child cannot restart while its parent is virtual. */
+    private boolean ancestorFrozen;
 
     /** Runtime-only virtual membership in the selected external Create network. */
     private KineticNetwork reservedExternalNetwork = null;
@@ -218,13 +233,23 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     private boolean factoryStateInitialized = false;
     private int boundsVersion = 0;
 
-    private final Map<ItemVariant, Long> initialInventory = new HashMap<>();
-    private final Map<ItemVariant, Long> staticInventory = new HashMap<>();
-    private int drainLastCount = -1;
-    private int drainStaticCount = 0;
-    private int drainStableTicks = 0;
-    private int drainingTicks = 0;
-    private int learningTicksRemaining = 0;
+    private final RoomStateLedger learningRoomLedger = new RoomStateLedger();
+    /** Ordinary route frozen as soon as its continuous sample is complete. */
+    private FactoryPlan lockedProcessingPlan = new FactoryPlan();
+    private int preparingTicksRemaining;
+    private LearningStage learningStage = LearningStage.WARMUP;
+    private int learningStageTicks;
+    private long learningDeadlineTick;
+    private int learningWindowIndex;
+    private int learningWindowTargetTicks;
+    private int learningWindowScaleIndex;
+    private final List<FactoryPlanCompiler.Observation> learningObservations = new ArrayList<>();
+    /** Never persisted: an interrupted learning run is intentionally invalidated on reload. */
+    private FactoryLearningSession learningSession;
+    private transient Boolean debugLastStressSatisfied;
+    private transient String debugLastRuntimeWait = "";
+    private transient boolean debugInterruptedLearningOnLoad;
+    private transient String debugLoadRepair = "";
 
     public NestedFactoryBlockEntity(BlockPos pos, BlockState state) {
         super(ModBlockEntities.NESTED_FACTORY.get(), pos, state);
@@ -233,6 +258,44 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             faceItemHandlers[i] = new FactoryFaceItemHandler(i);
             faceFluidHandlers[i] = new FactoryFaceFluidHandler(i);
         }
+    }
+
+    public void blackboxDebug(String event, Supplier<String> details) {
+        if (!Config.blackboxDebugLogging || level == null || level.isClientSide()) return;
+        String detail;
+        try {
+            detail = details == null ? "" : details.get();
+        } catch (RuntimeException exception) {
+            detail = "diagnostic_error=" + exception.getClass().getSimpleName();
+        }
+        LOGGER.info("[CNF-BLACKBOX] event={} factory={} dimension={} pos={} mode={} stage={} gameTime={} {}",
+                event, factoryId, level.dimension().location(), worldPosition,
+                operationMode.getSerializedName(), learningStage.name(), level.getGameTime(), detail);
+    }
+
+    private void blackboxTrace(String event, Supplier<String> details) {
+        if (!Config.blackboxDebugLogging || level == null || level.isClientSide()) return;
+        String detail;
+        try {
+            detail = details == null ? "" : details.get();
+        } catch (RuntimeException exception) {
+            detail = "diagnostic_error=" + exception.getClass().getSimpleName();
+        }
+        LOGGER.debug("[CNF-BLACKBOX] event={} factory={} dimension={} pos={} mode={} stage={} gameTime={} {}",
+                event, factoryId, level.dimension().location(), worldPosition,
+                operationMode.getSerializedName(), learningStage.name(), level.getGameTime(), detail);
+    }
+
+    private String debugPortContract() {
+        List<String> ports = new ArrayList<>();
+        for (Direction face : Direction.values()) {
+            int index = face.get3DDataValue();
+            if (faceModes[index] != PortMode.NONE) {
+                ports.add(face.getSerializedName() + "=" + faceModes[index].getSerializedName()
+                        + "@" + portIds[index]);
+            }
+        }
+        return ports.isEmpty() ? "none" : String.join(",", ports);
     }
 
     @Override
@@ -301,10 +364,17 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     private FactoryPowerProfile basePowerProfile() {
-        if (operationMode == OperationMode.BLUEPRINT && appliedBlueprint != null) {
-            return appliedBlueprint.powerProfile();
+        if (isSimulatedMode()) {
+            return simulatedPowerProfile(plan);
         }
         return powerProfile;
+    }
+
+    private FactoryPowerProfile simulatedPowerProfile(FactoryPlan recipe) {
+        FactoryPowerProfile profile = new FactoryPowerProfile();
+        profile.set(recipe.getLearnedPeakInternalGeneratedSU(),
+                recipe.getLearnedPeakConsumedSU(), recipe.getLearnedPeakExternalStressSU());
+        return profile;
     }
 
     /**
@@ -312,23 +382,54 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
      * target factory's active overclock scales the complete simulated profile.
      */
     private FactoryPowerProfile effectivePowerProfile() {
+        if (isSimulatedMode()) {
+            return simulatedPowerProfile(effectiveRecipe());
+        }
         FactoryPowerProfile base = basePowerProfile();
         float multiplier = effectiveOverclockMultiplier();
+        if (!plan.allowsMechanicalOverclock()) multiplier = 1.0f;
         return multiplier == 1.0f ? base : base.scaled(multiplier);
     }
 
-    private FactoryPowerProfile displayedPowerProfile() {
-        FactoryPowerProfile base = basePowerProfile();
-        float multiplier = selectedOverclockMultiplier();
-        return multiplier == 1.0f ? base : base.scaled(multiplier);
+    public FactoryPlan getPlan() {
+        return plan;
     }
 
-    public BlackboxData getBlackbox() {
-        return blackbox;
+    /** Immutable learned recipe used as the base for nominal goggle rates. */
+    public FactoryPlan getGoggleDisplayPlan() {
+        return isSimulatedMode() ? plan : planCompiler.preview();
     }
 
-    public BlackboxData getDisplayedBlackbox() {
-        return isSimulatedMode() ? selectedOverclockRecipe() : blackbox;
+    public Map<ItemVariant, Float> getGuiItemInputRates() {
+        return transferTelemetry.itemRates(true, telemetryTick());
+    }
+
+    public Map<ItemVariant, Float> getGuiItemOutputRates() {
+        return transferTelemetry.itemRates(false, telemetryTick());
+    }
+
+    public Map<Fluid, Float> getGuiFluidInputRates() {
+        return transferTelemetry.fluidRates(true, telemetryTick());
+    }
+
+    public Map<Fluid, Float> getGuiFluidOutputRates() {
+        return transferTelemetry.fluidRates(false, telemetryTick());
+    }
+
+    private long telemetryTick() {
+        return level == null ? 0L : level.getGameTime();
+    }
+
+    private void recordItemTelemetry(boolean input, ItemStack stack, int amount) {
+        if (level != null && !level.isClientSide() && amount > 0) {
+            transferTelemetry.recordItem(input, stack, amount, level.getGameTime());
+        }
+    }
+
+    private void recordFluidTelemetry(boolean input, FluidStack stack, int amount) {
+        if (level != null && !level.isClientSide() && amount > 0) {
+            transferTelemetry.recordFluid(input, stack, amount, level.getGameTime());
+        }
     }
 
     public SimpleContainer getOverclockInventory() {
@@ -383,49 +484,101 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     public boolean selectOverclockTier(OverclockTier tier) {
         if (!isSimulatedMode() || tier == null || !tier.unlockedBy(getOverclockBatteryCount())
                 || tier == OverclockTier.NORMAL) {
+            blackboxDebug("overclock_selection_rejected", () -> "requested=" + tier
+                    + ", batteries=" + getOverclockBatteryCount()
+                    + ", simulated=" + isSimulatedMode());
             return false;
         }
         if (selectedOverclockTier == tier) {
+            blackboxDebug("overclock_selection_unchanged", () -> "tier=" + tier);
             return true;
         }
+        OverclockTier previous = selectedOverclockTier;
         selectedOverclockTier = tier;
-        applySelectedOverclockIfReady();
+        applySelectedOverclock();
+        blackboxDebug("overclock_selected", () -> "previous=" + previous + ", selected=" + selectedOverclockTier
+                + ", active=" + activeOverclockTier
+                + ", batteries=" + getOverclockBatteryCount());
         setChanged();
         sendSync();
         return true;
     }
 
     public float getEffectiveProductionEfficiency() {
-        float sourceEfficiency = operationMode == OperationMode.BLUEPRINT && appliedBlueprint != null
-                ? appliedBlueprint.productionEfficiency() : 1.0f;
-        return sourceEfficiency * selectedOverclockMultiplier();
+        return goggleRateMultiplier();
+    }
+
+    public float getLearnedProductionEfficiency() {
+        return plan.hasCompleteRecipe() ? 1.0f : 0.0f;
     }
 
     private float effectiveOverclockMultiplier() {
         return isSimulatedMode() ? activeOverclockTier.multiplier() : 1.0f;
     }
 
-    private float selectedOverclockMultiplier() {
-        return isSimulatedMode() ? selectedOverclockTier.multiplier() : 1.0f;
+    private float goggleRateMultiplier() {
+        return isSimulatedMode() && plan.allowsMechanicalOverclock()
+                ? selectedOverclockTier.multiplier() : 1.0f;
+    }
+
+    private static <K> Map<K, Float> scaledDisplayRates(Map<K, Float> rates, float multiplier) {
+        if (multiplier == 1.0f || rates.isEmpty()) return rates;
+        Map<K, Float> scaled = new HashMap<>();
+        rates.forEach((resource, rate) -> scaled.put(resource, rate * multiplier));
+        return scaled;
+    }
+
+    private static <K> Map<K, Float> routeAwareDisplayRates(FactoryPlan plan, float multiplier,
+                                                             boolean input,
+                                                             Function<FactoryPlan, Map<K, Float>> rates) {
+        if (plan == null || !plan.hasCompleteRecipe()) return plan == null ? Map.of() : rates.apply(plan);
+        if (input) {
+            FactoryPlan processing = plan.processingRoute();
+            return scaledDisplayRates(rates.apply(processing),
+                    processing.allowsMechanicalOverclock() ? multiplier : 1f);
+        }
+        Map<K, Float> result = new HashMap<>();
+        for (FactoryRoute route : plan.routes()) {
+            FactoryPlan contract = route.contract();
+            Map<K, Float> routeRates = scaledDisplayRates(rates.apply(contract),
+                    contract.allowsMechanicalOverclock() ? multiplier : 1f);
+            routeRates.forEach((resource, value) -> result.merge(resource, value, Float::sum));
+        }
+        return result;
     }
 
     private void onOverclockInventoryChanged() {
         if (loadingOverclockInventory) {
             return;
         }
+        OverclockTier previous = selectedOverclockTier;
         selectedOverclockTier = OverclockTier.normalizeSelection(
                 selectedOverclockTier, getOverclockBatteryCount());
-        applySelectedOverclockIfReady();
+        applySelectedOverclock();
+        blackboxDebug("overclock_inventory_changed", () -> "batteries=" + getOverclockBatteryCount()
+                + ", previousSelected=" + previous + ", selected=" + selectedOverclockTier
+                + ", active=" + activeOverclockTier);
         setChanged();
         sendSync();
     }
 
-    private void applySelectedOverclockIfReady() {
-        if (!productionBatch.isEmpty() || activeOverclockTier == selectedOverclockTier) {
+    private void applySelectedOverclock() {
+        if (activeOverclockTier == selectedOverclockTier) {
             return;
         }
+        FactoryPlan currentPlan = plan.scaledRecipe(activeOverclockTier.multiplier());
+        FactoryPlan replacementPlan = plan.scaledRecipe(selectedOverclockTier.multiplier());
+        String beforeRuntime = runtimeScheduler.debugSummary();
+        if (!runtimeScheduler.retime(currentPlan, replacementPlan)) {
+            return;
+        }
+        OverclockTier previous = activeOverclockTier;
         activeOverclockTier = selectedOverclockTier;
         invalidateOverclockRecipe();
+        FactoryPlan scaledPlan = plan.scaledRecipe(effectiveOverclockMultiplier());
+        blackboxDebug("overclock_applied", () -> "previous=" + previous + ", active=" + activeOverclockTier
+                + ", effectivePlan={" + scaledPlan.debugSummary() + "}, runtimeBefore=" + beforeRuntime
+                + ", runtimeAfter=" + runtimeScheduler.debugSummary());
         setChanged();
         sendSync();
     }
@@ -434,43 +587,24 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         cachedOverclockRecipe = null;
         cachedOverclockRecipeFingerprint = "";
         cachedOverclockRecipeTier = OverclockTier.NORMAL;
-        cachedSelectedOverclockRecipe = null;
-        cachedSelectedOverclockRecipeFingerprint = "";
-        cachedSelectedOverclockRecipeTier = OverclockTier.NORMAL;
     }
 
-    private BlackboxData effectiveRecipe() {
+    private FactoryPlan effectiveRecipe() {
         if (level == null || !level.isClientSide()) {
-            applySelectedOverclockIfReady();
+            applySelectedOverclock();
         }
         float multiplier = effectiveOverclockMultiplier();
-        if (multiplier == 1.0f) {
-            return blackbox;
+        if (multiplier == 1.0f || !plan.allowsMechanicalOverclock()) {
+            return plan;
         }
-        String fingerprint = FactoryProductionBatch.fingerprint(blackbox);
+        String fingerprint = plan.fingerprint();
         if (cachedOverclockRecipe == null || cachedOverclockRecipeTier != activeOverclockTier
                 || !cachedOverclockRecipeFingerprint.equals(fingerprint)) {
-            cachedOverclockRecipe = blackbox.scaledRecipe(multiplier);
+            cachedOverclockRecipe = plan.scaledRecipe(multiplier);
             cachedOverclockRecipeTier = activeOverclockTier;
             cachedOverclockRecipeFingerprint = fingerprint;
         }
         return cachedOverclockRecipe;
-    }
-
-    private BlackboxData selectedOverclockRecipe() {
-        float multiplier = selectedOverclockMultiplier();
-        if (multiplier == 1.0f) {
-            return blackbox;
-        }
-        String fingerprint = FactoryProductionBatch.fingerprint(blackbox);
-        if (cachedSelectedOverclockRecipe == null
-                || cachedSelectedOverclockRecipeTier != selectedOverclockTier
-                || !cachedSelectedOverclockRecipeFingerprint.equals(fingerprint)) {
-            cachedSelectedOverclockRecipe = blackbox.scaledRecipe(multiplier);
-            cachedSelectedOverclockRecipeTier = selectedOverclockTier;
-            cachedSelectedOverclockRecipeFingerprint = fingerprint;
-        }
-        return cachedSelectedOverclockRecipe;
     }
 
     public boolean isBlueprintApplied() {
@@ -498,7 +632,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     public float getBlueprintEfficiency() {
-        return appliedBlueprint == null ? 1.0f : appliedBlueprint.productionEfficiency();
+        return getLearnedProductionEfficiency();
     }
 
     public String getFactoryId() {
@@ -510,6 +644,14 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     public ItemStack createPortableItem(HolderLookup.Provider registries) {
+        if (level != null && !level.isClientSide()
+                && (operationMode == OperationMode.BLACKBOX_PREPARING
+                || operationMode == OperationMode.BLACKBOX_LEARNING)) {
+            abortLearning("portable_item_created");
+        }
+        blackboxDebug("portable_snapshot_created", () -> "plan={" + plan.debugSummary()
+                + "}, runtime=" + runtimeScheduler.debugSummary()
+                + ", transit=" + factoryTransit.debugSummary());
         CompoundTag data = saveWithFullMetadata(registries);
         data.remove("id");
         data.remove("x");
@@ -564,6 +706,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             return;
         }
 
+        NestedFactorySaveData.get(server).releaseFreezeLease(factoryId);
         evacuatePortableRoom(server, pocket, rootFactoryId, origin, bounds);
     }
 
@@ -618,7 +761,27 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     public boolean isEnterable() {
-        return enterable && !bindingConflict && (!nested || !invalidNested);
+        return !ancestorFrozen && enterable && !bindingConflict && (!nested || !invalidNested)
+                && ancestorsAllowPlayerEntry();
+    }
+
+    private boolean ancestorsAllowPlayerEntry() {
+        NestedFactoryBlockEntity current = this;
+        Set<String> visited = new HashSet<>();
+        while (current.nested) {
+            if (!visited.add(current.factoryId) || current.parentFactoryPos == null
+                    || current.parentDimension == null || current.level == null) return false;
+            MinecraftServer server = current.level.getServer();
+            if (server == null) return false;
+            ServerLevel parentLevel = server.getLevel(current.parentDimension);
+            if (parentLevel == null
+                    || !(parentLevel.getBlockEntity(current.parentFactoryPos) instanceof NestedFactoryBlockEntity parent)
+                    || !current.parentFactoryId.equals(parent.factoryId)
+                    || parent.operationMode != OperationMode.CHUNK_LOADED
+                    || parent.ancestorFrozen || parent.bindingConflict || parent.invalidNested) return false;
+            current = parent;
+        }
+        return true;
     }
 
     public boolean isInvalidNested() {
@@ -652,11 +815,13 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
 
     /** True only while the real room is loaded and live resource calls are allowed. */
     public boolean isLiveResourceTransferMode() {
-        return operationMode == OperationMode.CHUNK_LOADED && !invalidNested && pocketLevel() != null;
+        return (operationMode == OperationMode.CHUNK_LOADED || operationMode == OperationMode.BLACKBOX_LEARNING)
+                && !invalidNested && !bindingConflict
+                && pocketLevel() != null;
     }
 
     /** Returns the shared channel for an optional resource integration. */
-    public FactoryPortChannels.PortResourceChannel getPortChannel(int portId) {
+    public FactoryTransit.PortResourceChannel getPortChannel(int portId) {
         return portChannel(portId);
     }
 
@@ -692,6 +857,77 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         return null;
     }
 
+    List<NestedFactoryBlockEntity> loadedChildrenForFreeze() {
+        ServerLevel pocket = pocketLevel();
+        if (pocket == null) return List.of();
+        ensureRuntimeIndex(pocket);
+        List<NestedFactoryBlockEntity> children = new ArrayList<>();
+        for (BlockPos pos : runtimeIndex.childFactoryPositions()) {
+            if (pocket.getBlockEntity(pos) instanceof NestedFactoryBlockEntity child) children.add(child);
+        }
+        return children;
+    }
+
+    /**
+     * A parent plan cannot absorb a simulated no-input route. Such routes must remain separate
+     * factories and feed an ordinary material-backed factory through their external faces.
+     */
+    private NestedFactoryBlockEntity findNestedNoInputPlan() {
+        return findNestedNoInputPlan(new HashSet<>());
+    }
+
+    private NestedFactoryBlockEntity findNestedNoInputPlan(Set<String> visited) {
+        if (!visited.add(factoryId)) return null;
+        for (NestedFactoryBlockEntity child : loadedChildrenForFreeze()) {
+            if (child.hasNoInputRegenerativeRoute()) return child;
+            NestedFactoryBlockEntity descendant = child.findNestedNoInputPlan(visited);
+            if (descendant != null) return descendant;
+        }
+        return null;
+    }
+
+    private boolean hasNoInputRegenerativeRoute() {
+        if (!isSimulatedMode()) return false;
+        FactoryPlan regenerative = effectiveRecipe().regenerativeRoute();
+        return regenerative.hasRegenerativeRoute()
+                && regenerative.getRecipeInputs().isEmpty()
+                && regenerative.getRecipeInputFluids().isEmpty();
+    }
+
+    void setAncestorFrozen(boolean frozen) {
+        if (ancestorFrozen == frozen) return;
+        ancestorFrozen = frozen;
+        if (frozen) releasePocketChunksImmediately();
+        setChanged();
+    }
+
+    void refreshChunkRefsAfterFreeze() {
+        if (!ancestorFrozen) refreshChunkRefsForMode();
+    }
+
+    private boolean parentStillFreezesThisFactory() {
+        if (!nested || parentFactoryPos == null || parentDimension == null || level == null) return false;
+        MinecraftServer server = level.getServer();
+        if (server == null) return true;
+        ServerLevel parentLevel = server.getLevel(parentDimension);
+        if (parentLevel == null
+                || !(parentLevel.getBlockEntity(parentFactoryPos) instanceof NestedFactoryBlockEntity parent)) {
+            return true;
+        }
+        return parent.ancestorFrozen || parent.isSimulatedMode();
+    }
+
+    void releasePocketChunksImmediately() {
+        if (level == null || level.isClientSide()) return;
+        MinecraftServer server = level.getServer();
+        if (server != null) PocketChunkForceManager.releaseAll(server, roomChunkForceOwner());
+        chunkRefCounts.clear();
+        pocketChunksForced = false;
+        pocketChunksReleaseAt = -1;
+        pocketRandomTicksForced = false;
+        nextRandomTickScan = 0L;
+    }
+
     public void setChildFactory(NestedFactoryBlockEntity child) {
         this.childFactoryId = child == null ? "" : child.getFactoryId();
         this.childFactoryPos = child == null ? null : child.getBlockPos().immutable();
@@ -701,30 +937,36 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     public void toggleBlackbox(Player player) {
+        blackboxDebug("toggle_requested", () -> "player=" + (player == null ? "none" : player.getScoreboardName())
+                + ", transit=" + factoryTransit.debugSummary());
         if (isRoomMutationLocked()) {
+            blackboxDebug("toggle_rejected", () -> "reason=room_mutation_locked");
             if (player instanceof ServerPlayer serverPlayer) {
                 PlayerMessagePayload.sendTo(serverPlayer, Component.translatable("message.create_nested_factory.room_mutation.active").withStyle(ChatFormatting.YELLOW), false);
             }
             return;
         }
         if (blueprintApplied) {
+            blackboxDebug("toggle_blueprint_cancel", () -> "target=chunk_loaded");
             cancelBlueprint(player, OperationMode.CHUNK_LOADED);
             return;
         }
         if (invalidNested) {
+            blackboxDebug("toggle_rejected", () -> "reason=invalid_nested");
             if (player instanceof ServerPlayer sp) {
                 PlayerMessagePayload.sendTo(sp, Component.translatable("message.create_nested_factory.factory.invalid_nested_mode_change").withStyle(ChatFormatting.RED), false);
             }
             return;
         }
-        if (hasPlayersInside()) {
+        if (PocketFreezeManager.hasPlayersInsideLoadedTree(this)) {
+            blackboxDebug("toggle_rejected", () -> "reason=players_inside_tree");
             if (player instanceof ServerPlayer sp) {
                 PlayerMessagePayload.sendTo(sp, Component.translatable("message.create_nested_factory.factory.players_prevent_mode_change").withStyle(ChatFormatting.RED), false);
             }
             return;
         }
         if (operationMode == OperationMode.CHUNK_LOADED) {
-            startBlackbox();
+            startBlackbox(player);
         } else {
             stopBlackbox(player);
         }
@@ -741,45 +983,58 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     public Component applyBlueprint(NestedFactoryBlueprint blueprint, ServerPlayer player) {
+        blackboxDebug("blueprint_apply_requested", () -> "source="
+                + (blueprint == null ? "none" : blueprint.sourceFactoryId()));
         if (isRoomMutationLocked()) {
-            return Component.translatable("message.create_nested_factory.blueprint.apply.room_mutating");
+            return rejectBlueprint("room_mutating", "message.create_nested_factory.blueprint.apply.room_mutating");
         }
         if (!isRoot() && !isEnterable() && !invalidNested) {
-            return Component.translatable("message.create_nested_factory.blueprint.apply.invalid_target");
+            return rejectBlueprint("invalid_target", "message.create_nested_factory.blueprint.apply.invalid_target");
         }
         if (blueprint == null || !blueprint.hasCompleteRunData()) {
-            return Component.translatable("message.create_nested_factory.blueprint.apply.invalid_data");
+            return rejectBlueprint("invalid_data", "message.create_nested_factory.blueprint.apply.invalid_data");
         }
         if (factoryId.equals(blueprint.sourceFactoryId())) {
-            return Component.translatable("message.create_nested_factory.blueprint.apply.source_target");
+            return rejectBlueprint("source_equals_target", "message.create_nested_factory.blueprint.apply.source_target");
         }
         if (blueprintApplied) {
-            return Component.translatable("message.create_nested_factory.blueprint.apply.already_applied");
+            return rejectBlueprint("already_applied", "message.create_nested_factory.blueprint.apply.already_applied");
+        }
+        if (!runtimeScheduler.isIdle()) {
+            return rejectBlueprint("production_transaction_active", "message.create_nested_factory.production_transaction.active");
         }
         if (isEnterable() && hasPlayersInside()) {
-            return Component.translatable("message.create_nested_factory.blueprint.apply.players_inside");
+            return rejectBlueprint("players_inside", "message.create_nested_factory.blueprint.apply.players_inside");
+        }
+        if (!PocketFreezeManager.freezeLoadedTree(this)) {
+            return rejectBlueprint("freeze_tree_failed", "message.create_nested_factory.blueprint.apply.players_inside");
         }
         invalidateProductionBatch(player, "apply_blueprint");
-        portChannels.clear();
+        destroyTransitResources(player, "apply_blueprint");
         preBlueprintSnapshot = captureRestoreSnapshot();
         operationMode = OperationMode.BLUEPRINT;
         blueprintApplied = true;
+        transferTelemetry.clear();
         invalidateResourceCapabilities();
         appliedBlueprint = blueprint.copy(level.registryAccess());
-        blackbox.read(blueprint.blackbox().write(new CompoundTag(), level.registryAccess()), level.registryAccess());
+        plan.read(blueprint.plan().write(new CompoundTag(), level.registryAccess()), level.registryAccess());
         for (int i = 0; i < 6; i++) {
             faceModes[i] = blueprint.faceMode(i);
             portIds[i] = blueprint.portId(i);
         }
         normalizeFacePortBindings();
 
-        if (!invalidNested) {
-            removeChunkRef("load");
-            addChunkRef("blueprint");
-        }
+        if (!invalidNested) releasePocketChunksImmediately();
+        debugLastStressSatisfied = null;
+        blackboxDebug("blueprint_applied", () -> "plan={" + plan.debugSummary() + "}");
         setChanged();
         sendSync();
         return null;
+    }
+
+    private Component rejectBlueprint(String reason, String translationKey) {
+        blackboxDebug("blueprint_apply_rejected", () -> "reason=" + reason);
+        return Component.translatable(translationKey);
     }
 
     private void invalidateResourceCapabilities() {
@@ -925,10 +1180,29 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     private void invalidateProductionBatch(Player player, String reason) {
-        if (productionBatch.isEmpty() || level == null || level.isClientSide()) {
+        if (runtimeScheduler.isEmpty() || level == null || level.isClientSide()) {
             return;
         }
-        for (ItemStack stack : productionBatch.materializeItems()) {
+        String before = runtimeScheduler.debugSummary();
+        long destroyedFluid = 0L;
+        for (FactoryRuntime runtime : runtimeScheduler.allRuntimes()) {
+            destroyedFluid = Math.addExact(destroyedFluid, invalidateRuntime(runtime));
+        }
+        for (ItemStack capital : runtimeScheduler.releaseCapital()) {
+            if (!capital.isEmpty()) Block.popResource(level, worldPosition, capital);
+        }
+        setChanged();
+        long destroyedFluidAmount = destroyedFluid;
+        blackboxDebug("runtime_invalidated", () -> "reason=" + reason + ", before=" + before
+                + ", destroyedFluid=" + destroyedFluidAmount);
+        if (destroyedFluid > 0) {
+            LOGGER.warn("Destroyed {} mB of factory batch fluid at {} because {}",
+                    destroyedFluid, worldPosition, reason);
+        }
+    }
+
+    private long invalidateRuntime(FactoryRuntime runtime) {
+        for (ItemStack stack : runtime.materializeItems()) {
             if (!stack.isEmpty()) {
                 ItemEntity drop = new ItemEntity(level,
                         worldPosition.getX() + 0.5, worldPosition.getY() + 0.5, worldPosition.getZ() + 0.5,
@@ -936,27 +1210,21 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 level.addFreshEntity(drop);
             }
         }
-        long destroyedFluid = productionBatch.destroyedFluidAmount();
-        productionBatch.clear();
-        itemCycleCounter = 0;
-        setChanged();
-        if (destroyedFluid > 0) {
-            if (player instanceof ServerPlayer serverPlayer) {
-                PlayerMessagePayload.sendTo(serverPlayer, Component.translatable(
-                        "message.create_nested_factory.production_batch.destroyed_fluid", destroyedFluid)
-                        .withStyle(ChatFormatting.RED), false);
-            } else {
-                LOGGER.warn("Destroyed {} mB of factory batch fluid at {} because {}",
-                        destroyedFluid, worldPosition, reason);
-            }
+        for (ItemStack tool : runtime.releaseLeasedTools()) {
+            ItemEntity drop = new ItemEntity(level,
+                    worldPosition.getX() + 0.5, worldPosition.getY() + 0.5, worldPosition.getZ() + 0.5,
+                    tool);
+            level.addFreshEntity(drop);
         }
+        long destroyedFluid = runtime.destroyedFluidAmount();
+        runtime.clear();
+        return destroyedFluid;
     }
 
     /** Captures only the configuration that applyBlueprint() will overwrite. */
     private FactoryRestoreSnapshot captureRestoreSnapshot() {
         FactoryRestoreSnapshot snapshot = new FactoryRestoreSnapshot();
-        snapshot.blackbox(blackbox.write(new CompoundTag(), level.registryAccess()));
-        snapshot.powerProfile(powerProfile.write());
+        snapshot.plan(plan.write(new CompoundTag(), level.registryAccess()));
         for (int i = 0; i < 6; i++) {
             snapshot.faceMode(i, faceModes[i]);
             snapshot.portId(i, portIds[i]);
@@ -965,11 +1233,20 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     private void cancelBlueprint(Player player, OperationMode targetMode) {
+        blackboxDebug("blueprint_cancel_requested", () -> "target=" + targetMode.getSerializedName());
+        transferTelemetry.clear();
         invalidateProductionBatch(player, "cancel_blueprint");
+        destroyTransitResources(player, "cancel_blueprint");
         if (preBlueprintSnapshot == null) {
             blueprintApplied = false;
             appliedBlueprint = null;
             operationMode = invalidNested ? OperationMode.CHUNK_LOADED : targetMode;
+            if (operationMode == OperationMode.CHUNK_LOADED) {
+                addChunkRef("load");
+                PocketFreezeManager.thawLoadedTree(this);
+            } else {
+                releasePocketChunksImmediately();
+            }
             invalidateResourceCapabilities();
             setChanged();
             sendSync();
@@ -979,32 +1256,32 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         FactoryRestoreSnapshot snapshot = preBlueprintSnapshot;
         // Blueprint cancellation restores only the overwritten configuration. Items and fluids
         // are committed runtime resources and must retain their current values.
-        blackbox.read(snapshot.blackbox(), level.registryAccess());
-        powerProfile.read(snapshot.powerProfile());
+        plan.read(snapshot.plan(), level.registryAccess());
         for (int i = 0; i < 6; i++) {
             faceModes[i] = snapshot.faceMode(i);
             portIds[i] = snapshot.portId(i);
         }
         normalizeFacePortBindings();
-        itemCycleCounter = 0;
 
         if (invalidNested) {
             operationMode = OperationMode.CHUNK_LOADED;
         } else if (targetMode == OperationMode.BLACKBOX_ACTIVE) {
             operationMode = OperationMode.BLACKBOX_ACTIVE;
-            addChunkRef("load");
+            releasePocketChunksImmediately();
         } else {
             operationMode = OperationMode.CHUNK_LOADED;
             addChunkRef("load");
+            PocketFreezeManager.thawLoadedTree(this);
         }
 
-        removeChunkRef("blueprint");
         blueprintApplied = false;
         appliedBlueprint = null;
         preBlueprintSnapshot = null;
         if (operationMode == OperationMode.CHUNK_LOADED) {
             rebuildRuntimeIndex(pocketLevel(), true);
         }
+        blackboxDebug("blueprint_cancelled", () -> "restoredMode=" + operationMode.getSerializedName()
+                + ", plan={" + plan.debugSummary() + "}");
         invalidateResourceCapabilities();
         setChanged();
         sendSync();
@@ -1014,39 +1291,85 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         }
     }
 
-    private void startBlackbox() {
+    private void startBlackbox(Player player) {
+        if (factoryTransit.hasUnsupportedExtensionState()) {
+            blackboxDebug("learning_start_rejected", () -> "reason=unsupported_transit, transit="
+                    + factoryTransit.debugSummary());
+            if (player instanceof ServerPlayer serverPlayer) {
+                PlayerMessagePayload.sendTo(serverPlayer,
+                        Component.translatable("message.create_nested_factory.blackbox.unsupported_transit")
+                                .withStyle(ChatFormatting.RED), false);
+            }
+            return;
+        }
         rebuildRuntimeIndex(pocketLevel(), true);
-        blackbox.setRecording(false);
-        initialInventory.clear();
-        staticInventory.clear();
-        initialInventory.putAll(countItemsInFactorySpace());
-        drainLastCount = totalCount(initialInventory);
-        drainStaticCount = 0;
-        drainStableTicks = 0;
-        drainingTicks = 0;
-        operationMode = OperationMode.BLACKBOX_DRAINING;
+        NestedFactoryBlockEntity nestedNoInput = findNestedNoInputPlan();
+        if (nestedNoInput != null) {
+            blackboxDebug("learning_start_rejected", () -> "reason=nested_no_input_plan, child="
+                    + nestedNoInput.getFactoryId() + ", childMode="
+                    + nestedNoInput.getOperationMode().getSerializedName());
+            if (player instanceof ServerPlayer serverPlayer) {
+                PlayerMessagePayload.sendTo(serverPlayer,
+                        Component.translatable("message.create_nested_factory.blackbox.nested_no_input_plan")
+                                .withStyle(ChatFormatting.RED), false);
+            }
+            return;
+        }
+        planCompiler.stopLearning();
+        learningRoomLedger.clear();
+        learningSession = null;
+        learningObservations.clear();
+        lockedProcessingPlan = new FactoryPlan();
+        learningWindowIndex = 0;
+        learningWindowScaleIndex = 0;
+        learningWindowTargetTicks = LEARNING_WINDOW_TICKS[0];
+        int configuredDeadline = Config.blackboxMaxLearningTicks > 1
+                ? Config.blackboxMaxLearningTicks : 6000;
+        learningDeadlineTick = level == null ? configuredDeadline : level.getGameTime() + configuredDeadline;
+        invalidateProductionBatch(player, "start_blackbox_relearning");
+        plan = new FactoryPlan();
+        invalidateOverclockRecipe();
+        preparingTicksRemaining = PREPARING_TICKS;
+        factoryTransit.sealInputGeneration();
+        operationMode = OperationMode.BLACKBOX_PREPARING;
+        blackboxDebug("preparing_started", () -> "ticks=" + PREPARING_TICKS
+                + ", ports=" + debugPortContract()
+                + ", transit=" + factoryTransit.debugSummary());
         invalidateResourceCapabilities();
         setChanged();
         sendSync();
     }
 
     private void stopBlackbox(Player player) {
+        blackboxDebug("blackbox_stop_requested", () -> "runtime=" + runtimeScheduler.debugSummary()
+                + ", transit=" + factoryTransit.debugSummary());
         invalidateProductionBatch(player, "stop_blackbox");
+        destroyTransitResources(player, "stop_blackbox");
         boolean wasActive = operationMode == OperationMode.BLACKBOX_ACTIVE;
-        blackbox.setRecording(false);
-        blackbox.beginSampling();
-        initialInventory.clear();
-        staticInventory.clear();
-        drainingTicks = 0;
-        drainStaticCount = 0;
-        drainStableTicks = 0;
-        learningTicksRemaining = 0;
+        planCompiler.stopLearning();
+        learningRoomLedger.clear();
+        preparingTicksRemaining = 0;
+        learningStage = LearningStage.WARMUP;
+        learningStageTicks = 0;
+        learningDeadlineTick = 0L;
+        learningWindowIndex = 0;
+        learningWindowScaleIndex = 0;
+        learningWindowTargetTicks = LEARNING_WINDOW_TICKS[0];
+        learningObservations.clear();
+        lockedProcessingPlan = new FactoryPlan();
+        learningSession = null;
+        PocketLearningObserver.unregister(this);
         operationMode = OperationMode.CHUNK_LOADED;
-        rebuildRuntimeIndex(pocketLevel(), true);
-        invalidateResourceCapabilities();
+        transferTelemetry.clear();
         if (wasActive) {
             addChunkRef("load");
+            PocketFreezeManager.thawLoadedTree(this);
         }
+        rebuildRuntimeIndex(pocketLevel(), true);
+        debugLastStressSatisfied = null;
+        blackboxDebug("blackbox_stopped", () -> "restoredMode=chunk_loaded, transit="
+                + factoryTransit.debugSummary());
+        invalidateResourceCapabilities();
         setChanged();
         sendSync();
     }
@@ -1074,6 +1397,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         if (playersInside == 1) {
             setExternalAreaForced(true, sourceDimension, sourcePosition);
             addChunkRef("player");
+            refreshPocketRandomTickLease(true);
         }
     }
 
@@ -1083,14 +1407,15 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             if (playersInside == 0) {
                 setExternalAreaForced(false, null, null);
                 removeChunkRef("player");
-                    }
+                refreshPocketRandomTickLease(true);
+            }
         }
         setChanged();
     }
 
     public int getInputMbPerSec() {
         float perSec = 0f;
-        for (float v : getDisplayedBlackbox().getInputFluidRates().values()) {
+        for (float v : getGuiFluidInputRates().values()) {
             perSec += v;
         }
         return (int) perSec;
@@ -1098,7 +1423,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
 
     public int getOutputMbPerSec() {
         float perSec = 0f;
-        for (float v : getDisplayedBlackbox().getOutputFluidRates().values()) {
+        for (float v : getGuiFluidOutputRates().values()) {
             perSec += v;
         }
         return (int) perSec;
@@ -1116,10 +1441,18 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         }
 
         switch (operationMode) {
-            case BLACKBOX_DRAINING -> tooltip.add(GoggleTooltips.stat(
-                    "goggles.create_nested_factory.draining", String.valueOf(Math.max(0, drainLastCount - drainStaticCount)), ChatFormatting.YELLOW));
-            case BLACKBOX_LEARNING -> tooltip.add(GoggleTooltips.stat(
-                    "goggles.create_nested_factory.learning", ((learningTicksRemaining + 19) / 20) + "s", ChatFormatting.YELLOW));
+            case BLACKBOX_PREPARING -> tooltip.add(GoggleTooltips.stat(
+                    "goggles.create_nested_factory.learning",
+                    Component.translatable("goggles.create_nested_factory.learning.preparing")
+                            .withStyle(ChatFormatting.YELLOW)));
+            case BLACKBOX_LEARNING -> {
+                Component progress = Component.translatable(switch (learningStage) {
+                    case WARMUP -> "goggles.create_nested_factory.learning.stage.warmup";
+                    case OBSERVING -> "goggles.create_nested_factory.learning.stage.observing";
+                });
+                tooltip.add(GoggleTooltips.stat("goggles.create_nested_factory.learning",
+                        progress.copy().withStyle(ChatFormatting.YELLOW)));
+            }
             default -> { }
         }
 
@@ -1129,7 +1462,8 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                     ChatFormatting.GOLD));
         }
 
-        FactoryPowerProfile displayedPowerProfile = displayedPowerProfile();
+        FactoryPowerProfile displayedPowerProfile = isSimulatedMode()
+                ? simulatedPowerProfile(plan.scaledRecipe(goggleRateMultiplier())) : basePowerProfile();
 
         if (displayedPowerProfile.generatedSU() != 0f || displayedPowerProfile.consumedSU() != 0f) {
             tooltip.add(GoggleTooltips.section("goggles.create_nested_factory.stress"));
@@ -1139,9 +1473,20 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         }
 
 
-        BlackboxData displayedRecipe = getDisplayedBlackbox();
-        addItemRates(tooltip, "goggles.create_nested_factory.input_items", displayedRecipe.getInputRates());
-        addItemRates(tooltip, "goggles.create_nested_factory.output_items", displayedRecipe.getOutputRates());
+        FactoryPlan displayedRecipe = getGoggleDisplayPlan();
+        float displayedRateMultiplier = goggleRateMultiplier();
+        Map<ItemVariant, Float> displayedItemInputs = operationMode == OperationMode.CHUNK_LOADED
+                ? transferTelemetry.itemRates(true, telemetryTick())
+                : isSimulatedMode()
+                ? routeAwareDisplayRates(displayedRecipe, displayedRateMultiplier, true, FactoryPlan::getInputRates)
+                : displayedRecipe.getInputRates();
+        Map<ItemVariant, Float> displayedItemOutputs = operationMode == OperationMode.CHUNK_LOADED
+                ? transferTelemetry.itemRates(false, telemetryTick())
+                : isSimulatedMode()
+                ? routeAwareDisplayRates(displayedRecipe, displayedRateMultiplier, false, FactoryPlan::getOutputRates)
+                : displayedRecipe.getOutputRates();
+        addItemRates(tooltip, "goggles.create_nested_factory.input_items", displayedItemInputs);
+        addItemRates(tooltip, "goggles.create_nested_factory.output_items", displayedItemOutputs);
 
         if (blueprintApplied && appliedBlueprint != null) {
             tooltip.add(GoggleTooltips.section("goggles.create_nested_factory.blueprint"));
@@ -1158,8 +1503,20 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                     String.valueOf(appliedBlueprint.sourceDepth()), ChatFormatting.LIGHT_PURPLE));
         }
 
-        addFluidRates(tooltip, "goggles.create_nested_factory.input_fluids", displayedRecipe.getInputFluidRates());
-        addFluidRates(tooltip, "goggles.create_nested_factory.output_fluids", displayedRecipe.getOutputFluidRates());
+        Map<Fluid, Float> displayedFluidInputs = operationMode == OperationMode.CHUNK_LOADED
+                ? transferTelemetry.fluidRates(true, telemetryTick())
+                : isSimulatedMode()
+                ? routeAwareDisplayRates(displayedRecipe, displayedRateMultiplier, true,
+                FactoryPlan::getInputFluidRates)
+                : displayedRecipe.getInputFluidRates();
+        Map<Fluid, Float> displayedFluidOutputs = operationMode == OperationMode.CHUNK_LOADED
+                ? transferTelemetry.fluidRates(false, telemetryTick())
+                : isSimulatedMode()
+                ? routeAwareDisplayRates(displayedRecipe, displayedRateMultiplier, false,
+                FactoryPlan::getOutputFluidRates)
+                : displayedRecipe.getOutputFluidRates();
+        addFluidRates(tooltip, "goggles.create_nested_factory.input_fluids", displayedFluidInputs);
+        addFluidRates(tooltip, "goggles.create_nested_factory.output_fluids", displayedFluidOutputs);
 
         if (nested && !isEnterable()) {
             tooltip.add(Component.literal("    ")
@@ -1172,6 +1529,14 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         return String.format(Locale.ROOT, "%.0f", v);
     }
 
+    public static String formatRate(float rate) {
+        if (!Float.isFinite(rate)) {
+            return "0";
+        }
+        return String.format(Locale.ROOT, "%.2f", rate)
+                .replaceFirst("0+$", "").replaceFirst("\\.$", "");
+    }
+
     private static void addItemRates(List<Component> tooltip, String key, Map<ItemVariant, Float> rates) {
         if (rates.isEmpty()) {
             return;
@@ -1181,7 +1546,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 .sorted(Map.Entry.comparingByKey())
                 .forEach(e -> tooltip.add(Component.literal("     ")
                         .append(e.getKey().prototype().getHoverName().copy().withStyle(ChatFormatting.GRAY))
-                        .append(Component.literal("  " + String.format(Locale.ROOT, "%.0f/s", e.getValue()))
+                        .append(Component.literal("  " + formatRate(e.getValue()) + "/s")
                                 .withStyle(ChatFormatting.AQUA))));
     }
 
@@ -1194,11 +1559,12 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 .sorted(Comparator.comparing(e -> BuiltInRegistries.FLUID.getKey(e.getKey()).toString()))
                 .forEach(e -> tooltip.add(Component.literal("     ")
                         .append(new FluidStack(e.getKey(), 1).getHoverName().copy().withStyle(ChatFormatting.GRAY))
-                        .append(Component.literal("  " + String.format(Locale.ROOT, "%.0f mB/s", e.getValue()))
+                        .append(Component.literal("  " + formatRate(e.getValue()) + " mB/s")
                                 .withStyle(ChatFormatting.AQUA))));
     }
 
     private void addChunkRef(String reason) {
+        if (ancestorFrozen || isSimulatedMode()) return;
         int count = chunkRefCounts.merge(reason, 1, Integer::sum);
         if (count == 1 && !pocketChunksForced) {
             pocketChunksForced = true;
@@ -1207,11 +1573,8 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     private void refreshChunkRefsForMode() {
-        removeChunkRef("load");
-        removeChunkRef("blueprint");
-        if (operationMode == OperationMode.BLUEPRINT) {
-            addChunkRef("blueprint");
-        } else if (operationMode != OperationMode.BLACKBOX_ACTIVE) {
+        releasePocketChunksImmediately();
+        if (!ancestorFrozen && !isSimulatedMode()) {
             addChunkRef("load");
         }
     }
@@ -1229,6 +1592,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     private void tickChunkRefs() {
+        refreshPocketRandomTickLease(false);
         if (chunkRefCounts.isEmpty() && pocketChunksForced
                 && level.getGameTime() >= pocketChunksReleaseAt) {
             pocketChunksForced = false;
@@ -1279,10 +1643,93 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             return;
         }
         if (forced) {
-            PocketChunkForceManager.replace(pocket, roomChunkForceOwner(), roomChunks());
+            updatePocketRandomTickLease(pocket);
         } else {
             PocketChunkForceManager.releaseAll(pocket.getServer(), roomChunkForceOwner());
+            pocketRandomTicksForced = false;
+            nextRandomTickScan = 0L;
         }
+    }
+
+    private void refreshPocketRandomTickLease(boolean immediate) {
+        if (!pocketChunksForced || level == null || level.isClientSide()) {
+            return;
+        }
+        long now = level.getGameTime();
+        if (!immediate && now < nextRandomTickScan) {
+            return;
+        }
+        ServerLevel pocket = pocketLevel();
+        if (pocket != null) {
+            updatePocketRandomTickLease(pocket);
+        }
+    }
+
+    private void updatePocketRandomTickLease(ServerLevel pocket) {
+        boolean physicalMode = operationMode == OperationMode.CHUNK_LOADED
+                || operationMode == OperationMode.BLACKBOX_PREPARING
+                || operationMode == OperationMode.BLACKBOX_LEARNING;
+        boolean playerPresent = playersInside > 0 || hasPlayersInside();
+        boolean forceRandomTicks = physicalMode && !playerPresent
+                && roomContainsRandomlyTickingBlocks(pocket);
+        boolean changed = forceRandomTicks != pocketRandomTicksForced;
+        pocketRandomTicksForced = forceRandomTicks;
+        nextRandomTickScan = level == null ? 0L : level.getGameTime() + RANDOM_TICK_SCAN_INTERVAL;
+        PocketChunkForceManager.replace(
+                pocket, roomChunkForceOwner(), roomChunks(), forceRandomTicks);
+        if (changed) {
+            blackboxDebug("pocket_random_ticks", () -> "enabled=" + forceRandomTicks
+                    + ", physicalMode=" + physicalMode + ", playerPresent=" + playerPresent
+                    + ", scanInterval=" + RANDOM_TICK_SCAN_INTERVAL);
+        }
+    }
+
+    /** Scans only room-intersecting sections whose palettes report random-ticking blocks. */
+    private boolean roomContainsRandomlyTickingBlocks(ServerLevel pocket) {
+        BlockPos origin = roomOrigin();
+        int minX = bounds.minX(origin) + 1;
+        int minY = bounds.minY(origin) + 1;
+        int minZ = bounds.minZ(origin) + 1;
+        int maxX = bounds.maxX(origin) - 1;
+        int maxY = bounds.maxY(origin) - 1;
+        int maxZ = bounds.maxZ(origin) - 1;
+        if (minX > maxX || minY > maxY || minZ > maxZ) {
+            return false;
+        }
+
+        int minSectionY = SectionPos.blockToSectionCoord(minY);
+        int maxSectionY = SectionPos.blockToSectionCoord(maxY);
+        for (int chunkX = minX >> 4; chunkX <= maxX >> 4; chunkX++) {
+            int sectionMinX = Math.max(minX, chunkX << 4);
+            int sectionMaxX = Math.min(maxX, (chunkX << 4) + 15);
+            for (int chunkZ = minZ >> 4; chunkZ <= maxZ >> 4; chunkZ++) {
+                int sectionMinZ = Math.max(minZ, chunkZ << 4);
+                int sectionMaxZ = Math.min(maxZ, (chunkZ << 4) + 15);
+                LevelChunk chunk = pocket.getChunk(chunkX, chunkZ);
+                for (int sectionY = minSectionY; sectionY <= maxSectionY; sectionY++) {
+                    int sectionIndex = chunk.getSectionIndexFromSectionY(sectionY);
+                    if (sectionIndex < 0 || sectionIndex >= chunk.getSections().length) {
+                        continue;
+                    }
+                    LevelChunkSection section = chunk.getSection(sectionIndex);
+                    if (!section.isRandomlyTickingBlocks()) {
+                        continue;
+                    }
+                    int sectionMinY = Math.max(minY, SectionPos.sectionToBlockCoord(sectionY));
+                    int sectionMaxY = Math.min(maxY, SectionPos.sectionToBlockCoord(sectionY) + 15);
+                    for (int y = sectionMinY; y <= sectionMaxY; y++) {
+                        for (int x = sectionMinX; x <= sectionMaxX; x++) {
+                            for (int z = sectionMinZ; z <= sectionMaxZ; z++) {
+                                if (section.getBlockState(x & 15, y & 15, z & 15).isRandomlyTicking()) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -1312,123 +1759,405 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         }
     }
 
-    /**
-     * The face tanks are only short-lived cross-dimension transit buffers. INPUT fluid is
-     * discarded shortly after exterior filling stops; OUTPUT fluid is discarded after the
-     * room/exterior link has been idle for a second. This prevents either side from using
-     * the factory as a reservoir while preserving asynchronous Create capability transfer.
-     */
     private void tickChunkLoaded() {
-        blackbox.tickRates();
+        planCompiler.tick();
     }
 
-    private void tickDraining() {
-        drainingTicks++;
-        if (level.getGameTime() % 20 != 0) {
-            return;
-        }
-        Map<ItemVariant, Long> currentInventory = countItemsInFactorySpace();
-        int total = totalCount(currentInventory);
-        int staticCount = 0;
-        staticInventory.clear();
-        for (Map.Entry<ItemVariant, Long> e : currentInventory.entrySet()) {
-            long initial = initialInventory.getOrDefault(e.getKey(), 0L);
-            if (initial == e.getValue()) {
-                staticCount += Math.toIntExact(e.getValue());
-                if (e.getValue() > 0) {
-                    staticInventory.put(e.getKey(), e.getValue());
-                }
-            }
-        }
-        drainStaticCount = staticCount;
-        boolean channelsEmpty = portChannels.isEmpty();
-        if (channelsEmpty && total == drainLastCount) {
-            drainStableTicks += 20;
-        } else {
-            drainStableTicks = 0;
-        }
-        drainLastCount = total;
-        // A port channel is real transit state. Do not begin learning until every queued input
-        // has been consumed and every queued output has left the factory; otherwise backlog is
-        // mistaken for production during the sampling window.
-        if (channelsEmpty && (drainStableTicks >= DRAIN_STABLE_TICKS || drainingTicks >= DRAIN_TIMEOUT_TICKS)) {
-            enterLearning();
-        }
+    private void tickPreparing() {
+        if (--preparingTicksRemaining <= 0) enterLearning();
     }
 
     private void enterLearning() {
         rebuildRuntimeIndex(pocketLevel(), true);
-        blackbox.setIgnoredOutputs(staticInventory);
-        blackbox.setRecording(true);
         operationMode = OperationMode.BLACKBOX_LEARNING;
         invalidateResourceCapabilities();
-        learningTicksRemaining = LEARNING_TICKS;
-        blackbox.beginSampling();
+        learningStage = LearningStage.WARMUP;
+        learningStageTicks = 0;
+        learningSession = null;
+        learningObservations.clear();
+        learningWindowIndex = 0;
+        learningWindowScaleIndex = 0;
+        learningWindowTargetTicks = LEARNING_WINDOW_TICKS[0];
+        lockedProcessingPlan = new FactoryPlan();
+        blackboxDebug("learning_warmup_started", () -> "warmupTicks=" + LEARNING_WARMUP_TICKS
+                + ", deadlineTick=" + learningDeadlineTick + ", transit=" + factoryTransit.debugSummary());
         setChanged();
         sendSync();
     }
 
     private void tickLearning() {
-        if (learningTicksRemaining > LEARNING_WARMUP_TICKS) {
-            // 鏆栨満闃舵锛氫笉閲囨牱锛岃宸ュ巶杈惧埌绋虫€?
-            learningTicksRemaining--;
-            if (learningTicksRemaining == LEARNING_WARMUP_TICKS) {
-                blackbox.beginSampling();
-            }
+        boolean deadlineReached = level.getGameTime() >= learningDeadlineTick;
+        boolean canFinalizeAtDeadline = learningStage == LearningStage.OBSERVING
+                && learningObservations.size() >= 3 && planCompiler.currentLearningTicks() > 0
+                && learningSession != null && learningSession.isSupported() && learningSession.isReady();
+        if (deadlineReached && !canFinalizeAtDeadline) {
+            String reason = learningSession != null && learningSession.isSupported() && !learningSession.isReady()
+                    ? "source_event_timeout:" + learningSession.debugSummary()
+                    : "absolute_timeout";
+            abortLearning(reason);
             return;
         }
-        // 閲囨牱闃舵锛氶€愮獥鍙ｈ褰曟瘡绉掗€熺巼
-        blackbox.tickRates();
-        learningTicksRemaining--;
-        if (learningTicksRemaining <= 0) {
-            enterActive();
+        if (factoryTransit.hasUnsupportedExtensionState()) {
+            abortLearning("unsupported_transit_participant");
+            return;
         }
+        planCompiler.tick();
+        if (learningStage == LearningStage.WARMUP) {
+            if (++learningStageTicks >= LEARNING_WARMUP_TICKS) beginUnifiedObservation();
+            return;
+        }
+
+        planCompiler.recordStressSupply(liveExternalStressDemandSU,
+                powerProfile.internalGeneratedSU(), powerProfile.consumedSU());
+        int previousCycles = learningSession == null ? 0 : learningSession.verifiedCycles();
+        if (learningSession != null) learningSession.tick(pocketLevel());
+        if (learningSession != null && learningSession.verifiedCycles() != previousCycles) {
+            blackboxDebug("source_evidence_changed", () -> "before=" + previousCycles + ", source={"
+                    + learningSession.debugSummary() + "}");
+        }
+
+        int elapsed = planCompiler.currentLearningTicks();
+        boolean sourceCompletedEarly = learningObservations.size() >= 3 && elapsed > 0
+                && (elapsed % 20 == 0 || deadlineReached)
+                && learningSession != null && learningSession.isSupported()
+                && (learningSession.isReadyToFinalize(level.getGameTime()) || deadlineReached && learningSession.isReady());
+        if (elapsed < learningWindowTargetTicks && !sourceCompletedEarly) return;
+
+        boolean sourceSupported = learningSession != null && learningSession.isSupported();
+        boolean firstWindowIncomplete = learningWindowIndex == 0
+                && !sourceSupported && !planCompiler.hasCurrentOutput();
+        if (firstWindowIncomplete && learningWindowScaleIndex + 1 < LEARNING_WINDOW_TICKS.length) {
+            learningWindowScaleIndex++;
+            learningWindowTargetTicks = LEARNING_WINDOW_TICKS[learningWindowScaleIndex];
+            blackboxDebug("learning_window_extended", () -> "window=1, targetTicks="
+                    + learningWindowTargetTicks + ", observation={" + planCompiler.debugSummary()
+                    + "}, source={" + (learningSession == null ? "none" : learningSession.debugSummary()) + "}");
+            return;
+        }
+        if (firstWindowIncomplete) {
+            abortLearning("first_observation_never_became_valid");
+            return;
+        }
+
+        FactoryPlanCompiler.Observation observation = finishLearningObservation();
+        learningObservations.add(observation);
+        int completedWindow = learningWindowIndex + 1;
+        blackboxDebug("learning_window_completed", () -> "window=" + completedWindow
+                + ", targetTicks=" + learningWindowTargetTicks + ", observation=" + observation
+                + ", source={" + (learningSession == null ? "none" : learningSession.debugSummary()) + "}");
+
+        if (learningObservations.size() >= 3 && !lockedProcessingPlan.hasProcessingRoute()) {
+            LearningRoomCosts costs = currentLearningRoomCosts();
+            FactoryPlan processing = planCompiler.compileProcessingCandidate(learningObservations, learningSession,
+                    costs.itemAdjustments(), costs.fluidAdjustments(), costs.toolDamage());
+            if (processing.hasProcessingRoute()) {
+                lockedProcessingPlan = processing.processingRoute();
+                blackboxDebug("processing_candidate_locked", () -> "plan={"
+                        + lockedProcessingPlan.debugSummary() + "}, roomCosts=" + costs);
+            }
+        }
+
+        boolean minimumSampleComplete = learningObservations.size() >= 3;
+        boolean sourceReady = sourceSupported && (learningSession.isReadyToFinalize(level.getGameTime())
+                || deadlineReached && learningSession.isReady());
+        boolean sourceStillLearning = sourceSupported && !sourceReady;
+        boolean hasCandidate = lockedProcessingPlan.hasProcessingRoute() || canBuildLearningCandidate();
+        if (minimumSampleComplete && hasCandidate && !sourceStillLearning) {
+            LearningRoomCosts costs = currentLearningRoomCosts();
+            FactoryPlan compiled = planCompiler.compile(learningObservations,
+                    sourceSupported ? learningSession : null,
+                    costs.itemAdjustments(), costs.fluidAdjustments(), costs.toolDamage());
+            if (lockedProcessingPlan.hasProcessingRoute() && compiled.hasRegenerativeRoute()) {
+                compiled = FactoryPlan.combineIndependent(lockedProcessingPlan, compiled.regenerativeRoute());
+            } else if (lockedProcessingPlan.hasProcessingRoute() && !compiled.hasRegenerativeRoute()) {
+                compiled = lockedProcessingPlan;
+            }
+            FactoryPlan completedPlan = compiled;
+            blackboxDebug("learning_plan_compiled", () -> "complete=" + completedPlan.hasCompleteRecipe()
+                    + ", observations={" + planCompiler.candidateSummary(learningObservations, learningSession)
+                    + "}, roomCosts=" + costs + ", plan={" + completedPlan.debugSummary() + "}");
+            if (!compiled.hasCompleteRecipe()) {
+                abortLearning("plan_incomplete_or_ambiguous");
+                return;
+            }
+            enterActive(compiled);
+            return;
+        }
+
+        learningWindowIndex++;
+        learningStageTicks = 0;
+        if (learningSession != null) learningSession.beginWindow(learningWindowIndex);
+        planCompiler.beginLearning();
+        blackboxDebug("learning_window_started", () -> "window=" + (learningWindowIndex + 1)
+                + ", targetTicks=" + learningWindowTargetTicks);
     }
 
-    private void enterActive() {
-        blackbox.compileRecipe();
-        blackbox.setRecording(false);
-        invalidateOverclockRecipe();
-        scanPowerProfile(pocketLevel());
-        simulatedPowerProfileCaptured = true;
-        operationMode = OperationMode.BLACKBOX_ACTIVE;
-        applySelectedOverclockIfReady();
-        invalidateResourceCapabilities();
-        removeChunkRef("load");
+    private void beginUnifiedObservation() {
+        ServerLevel pocket = pocketLevel();
+        if (pocket == null) {
+            abortLearning("pocket_level_missing");
+            return;
+        }
+        learningSession = FactoryLearningSession.begin(pocket, bounds, roomOrigin());
+        learningWindowIndex = 0;
+        learningWindowScaleIndex = 0;
+        learningWindowTargetTicks = LEARNING_WINDOW_TICKS[0];
+        learningObservations.clear();
+        lockedProcessingPlan = new FactoryPlan();
+        learningRoomLedger.capture(countItemsInFactorySpace(), countFluidsInFactorySpace(),
+                countToolDurabilityInFactorySpace());
+        learningStage = LearningStage.OBSERVING;
+        learningStageTicks = 0;
+        learningSession.beginWindow(0);
+        planCompiler.beginLearning();
+        PocketLearningObserver.register(pocket, this, bounds, roomOrigin());
+        blackboxDebug("unified_learning_started", () -> "targetTicks=" + learningWindowTargetTicks + ", source={"
+                + learningSession.debugSummary() + "}, room={" + learningRoomLedger.debugSummary() + "}");
         setChanged();
         sendSync();
     }
 
-    private void tickBlackbox() {
-        applySelectedOverclockIfReady();
-        BlackboxData recipe = effectiveRecipe();
-        if (!productionBatch.matchesRecipe(recipe)) {
-            invalidateProductionBatch(null, "recipe_changed");
-            applySelectedOverclockIfReady();
-            recipe = effectiveRecipe();
-        }
-        productionBatch.ensureRecipe(recipe);
+    private FactoryPlanCompiler.Observation finishLearningObservation() {
+        return planCompiler.finishObservation();
+    }
 
-        int cycle = Math.max(BlackboxData.RATE_WINDOW, recipe.getRecipeCycleTicks());
-        if (productionBatch.isDeliveringOutputs() || !productionBatch.inputsComplete(recipe)) {
+    private record LearningRoomCosts(Map<ItemVariant, Long> itemAdjustments,
+                                     Map<FluidVariant, Long> fluidAdjustments,
+                                     Map<ItemVariant, Long> toolDamage) {
+    }
+
+    private LearningRoomCosts currentLearningRoomCosts() {
+        Map<ItemVariant, Long> currentItems = countItemsInFactorySpace();
+        Map<FluidVariant, Long> currentFluids = countFluidsInFactorySpace();
+        Map<ItemVariant, Long> currentTools = countToolDurabilityInFactorySpace();
+        return new LearningRoomCosts(learningRoomLedger.itemBalanceAdjustments(currentItems),
+                learningRoomLedger.fluidBalanceAdjustments(currentFluids),
+                learningRoomLedger.consumedToolDurability(currentTools));
+    }
+
+    private boolean canBuildLearningCandidate() {
+        boolean hasOutput = learningObservations.stream().anyMatch(FactoryPlanCompiler.Observation::hasOutput);
+        boolean hasExternalInput = learningObservations.stream()
+                .anyMatch(FactoryPlanCompiler.Observation::hasExternalInput);
+        boolean hasSource = learningSession != null && learningSession.hasPreliminaryEvidence();
+        return hasOutput && (hasExternalInput || hasSource);
+    }
+
+    private void enterActive(FactoryPlan candidate) {
+        planCompiler.stopLearning();
+        PocketLearningObserver.unregister(this);
+        learningSession = null;
+        learningObservations.clear();
+        lockedProcessingPlan = new FactoryPlan();
+        learningStage = LearningStage.WARMUP;
+        learningStageTicks = 0;
+        learningDeadlineTick = 0L;
+        learningWindowIndex = 0;
+        learningRoomLedger.clear();
+        if (!PocketFreezeManager.freezeLoadedTree(this)) {
+            abortLearning("freeze_tree_failed");
             return;
         }
+        destroyTransitResources(null, "blackbox_activation_hard_cut");
+        plan = candidate;
+        invalidateOverclockRecipe();
+        operationMode = OperationMode.BLACKBOX_ACTIVE;
+        transferTelemetry.clear();
+        debugLastStressSatisfied = null;
+        applySelectedOverclock();
+        invalidateResourceCapabilities();
+        releasePocketChunksImmediately();
+        blackboxDebug("blackbox_activated", () -> "plan={" + plan.debugSummary()
+                + "}, power={" + powerProfile.debugSummary() + "}, ports=" + debugPortContract()
+                + ", transit=" + factoryTransit.debugSummary());
+        setChanged();
+        sendSync();
+    }
 
+    private void abortLearning(String reason) {
+        blackboxDebug("learning_aborted", () -> "reason=" + reason
+                + ", completedWindows=" + learningObservations.size()
+                + ", observation={" + planCompiler.debugSummary() + "}, source={"
+                + (learningSession == null ? "none" : learningSession.debugSummary()) + "}"
+                + ", transit=" + factoryTransit.debugSummary());
+        planCompiler.stopLearning();
+        PocketLearningObserver.unregister(this);
+        learningSession = null;
+        learningObservations.clear();
+        lockedProcessingPlan = new FactoryPlan();
+        learningStage = LearningStage.WARMUP;
+        learningStageTicks = 0;
+        learningDeadlineTick = 0L;
+        learningWindowIndex = 0;
+        learningWindowScaleIndex = 0;
+        learningWindowTargetTicks = LEARNING_WINDOW_TICKS[0];
+        learningRoomLedger.clear();
+        preparingTicksRemaining = 0;
+        factoryTransit.restoreLiveInputs();
+        operationMode = OperationMode.CHUNK_LOADED;
+        rebuildRuntimeIndex(pocketLevel(), true);
+        invalidateResourceCapabilities();
+        setChanged();
+        sendSync();
+    }
+    public void onLearningBlockChanged(ServerLevel pocket, BlockPos pos, BlockState oldState, BlockState newState) {
+        if (operationMode != OperationMode.BLACKBOX_LEARNING || learningStage != LearningStage.OBSERVING
+                || learningSession == null || pocket == null || !bounds.isBuildableAt(roomOrigin(), pos)) {
+            return;
+        }
+        boolean accepted = learningSession.onBlockChanged(pocket, pos, oldState, newState);
+        blackboxTrace("learning_block_mutation", () -> "block=" + pos + ", old=" + oldState
+                + ", new=" + newState + ", sourceOwned=" + accepted);
+    }
+
+    public void onLearningDrillProduction(ServerLevel pocket, DrillProductionEvent event) {
+        if (operationMode != OperationMode.BLACKBOX_LEARNING || learningStage != LearningStage.OBSERVING
+                || learningSession == null || pocket == null || event == null
+                || !bounds.isBuildableAt(roomOrigin(), event.targetPos())) {
+            return;
+        }
+        boolean accepted = learningSession.onDrillProduction(pocket, event);
+        blackboxTrace("learning_drill_production", () -> "target=" + event.targetPos()
+                + ", block=" + event.brokenState() + ", path=" + event.path()
+                + ", sourceAccepted=" + accepted);
+    }
+
+    private void tickBlackbox() {
+        applySelectedOverclock();
+        FactoryPlan plan = effectiveRecipe();
+        if (!runtimeScheduler.validate(plan)) {
+            FactoryPlan invalidPlan = plan;
+            blackboxDebug("runtime_invalidated", () -> "reason=plan_or_ownership_mismatch, plan={"
+                    + invalidPlan.debugSummary() + "}, runtime=" + runtimeScheduler.debugSummary());
+            invalidateProductionBatch(null, "recipe_changed");
+            applySelectedOverclock();
+            plan = effectiveRecipe();
+        }
+        boolean changed = false;
+        if (operationMode == OperationMode.BLUEPRINT && !runtimeScheduler.capitalReady(plan)) {
+            FactoryPlan waitingPlan = plan;
+            String wait = "startup_capital:" + runtimeScheduler.debugSummary();
+            if (!wait.equals(debugLastRuntimeWait)) {
+                debugLastRuntimeWait = wait;
+                blackboxDebug("runtime_waiting", () -> "reason=missing_startup_capital, required="
+                        + waitingPlan.getStartupCapitalItems() + ", runtime=" + runtimeScheduler.debugSummary());
+            }
+            if (changed) setChanged();
+            return;
+        }
         FactoryPowerProfile activePowerProfile = effectivePowerProfile();
         boolean stressSatisfied = activePowerProfile.externalStressDemandSU() <= STRESS_EPSILON
                 || externalStressSatisfied;
-        if (!stressSatisfied) {
-            return;
+        if (debugLastStressSatisfied == null || debugLastStressSatisfied != stressSatisfied) {
+            debugLastStressSatisfied = stressSatisfied;
+            blackboxDebug("stress_state", () -> "satisfied=" + stressSatisfied
+                    + ", internalGeneratedSU=" + activePowerProfile.generatedSU()
+                    + ", consumedSU=" + activePowerProfile.consumedSU()
+                    + ", netSU=" + activePowerProfile.netSU()
+                    + ", requiredSU=" + activePowerProfile.externalStressDemandSU()
+                    + ", reservedSU=" + reservedExternalSU
+                    + ", selectedFace=" + selectedExternalFace
+                    + ", selectedSpeed=" + selectedExternalSpeed);
         }
-
-        if (itemCycleCounter < cycle) {
-            itemCycleCounter++;
-            return;
+        configureSimulatedOutputEscrow(plan);
+        for (FactoryRuntimeScheduler.ScheduledRoute route : runtimeScheduler.scheduledRoutes(plan)) {
+            FactoryRuntime.Phase beforePhase = route.runtime().phase();
+            int beforeProgress = route.runtime().progressTicks();
+            long beforeBatch = route.runtime().batchId();
+            boolean advanced = route.runtime().advance(route.plan(), stressSatisfied);
+            changed |= advanced;
+            FactoryTransit.PortResourceChannel outputEscrow = simulatedOutputEscrowChannel();
+            boolean escrowed = route.runtime().moveOutputsToTransit(route.plan(), outputEscrow);
+            changed |= escrowed;
+            if (escrowed) {
+                blackboxDebug("runtime_output_escrowed", () -> "route=" + route.routeId()
+                        + ", runtime={" + route.runtime().debugSummary() + "}, transit="
+                        + factoryTransit.debugSummary());
+            }
+            if (beforePhase != route.runtime().phase() || beforeBatch != route.runtime().batchId()
+                    || (beforeProgress > 0 && route.runtime().progressTicks() == 0)) {
+                blackboxDebug("runtime_transition", () -> "route=" + route.routeId()
+                        + ", beforePhase=" + beforePhase + ", beforeProgress=" + beforeProgress
+                        + ", beforeBatch=" + beforeBatch + ", after={" + route.runtime().debugSummary() + "}");
+            }
         }
+        String waitReason = runtimeWaitReason(plan, stressSatisfied);
+        if (!waitReason.equals(debugLastRuntimeWait)) {
+            debugLastRuntimeWait = waitReason;
+            if (!waitReason.isEmpty()) blackboxDebug("runtime_waiting", () -> "reason=" + waitReason
+                    + ", runtime=" + runtimeScheduler.debugSummary());
+        }
+        if (changed) setChanged();
+    }
 
-        productionBatch.commitOutputs(recipe);
-        itemCycleCounter = 0;
-        setChanged();
+    /** All simulated output faces expose one stable factory-owned escrow channel. */
+    private FactoryTransit.PortResourceChannel simulatedOutputEscrowChannel() {
+        return factoryTransit.simulatedOutput();
+    }
+
+    /** Two output handoff quanta provide backpressure without imposing a transfer-rate quota. */
+    private void configureSimulatedOutputEscrow(FactoryPlan effectivePlan) {
+        long itemCapacity = 0L;
+        long fluidCapacity = 0L;
+        for (FactoryRoute route : effectivePlan.routes()) {
+            FactoryPlan contract = route.contract();
+            long routeItems = 0L;
+            for (long amount : contract.getRecipeOutputs().values()) {
+                routeItems = saturatingRuntimeCapacityAdd(routeItems,
+                        outputHandoffQuantum(contract, amount));
+            }
+            long routeFluids = 0L;
+            for (long amount : contract.getRecipeOutputFluids().values()) {
+                routeFluids = saturatingRuntimeCapacityAdd(routeFluids,
+                        outputHandoffQuantum(contract, amount));
+            }
+            itemCapacity = saturatingRuntimeCapacityAdd(itemCapacity,
+                    saturatingRuntimeCapacityAdd(routeItems, routeItems));
+            fluidCapacity = saturatingRuntimeCapacityAdd(fluidCapacity,
+                    saturatingRuntimeCapacityAdd(routeFluids, routeFluids));
+        }
+        simulatedOutputEscrowChannel().configureOutputCapacity(itemCapacity, fluidCapacity);
+    }
+
+    private static long outputHandoffQuantum(FactoryPlan contract, long total) {
+        if (total <= 0L || !contract.streamsStatisticalOutputsPerSecond()) return Math.max(0L, total);
+        int cycleTicks = Math.max(1, contract.getRecipeCycleTicks());
+        int interval = Math.min(20, cycleTicks);
+        long quotient = total / cycleTicks;
+        long remainder = total % cycleTicks;
+        long whole = quotient * interval;
+        long fractional = (remainder * interval + cycleTicks - 1L) / cycleTicks;
+        return saturatingRuntimeCapacityAdd(whole, fractional);
+    }
+
+    private static long saturatingRuntimeCapacityAdd(long first, long second) {
+        if (first < 0L || second < 0L || Long.MAX_VALUE - first < second) return Long.MAX_VALUE;
+        return first + second;
+    }
+
+    private static long simulatedOutputFluidCapacity(FactoryPlan effectivePlan, FluidVariant fluid) {
+        long capacity = 0L;
+        for (FactoryRoute route : effectivePlan.routes()) {
+            FactoryPlan contract = route.contract();
+            long quantum = outputHandoffQuantum(contract,
+                    contract.getRecipeOutputFluids().getOrDefault(fluid, 0L));
+            capacity = saturatingRuntimeCapacityAdd(capacity,
+                    saturatingRuntimeCapacityAdd(quantum, quantum));
+        }
+        return capacity;
+    }
+
+    private String runtimeWaitReason(FactoryPlan effectivePlan, boolean stressSatisfied) {
+        if (!stressSatisfied) return "insufficient_stress";
+        for (FactoryRuntimeScheduler.ScheduledRoute route : runtimeScheduler.scheduledRoutes(effectivePlan)) {
+            FactoryRuntime runtime = route.runtime();
+            // A finished transaction owns its output escrow until that output is extracted.
+            // Recipe deficits describe the next transaction and must not mask this phase.
+            if (runtime.isDeliveringOutputs()) return "output_not_fully_extracted:" + route.routeId();
+            if (!runtime.toolsReady(route.plan())) return "missing_tool:" + route.routeId();
+            if (!runtime.inputsComplete(route.plan())) return "missing_input:" + route.routeId();
+        }
+        return "";
     }
 
     private void tickBlueprint() {
@@ -1646,9 +2375,23 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             return;
         }
         List<NestedStressPortBlockEntity> ports = roomStressPorts(pocket);
+        // Demand belongs to the internal room network and remains measurable when the external
+        // shaft is disconnected or temporarily overstressed. Learning must not turn that absence
+        // into a zero-cost recipe.
+        Map<NestedStressPortBlockEntity, Float> requests = calculatePortStressRequests(ports);
+        float totalDemand = 0f;
+        for (float requested : requests.values()) {
+            totalDemand += requested;
+        }
+        // Create may expose the relay network one tick before its stress map is fully rebuilt.
+        // The physical room scan provides a conservative lower bound for that transient gap.
+        float physicalNetDemand = Math.max(0f,
+                powerProfile.consumedSU() - powerProfile.internalGeneratedSU());
+        totalDemand = Math.max(totalDemand, physicalNetDemand);
+        liveExternalStressDemandSU = totalDemand;
+
         ExternalStressCandidate candidate = selectExternalStressSource();
         if (candidate == null) {
-            liveExternalStressDemandSU = 0f;
             clearExternalStressState();
             for (NestedStressPortBlockEntity port : ports) {
                 port.clearStressAllocation();
@@ -1675,13 +2418,6 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             }
         }
 
-        Map<NestedStressPortBlockEntity, Float> requests = calculatePortStressRequests(ports);
-        float totalDemand = 0f;
-        for (float requested : requests.values()) {
-            totalDemand += requested;
-        }
-        liveExternalStressDemandSU = totalDemand;
-
         if (totalDemand <= STRESS_EPSILON) {
             releaseExternalStressReservation();
             externalStressSatisfied = true;
@@ -1701,7 +2437,6 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
 
     /** Black-box and blueprint modes reserve their frozen demand but never power real room ports. */
     private void settleSimulatedStress() {
-        clearStressRelay();
         FactoryPowerProfile profile = effectivePowerProfile();
         ExternalStressCandidate candidate = selectExternalStressSource();
         if (candidate == null) {
@@ -1779,7 +2514,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
 
     private boolean usesRuntimeIndex() {
         return operationMode == OperationMode.CHUNK_LOADED
-                || operationMode == OperationMode.BLACKBOX_DRAINING
+                || operationMode == OperationMode.BLACKBOX_PREPARING
                 || operationMode == OperationMode.BLACKBOX_LEARNING;
     }
 
@@ -1806,11 +2541,15 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                     BlockEntity blockEntity = pocketLevel.getBlockEntity(pos);
                     if (blockEntity instanceof NestedFactoryBlockEntity) {
                         runtimeIndex.childFactoryPositions().add(pos.immutable());
+                        continue;
                     } else if (blockEntity instanceof KineticBlockEntity) {
                         runtimeIndex.kineticPositions().add(pos.immutable());
                     }
                     if (findItemHandler(pocketLevel, pos) != null) {
                         runtimeIndex.inventoryPositions().add(pos.immutable());
+                    }
+                    if (findFluidHandler(pocketLevel, pos) != null) {
+                        runtimeIndex.fluidHandlerPositions().add(pos.immutable());
                     }
                 }
             }
@@ -1838,12 +2577,27 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                     continue;
                 }
                 float speed = Math.abs(kbe.getTheoreticalSpeed());
-                conSU += Math.abs(kbe.calculateStressApplied()) * speed;
-                if (!(kbe instanceof NestedStressPortBlockEntity)) {
-                    genSU += kbe.calculateAddedStressCapacity() * speed;
+                if (kbe.hasNetwork()) {
+                    KineticNetwork network = kbe.getOrCreateNetwork();
+                    Float networkStress = network.members.get(kbe);
+                    conSU += networkStress == null
+                            ? Math.abs(kbe.calculateStressApplied()) * speed
+                            : Math.abs(networkStress) * speed;
+                    if (!(kbe instanceof NestedStressPortBlockEntity)) {
+                        Float networkCapacity = network.sources.get(kbe);
+                        genSU += networkCapacity == null
+                                ? kbe.calculateAddedStressCapacity() * Math.abs(kbe.getGeneratedSpeed())
+                                : Math.max(0f, networkCapacity) * Math.abs(kbe.getGeneratedSpeed());
+                    }
+                } else {
+                    conSU += Math.abs(kbe.calculateStressApplied()) * speed;
+                    if (!(kbe instanceof NestedStressPortBlockEntity)) {
+                        genSU += kbe.calculateAddedStressCapacity() * Math.abs(kbe.getGeneratedSpeed());
+                    }
                 }
             }
-            powerProfile.set(genSU, conSU, liveExternalStressDemandSU);
+            float physicalNetDemand = Math.max(0f, conSU - genSU);
+            powerProfile.set(genSU, conSU, Math.max(liveExternalStressDemandSU, physicalNetDemand));
         } finally {
             visitingFactories.remove(factoryId);
         }
@@ -1893,6 +2647,16 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         return null;
     }
 
+    private static IFluidHandler findFluidHandler(ServerLevel level, BlockPos pos) {
+        IFluidHandler handler = level.getCapability(Capabilities.FluidHandler.BLOCK, pos, null);
+        if (handler != null) return handler;
+        for (Direction direction : Direction.values()) {
+            handler = level.getCapability(Capabilities.FluidHandler.BLOCK, pos, direction);
+            if (handler != null) return handler;
+        }
+        return null;
+    }
+
     /** Counts only handlers discovered by the runtime room index. */
     private Map<ItemVariant, Long> countItemsInFactorySpace() {
         Map<ItemVariant, Long> counts = new HashMap<>();
@@ -1912,11 +2676,69 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             for (int slot = 0; slot < handler.getSlots(); slot++) {
                 ItemStack stack = handler.getStackInSlot(slot);
                 if (!stack.isEmpty()) {
-                    counts.merge(ItemVariant.of(stack), (long) stack.getCount(), Math::addExact);
+                    countRoomInventoryStack(counts, stack);
                 }
             }
         }
         return counts;
+    }
+
+    /** Match Create's package boundary semantics: the contents are resources; the box is transport. */
+    private static void countRoomInventoryStack(Map<ItemVariant, Long> counts, ItemStack stack) {
+        if (PackageItem.isPackage(stack)) {
+            IItemHandler contents = PackageItem.getContents(stack);
+            for (int slot = 0; slot < contents.getSlots(); slot++) {
+                ItemStack contained = contents.getStackInSlot(slot);
+                if (!contained.isEmpty()) {
+                    long amount = Math.multiplyExact((long) contained.getCount(), stack.getCount());
+                    counts.merge(ItemVariant.of(contained), amount, Math::addExact);
+                }
+            }
+            return;
+        }
+        counts.merge(ItemVariant.of(stack), (long) stack.getCount(), Math::addExact);
+    }
+
+    private Map<FluidVariant, Long> countFluidsInFactorySpace() {
+        Map<FluidVariant, Long> counts = new HashMap<>();
+        ServerLevel pocket = pocketLevel();
+        if (pocket == null) return counts;
+        ensureRuntimeIndex(pocket);
+        var iterator = runtimeIndex.fluidHandlerPositions().iterator();
+        while (iterator.hasNext()) {
+            BlockPos pos = iterator.next();
+            IFluidHandler handler = findFluidHandler(pocket, pos);
+            if (handler == null) {
+                iterator.remove();
+                continue;
+            }
+            for (int tank = 0; tank < handler.getTanks(); tank++) {
+                FluidStack stack = handler.getFluidInTank(tank);
+                if (stack != null && !stack.isEmpty()) {
+                    counts.merge(FluidVariant.of(stack), (long) stack.getAmount(), Math::addExact);
+                }
+            }
+        }
+        return counts;
+    }
+
+    private Map<ItemVariant, Long> countToolDurabilityInFactorySpace() {
+        Map<ItemVariant, Long> remainingDurability = new HashMap<>();
+        ServerLevel pocket = pocketLevel();
+        if (pocket == null) return remainingDurability;
+        ensureRuntimeIndex(pocket);
+        for (BlockPos pos : runtimeIndex.inventoryPositions()) {
+            IItemHandler handler = findItemHandler(pocket, pos);
+            if (handler == null) continue;
+            for (int slot = 0; slot < handler.getSlots(); slot++) {
+                ItemStack stack = handler.getStackInSlot(slot);
+                if (stack.isEmpty() || !stack.isDamageableItem()) continue;
+                long perTool = Math.max(0, stack.getMaxDamage() - stack.getDamageValue());
+                long total = Math.multiplyExact(perTool, stack.getCount());
+                remainingDurability.merge(ItemVariant.toolSignature(stack), total, Math::addExact);
+            }
+        }
+        return remainingDurability;
     }
 
     private static int totalCount(Map<ItemVariant, Long> counts) {
@@ -2041,15 +2863,29 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
 
     private Component cycleFaceMode(Direction face, ServerPlayer player, boolean reportLockFailure) {
         if (isRoomMutationLocked()) {
+            blackboxDebug("face_mode_change_rejected", () -> "face=" + face + ", reason=room_mutation_locked");
             if (reportLockFailure) {
                 PlayerMessagePayload.sendTo(player, Component.translatable("message.create_nested_factory.room_mutation.active")
                         .withStyle(ChatFormatting.YELLOW), false);
             }
             return null;
         }
+        boolean sharedSimulatedIo = isSimulatedMode();
+        if (!sharedSimulatedIo && !runtimeScheduler.isIdle()) {
+            blackboxDebug("face_mode_change_rejected", () -> "face=" + face
+                    + ", reason=production_transaction_active, runtime=" + runtimeScheduler.debugSummary());
+            PlayerMessagePayload.sendTo(player,
+                    Component.translatable("message.create_nested_factory.production_transaction.active")
+                            .withStyle(ChatFormatting.RED), false);
+            return null;
+        }
         int index = face.get3DDataValue();
-        invalidateProductionBatch(player, "face_mode_changed");
-        portChannels.clearFluidsAndExtensions();
+        PortMode previousMode = faceModes[index];
+        int previousPortId = portIds[index];
+        if (!sharedSimulatedIo) {
+            invalidatePlanForPortContractChange(player);
+            destroyTransitResources(player, "face_mode_changed");
+        }
         roomFluidNetworkSignatures.clear();
         faceModes[index] = faceModes[index].next();
         if (faceModes[index] == PortMode.NONE) {
@@ -2061,6 +2897,9 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             }
         }
         normalizeFacePortBindings();
+        blackboxDebug("face_mode_changed", () -> "face=" + face + ", previousMode=" + previousMode
+                + ", previousPort=" + previousPortId + ", mode=" + faceModes[index]
+                + ", port=" + portIds[index] + ", sharedSimulatedIo=" + sharedSimulatedIo);
         invalidateResourceCapabilities();
         setChanged();
         if (level != null) {
@@ -2069,10 +2908,12 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         Component faceName = Component.translatable("direction.create_nested_factory." + face.getSerializedName());
         Component modeName = Component.translatable("goggles.create_nested_factory.port_mode."
                 + faceModes[index].getSerializedName());
-        String key = faceModes[index] == PortMode.NONE
+        String key = sharedSimulatedIo
+                ? "message.create_nested_factory.face_mode.updated_shared"
+                : faceModes[index] == PortMode.NONE
                 ? "message.create_nested_factory.face_mode.updated_none"
                 : "message.create_nested_factory.face_mode.updated";
-        Component message = faceModes[index] == PortMode.NONE
+        Component message = sharedSimulatedIo || faceModes[index] == PortMode.NONE
                 ? Component.translatable(key, faceName, modeName)
                 : Component.translatable(key, faceName, modeName, portIds[index]);
         return message;
@@ -2087,6 +2928,9 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     public IItemHandler getItemHandler(Direction side) {
+        if (bindingConflict) {
+            return null;
+        }
         if (side == null) {
             return UNSIDED_ITEM_HANDLER_PROBE;
         }
@@ -2094,7 +2938,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             return null;
         }
         if (faceModes[side.get3DDataValue()] == PortMode.INPUT
-                && operationMode == OperationMode.BLACKBOX_DRAINING) {
+                && operationMode == OperationMode.BLACKBOX_PREPARING) {
             return null;
         }
         if (!isSimulatedMode() && faceModes[side.get3DDataValue()] == PortMode.OUTPUT) {
@@ -2108,18 +2952,24 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
      * accepted in full or left untouched for the packager to retry.
      */
     public boolean acceptUnpackedItems(Direction side, List<ItemStack> stacks, boolean simulate) {
-        if (side == null || stacks == null || stacks.isEmpty()) {
+        if (bindingConflict || side == null || stacks == null || stacks.isEmpty()) {
             return false;
         }
         int faceIndex = side.get3DDataValue();
-        if (faceModes[faceIndex] != PortMode.INPUT || operationMode == OperationMode.BLACKBOX_DRAINING) {
+        if (faceModes[faceIndex] != PortMode.INPUT || operationMode == OperationMode.BLACKBOX_PREPARING) {
             return false;
         }
 
         if (isSimulatedMode()) {
-            boolean accepted = productionBatch.acceptItemInputs(effectiveRecipe(), stacks, simulate);
+            FactoryPlan effectivePlan = effectiveRecipe();
+            boolean accepted = runtimeScheduler.acceptItemInputs(effectivePlan, stacks, simulate);
             if (accepted && !simulate) {
+                for (ItemStack stack : stacks) {
+                    recordItemTelemetry(true, stack, stack == null ? 0 : stack.getCount());
+                }
                 setChanged();
+                blackboxDebug("runtime_item_package_input", () -> "port=" + portIds[faceIndex]
+                        + ", stacks=" + stacks + ", runtime=" + runtimeScheduler.debugSummary());
             }
             return accepted;
         }
@@ -2128,13 +2978,13 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         if (!canAcceptInput(portId, false)) {
             return false;
         }
-        FactoryPortChannels.PortResourceChannel resourceChannel = portChannel(portId);
+        FactoryTransit.PortResourceChannel resourceChannel = portChannel(portId);
         if (simulate) {
-            return resourceChannel.canAcceptInputItemBatch(currentGameTime(), stacks);
+            return resourceChannel.canAcceptInputItemBatch(stacks);
         }
 
         boolean wasEmpty = resourceChannel.inputItems().isEmpty();
-        if (!resourceChannel.insertInputItemBatch(currentGameTime(), stacks)) {
+        if (!resourceChannel.insertInputItemBatch(stacks)) {
             return false;
         }
         setChanged();
@@ -2149,16 +2999,16 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 .noneMatch(face -> faceModes[face.get3DDataValue()] == PortMode.OUTPUT)) {
             return false;
         }
-        FactoryPortChannels.PortResourceChannel resourceChannel = portChannel(portId);
+        FactoryTransit.PortResourceChannel resourceChannel = portChannel(portId);
         if (simulate) {
-            return resourceChannel.canAcceptOutputItemBatch(currentGameTime(), stacks);
+            return resourceChannel.canAcceptOutputItemBatch(stacks);
         }
-        if (!resourceChannel.insertOutputItemBatch(currentGameTime(), stacks)) {
+        if (!resourceChannel.insertOutputItemBatch(stacks)) {
             return false;
         }
         for (ItemStack stack : stacks) {
             if (!stack.isEmpty()) {
-                recordItemTransfer(false, stack, stack.getCount());
+                recordItemTransfer(portId, false, stack, stack.getCount());
             }
         }
         setChanged();
@@ -2167,11 +3017,11 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     public IFluidHandler getFluidHandler(Direction side) {
-        if (side == null || faceModes[side.get3DDataValue()] == PortMode.NONE) {
+        if (bindingConflict || side == null || faceModes[side.get3DDataValue()] == PortMode.NONE) {
             return null;
         }
         if (faceModes[side.get3DDataValue()] == PortMode.INPUT
-                && operationMode == OperationMode.BLACKBOX_DRAINING) {
+                && operationMode == OperationMode.BLACKBOX_PREPARING) {
             return null;
         }
         if (!isSimulatedMode() && faceModes[side.get3DDataValue()] == PortMode.OUTPUT) {
@@ -2326,7 +3176,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     public boolean hasPendingPortResources() {
-        return !portChannels.isEmpty();
+        return !factoryTransit.isEmpty();
     }
 
     /** Drops pending item transit resources at this factory and destroys pending fluid transit resources. */
@@ -2334,7 +3184,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         if (level == null || level.isClientSide()) {
             return;
         }
-        for (ItemStack stack : portChannels.drainItemsAndDiscardFluids()) {
+        for (ItemStack stack : factoryTransit.drainItemsAndDiscardFluids()) {
             if (!stack.isEmpty()) {
                 Block.popResource(level, worldPosition, stack);
             }
@@ -2426,7 +3276,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     private boolean canAcceptInput(int portId, boolean fluid) {
-        if (operationMode == OperationMode.BLACKBOX_DRAINING || isSimulatedMode()
+        if (operationMode == OperationMode.BLACKBOX_PREPARING || isSimulatedMode()
                 || !hasRoomPort(portId)) {
             return false;
         }
@@ -2434,7 +3284,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             return true;
         }
         return hasRoomInputConsumer(portId, false)
-                && portChannel(portId).canAcceptInputItems(currentGameTime());
+                && portChannel(portId).canAcceptInputItems();
     }
 
     private boolean canAcceptRoomOutput(int portId, boolean fluid) {
@@ -2446,14 +3296,11 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         }
         // OUTPUT is also a room-side source for Create's Packager. Do not require the
         // external face to have been queried first; the shared handoff channel is the source.
-        return portChannel(portId).canAcceptOutputItems(currentGameTime());
+        return portChannel(portId).canAcceptOutputItems();
     }
 
-    private long currentGameTime() {
-        return level == null ? 0L : level.getGameTime();
-    }
-    private FactoryPortChannels.PortResourceChannel portChannel(int portId) {
-        return portChannels.channel(portId);
+    private FactoryTransit.PortResourceChannel portChannel(int portId) {
+        return factoryTransit.channel(portId);
     }
 
     private int connectedExternalFluidFaceCount(int portId) {
@@ -2797,11 +3644,57 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
      * old routing configuration and must be terminated before the new group becomes visible.
      */
     public void onPortRoutingChanged(Player player) {
+        if (isSimulatedMode()) {
+            blackboxDebug("port_contract_change_ignored", () -> "reason=shared_simulated_io, runtime="
+                    + runtimeScheduler.debugSummary());
+            invalidateResourceCapabilities();
+            setChanged();
+            return;
+        }
+        blackboxDebug("port_contract_change", () -> "runtime=" + runtimeScheduler.debugSummary()
+                + ", transit=" + factoryTransit.debugSummary());
         invalidateProductionBatch(player, "port_routing_changed");
-        portChannels.clearFluidsAndExtensions();
+        invalidatePlanForPortContractChange(player);
+        destroyTransitResources(player, "port_routing_changed");
         roomFluidNetworkSignatures.clear();
         externalFluidNetworkSignatures.clear();
         setChanged();
+    }
+
+    private void invalidatePlanForPortContractChange(Player player) {
+        if (operationMode == OperationMode.BLACKBOX_LEARNING
+                || operationMode == OperationMode.BLACKBOX_PREPARING) {
+            abortLearning("port_contract_changed");
+        } else if (operationMode == OperationMode.BLUEPRINT) {
+            cancelBlueprint(player, OperationMode.CHUNK_LOADED);
+        } else if (operationMode == OperationMode.BLACKBOX_ACTIVE) {
+            stopBlackbox(player);
+        }
+        plan = new FactoryPlan();
+        invalidateOverclockRecipe();
+    }
+
+    public boolean canChangePortRouting(Player player) {
+        if (isSimulatedMode()) return true;
+        if (runtimeScheduler.isIdle()) return true;
+        if (player instanceof ServerPlayer serverPlayer) {
+            PlayerMessagePayload.sendTo(serverPlayer,
+                    Component.translatable("message.create_nested_factory.production_transaction.active")
+                            .withStyle(ChatFormatting.RED), false);
+        }
+        return false;
+    }
+
+    private void destroyTransitResources(Player player, String reason) {
+        String before = factoryTransit.debugSummary();
+        FactoryTransit.DestructionReport report = factoryTransit.destroyAll();
+        if (report.isEmpty()) return;
+        blackboxDebug("transit_destroyed", () -> "reason=" + reason + ", before=" + before
+                + ", items=" + report.itemCount() + ", fluids=" + report.fluidAmount()
+                + ", extensions=" + report.extensionCount());
+        setChanged();
+        LOGGER.warn("Destroyed factory transit at {} because {}: {} items, {} mB fluid, {} extensions",
+                worldPosition, reason, report.itemCount(), report.fluidAmount(), report.extensionCount());
     }
 
     /**
@@ -2858,20 +3751,92 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         return operationMode == OperationMode.BLACKBOX_ACTIVE || operationMode == OperationMode.BLUEPRINT;
     }
 
-    private void recordItemTransfer(boolean inputFlow, ItemStack stack, int moved) {
+    private void recordItemTransfer(int portId, boolean inputFlow, ItemStack stack, int moved) {
+        recordItemTelemetry(inputFlow, stack, moved);
         if (inputFlow) {
-            blackbox.recordItemInput(stack, moved);
+            planCompiler.recordItemInput(stack, moved);
         } else {
-            blackbox.recordItemOutput(stack, moved);
+            planCompiler.recordItemOutput(stack, moved);
+            if (learningSession != null && level != null) {
+                learningSession.recordBoundaryItemOutput(stack, moved, level.getGameTime());
+            }
+        }
+        if (moved > 0) {
+            if (operationMode == OperationMode.BLACKBOX_LEARNING) {
+                blackboxTrace("learning_item_boundary", () -> "direction=" + (inputFlow ? "input" : "output")
+                        + ", port=" + portId + ", item=" + ItemVariant.of(stack) + ", amount=" + moved);
+            }
         }
     }
 
-    private void recordFluidTransfer(boolean inputFlow, FluidStack stack, int moved) {
+    private void recordFluidTransfer(int portId, boolean inputFlow, FluidStack stack, int moved) {
+        recordFluidTelemetry(inputFlow, stack, moved);
         if (inputFlow) {
-            blackbox.recordFluidInput(stack, moved);
+            planCompiler.recordFluidInput(stack, moved);
         } else {
-            blackbox.recordFluidOutput(stack, moved);
+            planCompiler.recordFluidOutput(stack, moved);
+            if (learningSession != null && level != null) {
+                learningSession.recordBoundaryFluidOutput(stack, moved, level.getGameTime());
+            }
         }
+        if (moved > 0) {
+            if (operationMode == OperationMode.BLACKBOX_LEARNING) {
+                blackboxTrace("learning_fluid_boundary", () -> "direction=" + (inputFlow ? "input" : "output")
+                        + ", port=" + portId + ", fluid=" + FluidVariant.of(stack) + ", amount=" + moved);
+            }
+        }
+    }
+
+    private List<RuntimeToolSlot> blackboxToolSlots(FactoryPlan effectivePlan) {
+        List<RuntimeToolSlot> slots = new ArrayList<>();
+        for (FactoryRuntimeScheduler.ScheduledRoute route : runtimeScheduler.scheduledRoutes(effectivePlan)) {
+            for (ItemVariant signature : route.runtime().sortedRequiredTools(route.plan())) {
+                slots.add(new RuntimeToolSlot(route.runtime(), route.plan(), signature));
+            }
+        }
+        return slots;
+    }
+
+    private List<ItemVariant> blackboxOutputItems(FactoryPlan effectivePlan) {
+        Set<ItemVariant> variants = new java.util.TreeSet<>(effectivePlan.getRecipeOutputs().keySet());
+        variants.addAll(factoryTransit.outputItemVariants());
+        return List.copyOf(variants);
+    }
+
+    private long blackboxRemainingItemOutput(ItemVariant variant) {
+        return Math.addExact(factoryTransit.outputItemAmount(variant),
+                runtimeScheduler.remainingItemOutput(effectiveRecipe(), variant));
+    }
+
+    private ItemStack extractBlackboxItemOutput(ItemVariant variant, int amount, boolean simulate) {
+        int requested = Math.min(Math.max(0, amount), variant.prototype().getMaxStackSize());
+        ItemStack first = factoryTransit.extractOutputItem(variant, requested, simulate);
+        int remaining = Math.max(0, requested - first.getCount());
+        ItemStack second = remaining == 0 ? ItemStack.EMPTY
+                : runtimeScheduler.extractItemOutput(effectiveRecipe(), variant, remaining, simulate);
+        if (first.isEmpty()) first = second;
+        else if (!second.isEmpty()) first.grow(second.getCount());
+        return first;
+    }
+
+    private List<FluidVariant> blackboxOutputFluids(FactoryPlan effectivePlan) {
+        Set<FluidVariant> variants = new java.util.TreeSet<>(effectivePlan.getRecipeOutputFluids().keySet());
+        variants.addAll(factoryTransit.outputFluidVariants());
+        return List.copyOf(variants);
+    }
+
+    private long blackboxRemainingFluidOutput(FluidVariant variant) {
+        return Math.addExact(factoryTransit.outputFluidAmount(variant),
+                runtimeScheduler.remainingFluidOutput(effectiveRecipe(), variant));
+    }
+
+    private FluidStack drainBlackboxFluidOutput(FluidVariant variant, int amount, boolean simulate) {
+        FluidStack first = factoryTransit.extractOutputFluid(variant, amount,
+                simulate ? IFluidHandler.FluidAction.SIMULATE : IFluidHandler.FluidAction.EXECUTE);
+        int remaining = Math.max(0, amount - first.getAmount());
+        FluidStack second = remaining == 0 ? FluidStack.EMPTY
+                : runtimeScheduler.extractFluidOutput(effectiveRecipe(), variant, remaining, simulate);
+        return mergeFluidResults(first, second);
     }
 
     private final class FactoryFaceItemHandler implements IItemHandler {
@@ -2895,10 +3860,12 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 return 0;
             }
             if (isSimulatedMode()) {
-                BlackboxData recipe = effectiveRecipe();
+                FactoryPlan effectivePlan = effectiveRecipe();
                 return mode() == PortMode.INPUT
-                        ? productionBatch.sortedInputItems(recipe).size()
-                        : productionBatch.sortedOutputItems(recipe).size();
+                        ? blueprintCapitalItems(effectivePlan).size()
+                        + runtimeScheduler.sortedInputItems(effectivePlan).size()
+                        + blackboxToolSlots(effectivePlan).size()
+                        : blackboxOutputItems(effectivePlan).size();
             }
             if (mode() == PortMode.INPUT) {
                 return canAcceptInput(portId(), false) ? 1 : 0;
@@ -2908,11 +3875,33 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
 
         @Override
         public ItemStack getStackInSlot(int slot) {
+            if (mode() == PortMode.INPUT && isSimulatedMode()) {
+                FactoryPlan effectivePlan = effectiveRecipe();
+                List<ItemVariant> capital = blueprintCapitalItems(effectivePlan);
+                if (slot >= 0 && slot < capital.size()) {
+                    ItemVariant item = capital.get(slot);
+                    long committed = runtimeScheduler.capitalAmount(item);
+                    return committed <= 0L ? ItemStack.EMPTY : item.createStack((int) Math.min(committed,
+                            item.prototype().getMaxStackSize()));
+                }
+                List<ItemVariant> inputs = runtimeScheduler.sortedInputItems(effectivePlan);
+                int inputIndex = slot - capital.size();
+                if (inputIndex >= 0 && inputIndex < inputs.size()) {
+                    ItemVariant item = inputs.get(inputIndex);
+                    long committed = runtimeScheduler.committedItem(effectivePlan, item);
+                    return committed <= 0 ? ItemStack.EMPTY : item.createStack((int) Math.min(committed,
+                            item.prototype().getMaxStackSize()));
+                }
+                List<RuntimeToolSlot> tools = blackboxToolSlots(effectivePlan);
+                int toolIndex = inputIndex - inputs.size();
+                return toolIndex < 0 || toolIndex >= tools.size() ? ItemStack.EMPTY
+                        : tools.get(toolIndex).runtime().leasedTool(tools.get(toolIndex).signature());
+            }
             if (mode() == PortMode.OUTPUT && isSimulatedMode()) {
-                List<ItemVariant> items = productionBatch.sortedOutputItems(effectiveRecipe());
+                List<ItemVariant> items = blackboxOutputItems(effectiveRecipe());
                 if (slot >= 0 && slot < items.size()) {
                     ItemVariant item = items.get(slot);
-                    long remaining = productionBatch.remainingItemOutput(item);
+                    long remaining = blackboxRemainingItemOutput(item);
                     return remaining <= 0 ? ItemStack.EMPTY
                             : item.createStack((int) Math.min(remaining, item.prototype().getMaxStackSize()));
                 }
@@ -2926,18 +3915,51 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
 
         @Override
         public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) {
-            if (mode() != PortMode.INPUT || operationMode == OperationMode.BLACKBOX_DRAINING) {
+            if (mode() != PortMode.INPUT || operationMode == OperationMode.BLACKBOX_PREPARING) {
                 return stack;
             }
             if (isSimulatedMode()) {
-                BlackboxData recipe = effectiveRecipe();
-                List<ItemVariant> items = productionBatch.sortedInputItems(recipe);
-                if (slot < 0 || slot >= items.size() || !items.get(slot).matches(stack)) {
+                FactoryPlan effectivePlan = effectiveRecipe();
+                List<ItemVariant> capital = blueprintCapitalItems(effectivePlan);
+                if (slot >= 0 && slot < capital.size()) {
+                    if (!capital.get(slot).matches(stack)) return stack;
+                    int accepted = runtimeScheduler.acceptCapital(effectivePlan, stack, simulate);
+                    if (!simulate && accepted > 0) {
+                        recordItemTelemetry(true, stack, accepted);
+                        setChanged();
+                        blackboxDebug("runtime_startup_capital", () -> "port=" + portId()
+                                + ", item=" + ItemVariant.of(stack) + ", amount=" + accepted
+                                + ", runtime=" + runtimeScheduler.debugSummary());
+                    }
+                    ItemStack remainder = stack.copy();
+                    remainder.shrink(accepted);
+                    return remainder;
+                }
+                List<ItemVariant> items = runtimeScheduler.sortedInputItems(effectivePlan);
+                int inputIndex = slot - capital.size();
+                if (inputIndex < 0) {
                     return stack;
                 }
-                int accepted = productionBatch.acceptItemInput(recipe, stack, simulate);
+                int accepted;
+                if (inputIndex < items.size()) {
+                    if (!items.get(inputIndex).matches(stack)) return stack;
+                    accepted = runtimeScheduler.acceptItemInput(effectivePlan, stack, simulate);
+                } else {
+                    List<RuntimeToolSlot> tools = blackboxToolSlots(effectivePlan);
+                    int toolIndex = inputIndex - items.size();
+                    if (toolIndex < 0 || toolIndex >= tools.size()
+                            || !tools.get(toolIndex).signature().matchesTool(stack)) {
+                        return stack;
+                    }
+                    RuntimeToolSlot tool = tools.get(toolIndex);
+                    accepted = tool.runtime().acceptTool(tool.route(), stack, simulate);
+                }
                 if (!simulate && accepted > 0) {
+                    recordItemTelemetry(true, stack, accepted);
                     setChanged();
+                    blackboxDebug("runtime_item_input", () -> "port=" + portId()
+                            + ", slot=" + slot + ", item=" + ItemVariant.of(stack)
+                            + ", amount=" + accepted + ", runtime=" + runtimeScheduler.debugSummary());
                 }
                 ItemStack remainder = stack.copy();
                 remainder.shrink(accepted);
@@ -2946,12 +3968,12 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             if (!canAcceptInput(portId(), false)) {
                 return stack;
             }
-            FactoryPortChannels.PortResourceChannel resourceChannel = portChannel(portId());
-            int offerLimit = resourceChannel.inputItemOfferLimit(currentGameTime(), stack);
+            FactoryTransit.PortResourceChannel resourceChannel = portChannel(portId());
+            int offerLimit = resourceChannel.inputItemOfferLimit(stack);
             if (offerLimit <= 0) {
                 return stack;
             }
-            FactoryPortChannels.ItemChannel channel = resourceChannel.inputItems();
+            FactoryTransit.ItemChannel channel = resourceChannel.inputItems();
             boolean wasEmpty = channel.isEmpty();
             ItemStack offered = stack.copyWithCount(offerLimit);
             ItemStack offeredRemaining = channel.insert(offered, simulate);
@@ -2972,20 +3994,25 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 return ItemStack.EMPTY;
             }
             if (isSimulatedMode()) {
-                List<ItemVariant> items = productionBatch.sortedOutputItems(effectiveRecipe());
+                FactoryPlan effectivePlan = effectiveRecipe();
+                List<ItemVariant> items = blackboxOutputItems(effectivePlan);
                 if (slot < 0 || slot >= items.size()) {
                     return ItemStack.EMPTY;
                 }
-                ItemStack result = productionBatch.extractItemOutput(items.get(slot), amount, simulate);
+                ItemStack result = extractBlackboxItemOutput(items.get(slot), amount, simulate);
                 if (!simulate && !result.isEmpty()) {
+                    recordItemTelemetry(false, result, result.getCount());
                     setChanged();
+                    blackboxDebug("runtime_item_output", () -> "port=" + portId()
+                            + ", slot=" + slot + ", item=" + ItemVariant.of(result)
+                            + ", amount=" + result.getCount() + ", runtime=" + runtimeScheduler.debugSummary());
                 }
                 return result;
             }
             if (!hasRoomPort(portId())) {
                 return ItemStack.EMPTY;
             }
-            FactoryPortChannels.PortResourceChannel resourceChannel = portChannel(portId());
+            FactoryTransit.PortResourceChannel resourceChannel = portChannel(portId());
             ItemStack result = resourceChannel.outputItems().extract(slot, amount, simulate);
             if (!simulate && !result.isEmpty()) {
                 resourceChannel.markOutputItemExtracted(result.getCount());
@@ -3001,15 +4028,32 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
 
         @Override
         public boolean isItemValid(int slot, ItemStack stack) {
-            if (mode() != PortMode.INPUT || operationMode == OperationMode.BLACKBOX_DRAINING) {
+            if (mode() != PortMode.INPUT || operationMode == OperationMode.BLACKBOX_PREPARING) {
                 return false;
             }
             if (!isSimulatedMode()) {
                 return canAcceptInput(portId(), false);
             }
-            List<ItemVariant> items = productionBatch.sortedInputItems(effectiveRecipe());
-            return slot >= 0 && slot < items.size() && items.get(slot).matches(stack);
+            FactoryPlan effectivePlan = effectiveRecipe();
+            List<ItemVariant> capital = blueprintCapitalItems(effectivePlan);
+            if (slot >= 0 && slot < capital.size()) {
+                return capital.get(slot).matches(stack);
+            }
+            List<ItemVariant> items = runtimeScheduler.sortedInputItems(effectivePlan);
+            int inputIndex = slot - capital.size();
+            if (inputIndex >= 0 && inputIndex < items.size()) {
+                return items.get(inputIndex).matches(stack);
+            }
+            List<RuntimeToolSlot> tools = blackboxToolSlots(effectivePlan);
+            int toolIndex = inputIndex - items.size();
+            return toolIndex >= 0 && toolIndex < tools.size()
+                    && tools.get(toolIndex).signature().matchesTool(stack);
         }
+    }
+
+    private List<ItemVariant> blueprintCapitalItems(FactoryPlan effectivePlan) {
+        return operationMode == OperationMode.BLUEPRINT
+                ? runtimeScheduler.sortedCapitalRequirements(effectivePlan) : List.of();
     }
 
     private final class RoomItemBridgeHandler implements IItemHandler {
@@ -3051,12 +4095,12 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             if (isSimulatedMode() || mode() != PortMode.OUTPUT || !canAcceptRoomOutput(portId, false)) {
                 return stack;
             }
-            FactoryPortChannels.PortResourceChannel resourceChannel = portChannel(portId);
-            int offerLimit = resourceChannel.outputItemOfferLimit(currentGameTime(), stack);
+            FactoryTransit.PortResourceChannel resourceChannel = portChannel(portId);
+            int offerLimit = resourceChannel.outputItemOfferLimit(stack);
             if (offerLimit <= 0) {
                 return stack;
             }
-            FactoryPortChannels.ItemChannel channel = resourceChannel.outputItems();
+            FactoryTransit.ItemChannel channel = resourceChannel.outputItems();
             boolean wasEmpty = channel.isEmpty();
             ItemStack offered = stack.copyWithCount(offerLimit);
             ItemStack offeredRemaining = channel.insert(offered, simulate);
@@ -3065,7 +4109,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             remaining.shrink(moved);
             if (!simulate && moved > 0) {
                 resourceChannel.consumeOutputItems(moved);
-                recordItemTransfer(false, stack, moved);
+                recordItemTransfer(portId, false, stack, moved);
                 setChanged();
                 notifyChannelBecameAvailable(wasEmpty, channel.isEmpty());
             }
@@ -3077,12 +4121,12 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             if (isSimulatedMode() || (mode() != PortMode.INPUT && mode() != PortMode.OUTPUT)) {
                 return ItemStack.EMPTY;
             }
-            FactoryPortChannels.PortResourceChannel resourceChannel = portChannel(portId);
+            FactoryTransit.PortResourceChannel resourceChannel = portChannel(portId);
             if (mode() == PortMode.INPUT) {
                 ItemStack result = resourceChannel.inputItems().extract(slot, amount, simulate);
                 if (!simulate && !result.isEmpty()) {
                     resourceChannel.markInputItemExtracted(result.getCount());
-                    recordItemTransfer(true, result, result.getCount());
+                    recordItemTransfer(portId, true, result, result.getCount());
                     setChanged();
                 }
                 return result;
@@ -3130,10 +4174,10 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 return 0;
             }
             if (isSimulatedMode()) {
-                BlackboxData recipe = effectiveRecipe();
+                FactoryPlan effectivePlan = effectiveRecipe();
                 return mode() == PortMode.INPUT
-                        ? productionBatch.sortedInputFluids(recipe).size()
-                        : productionBatch.sortedOutputFluids(recipe).size();
+                        ? runtimeScheduler.sortedInputFluids(effectivePlan).size()
+                        : blackboxOutputFluids(effectivePlan).size();
             }
             return hasRoomPort(portId()) ? (mode() == PortMode.INPUT
                     ? 1 : Math.max(1, portChannel(portId()).outputFluids().tanks())) : 0;
@@ -3142,19 +4186,19 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         @Override
         public FluidStack getFluidInTank(int tank) {
             if (isSimulatedMode()) {
-                BlackboxData recipe = effectiveRecipe();
-                List<Fluid> fluids = mode() == PortMode.INPUT
-                        ? productionBatch.sortedInputFluids(recipe)
-                        : productionBatch.sortedOutputFluids(recipe);
+                FactoryPlan effectivePlan = effectiveRecipe();
+                List<FluidVariant> fluids = mode() == PortMode.INPUT
+                        ? runtimeScheduler.sortedInputFluids(effectivePlan)
+                        : blackboxOutputFluids(effectivePlan);
                 if (tank < 0 || tank >= fluids.size()) {
                     return FluidStack.EMPTY;
                 }
-                Fluid fluid = fluids.get(tank);
+                FluidVariant fluid = fluids.get(tank);
                 long amount = mode() == PortMode.INPUT
-                        ? productionBatch.committedFluid(fluid)
-                        : productionBatch.remainingFluidOutput(fluid);
+                        ? runtimeScheduler.committedFluid(effectivePlan, fluid)
+                        : blackboxRemainingFluidOutput(fluid);
                 return amount <= 0 ? FluidStack.EMPTY
-                        : new FluidStack(fluid, (int) Math.min(amount, Integer.MAX_VALUE));
+                        : fluid.createStack((int) Math.min(amount, Integer.MAX_VALUE));
             }
             return mode() == PortMode.OUTPUT && hasRoomPort(portId()) && tank >= 0
                     ? portChannel(portId()).outputFluids().fluidInTank(tank) : FluidStack.EMPTY;
@@ -3163,17 +4207,19 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         @Override
         public int getTankCapacity(int tank) {
             if (isSimulatedMode()) {
-                BlackboxData recipe = effectiveRecipe();
-                List<Fluid> fluids = mode() == PortMode.INPUT
-                        ? productionBatch.sortedInputFluids(recipe)
-                        : productionBatch.sortedOutputFluids(recipe);
+                FactoryPlan effectivePlan = effectiveRecipe();
+                List<FluidVariant> fluids = mode() == PortMode.INPUT
+                        ? runtimeScheduler.sortedInputFluids(effectivePlan)
+                        : blackboxOutputFluids(effectivePlan);
                 if (tank < 0 || tank >= fluids.size()) {
                     return 0;
                 }
-                Fluid fluid = fluids.get(tank);
+                FluidVariant fluid = fluids.get(tank);
                 long capacity = mode() == PortMode.INPUT
-                        ? recipe.getRecipeInputFluids().getOrDefault(fluid, 0L)
-                        : recipe.getRecipeOutputFluids().getOrDefault(fluid, 0L);
+                        ? saturatingRuntimeCapacityAdd(
+                        effectivePlan.getRecipeInputFluids().getOrDefault(fluid, 0L),
+                        effectivePlan.getRecipeInputFluids().getOrDefault(fluid, 0L))
+                        : simulatedOutputFluidCapacity(effectivePlan, fluid);
                 return (int) Math.min(capacity, Integer.MAX_VALUE);
             }
             return hasRoomPort(portId()) && tank == 0 ? Integer.MAX_VALUE : 0;
@@ -3181,26 +4227,32 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
 
         @Override
         public boolean isFluidValid(int tank, FluidStack stack) {
-            if (mode() != PortMode.INPUT || operationMode == OperationMode.BLACKBOX_DRAINING) {
+            if (mode() != PortMode.INPUT || operationMode == OperationMode.BLACKBOX_PREPARING) {
                 return false;
             }
             if (!isSimulatedMode()) {
                 return hasRoomPort(portId()) && stack != null && !stack.isEmpty();
             }
-            List<Fluid> fluids = productionBatch.sortedInputFluids(effectiveRecipe());
-            return tank >= 0 && tank < fluids.size() && stack.is(fluids.get(tank));
+            FactoryPlan effectivePlan = effectiveRecipe();
+            List<FluidVariant> fluids = runtimeScheduler.sortedInputFluids(effectivePlan);
+            return tank >= 0 && tank < fluids.size() && fluids.get(tank).matches(stack);
         }
 
         @Override
         public int fill(FluidStack resource, FluidAction action) {
-            if (mode() != PortMode.INPUT || operationMode == OperationMode.BLACKBOX_DRAINING
+            if (mode() != PortMode.INPUT || operationMode == OperationMode.BLACKBOX_PREPARING
                     || resource == null || resource.isEmpty()) {
                 return 0;
             }
             if (isSimulatedMode()) {
-                int accepted = productionBatch.acceptFluidInput(effectiveRecipe(), resource, action.simulate());
+                FactoryPlan effectivePlan = effectiveRecipe();
+                int accepted = runtimeScheduler.acceptFluidInput(effectivePlan, resource, action.simulate());
                 if (action.execute() && accepted > 0) {
+                    recordFluidTelemetry(true, resource, accepted);
                     setChanged();
+                    blackboxDebug("runtime_fluid_input", () -> "port=" + portId()
+                            + ", fluid=" + FluidVariant.of(resource) + ", amount=" + accepted
+                            + ", runtime=" + runtimeScheduler.debugSummary());
                 }
                 return accepted;
             }
@@ -3216,6 +4268,12 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                     : (resource.getAmount() + activeFaces - 1) / activeFaces;
             FluidStack offered = resource.copyWithAmount(Math.max(1, offeredAmount));
             int direct = fillRoomInput(portId(), offered, action);
+            if (action.execute() && direct > 0) {
+                // A direct push has already crossed into a real room consumer. Buffered fluid is
+                // recorded later when the room drains it, so only the direct portion belongs here.
+                recordFluidTransfer(portId(), true, offered, direct);
+                setChanged();
+            }
             int remaining = offered.getAmount() - direct;
             if (remaining > 0 && !canReachRoomFluidDestination(portId(), offered.copyWithAmount(remaining))) {
                 return direct;
@@ -3223,10 +4281,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             int buffered = remaining <= 0 ? 0
                     : portChannel(portId()).fillInputFluids(offered.copyWithAmount(remaining), action);
             int moved = direct + buffered;
-            if (action.execute() && moved > 0) {
-                recordFluidTransfer(true, offered, moved);
-                setChanged();
-            }
+            if (action.execute() && buffered > 0) setChanged();
             return moved;
         }
 
@@ -3236,9 +4291,14 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 return FluidStack.EMPTY;
             }
             if (isSimulatedMode()) {
-                FluidStack result = productionBatch.drainFluidOutput(resource.getFluid(), resource.getAmount(), action.simulate());
+                FluidStack result = drainBlackboxFluidOutput(
+                        FluidVariant.of(resource), resource.getAmount(), action.simulate());
                 if (action.execute() && !result.isEmpty()) {
+                    recordFluidTelemetry(false, result, result.getAmount());
                     setChanged();
+                    blackboxDebug("runtime_fluid_output", () -> "port=" + portId()
+                            + ", fluid=" + FluidVariant.of(result) + ", amount=" + result.getAmount()
+                            + ", runtime=" + runtimeScheduler.debugSummary());
                 }
                 return result;
             }
@@ -3255,7 +4315,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 result = mergeFluidResults(result, room);
             }
             if (action.execute() && !room.isEmpty()) {
-                recordFluidTransfer(false, room, room.getAmount());
+                recordFluidTransfer(portId(), false, room, room.getAmount());
             }
             if (action.execute() && !result.isEmpty()) {
                 setChanged();
@@ -3269,11 +4329,15 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 return FluidStack.EMPTY;
             }
             if (isSimulatedMode()) {
-                for (Fluid fluid : productionBatch.sortedOutputFluids(effectiveRecipe())) {
-                    FluidStack result = productionBatch.drainFluidOutput(fluid, maxDrain, action.simulate());
+                for (FluidVariant fluid : blackboxOutputFluids(effectiveRecipe())) {
+                    FluidStack result = drainBlackboxFluidOutput(fluid, maxDrain, action.simulate());
                     if (!result.isEmpty()) {
                         if (action.execute()) {
+                            recordFluidTelemetry(false, result, result.getAmount());
                             setChanged();
+                            blackboxDebug("runtime_fluid_output", () -> "port=" + portId()
+                                    + ", fluid=" + fluid + ", amount=" + result.getAmount()
+                                    + ", runtime=" + runtimeScheduler.debugSummary());
                         }
                         return result;
                     }
@@ -3293,7 +4357,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 result = mergeFluidResults(result, room);
             }
             if (action.execute() && !room.isEmpty()) {
-                recordFluidTransfer(false, room, room.getAmount());
+                recordFluidTransfer(portId(), false, room, room.getAmount());
             }
             if (action.execute() && !result.isEmpty()) {
                 setChanged();
@@ -3372,7 +4436,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                     : portChannel(portId).fillOutputFluids(resource.copyWithAmount(remaining), action);
             int moved = direct + buffered;
             if (action.execute() && moved > 0) {
-                recordFluidTransfer(false, resource, moved);
+                recordFluidTransfer(portId, false, resource, moved);
                 setChanged();
             }
             return moved;
@@ -3392,8 +4456,8 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                         : drainExternalInput(portId, result.copyWithAmount(remaining), action);
                 result = mergeFluidResults(result, external);
             }
-            if (action.execute() && !external.isEmpty()) {
-                recordFluidTransfer(true, external, external.getAmount());
+            if (action.execute() && !result.isEmpty()) {
+                recordFluidTransfer(portId, true, result, result.getAmount());
                 setChanged();
             }
             return result;
@@ -3413,8 +4477,8 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                         : drainExternalInput(portId, result.copyWithAmount(remaining), action);
                 result = mergeFluidResults(result, external);
             }
-            if (action.execute() && !external.isEmpty()) {
-                recordFluidTransfer(true, external, external.getAmount());
+            if (action.execute() && !result.isEmpty()) {
+                recordFluidTransfer(portId, true, result, result.getAmount());
                 setChanged();
             }
             return result;
@@ -3619,6 +4683,9 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         parentDimension = parent.level == null ? null : parent.level.dimension();
         nestingDepth = parent.getNestingDepth() + 1;
         rootFactoryId = parent.isRoot() ? parent.getFactoryId() : parent.getRootFactoryId();
+        if (level != null && !level.isClientSide() && level.getServer() != null) {
+            NestedFactorySaveData.get(level.getServer()).observeFactoryParent(factoryId, parentFactoryId);
+        }
         setChanged();
     }
 
@@ -3657,36 +4724,60 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             if (!nested) {
                 ensureRootRoomAllocation();
             }
-            blackbox.setRecording(false);
+            blackboxDebug("factory_loaded", () -> "plan={" + plan.debugSummary() + "}, runtime="
+                    + runtimeScheduler.debugSummary() + ", transit=" + factoryTransit.debugSummary()
+                    + ", power={" + powerProfile.debugSummary() + "}, ports=" + debugPortContract() + ", nested=" + nested
+                    + ", ancestorFrozen=" + ancestorFrozen);
+            if (debugInterruptedLearningOnLoad) {
+                blackboxDebug("learning_interrupted_on_load", () -> "action=reset_to_chunk_loaded_and_restore_live_inputs");
+                debugInterruptedLearningOnLoad = false;
+            }
+            if (!debugLoadRepair.isEmpty()) {
+                String repairs = debugLoadRepair;
+                blackboxDebug("save_state_repaired", () -> "actions=" + repairs);
+                debugLoadRepair = "";
+            }
+            MinecraftServer server = level.getServer();
+            if (server != null) {
+                NestedFactorySaveData saveData = NestedFactorySaveData.get(server);
+                saveData.observeFactoryParent(factoryId, nested ? parentFactoryId : "");
+                if (!isSimulatedMode()) saveData.releaseFreezeLease(factoryId);
+            }
+            if (isSimulatedMode()) PocketFreezeManager.ensurePersistentLease(this);
+            if (nested && PocketFreezeManager.hasPersistentLease(this)) ancestorFrozen = true;
+            // A physical parent may have been restored while this descendant's chunk was unloaded.
+            if (ancestorFrozen && !PocketFreezeManager.hasPersistentLease(this)
+                    && !parentStillFreezesThisFactory()) {
+                ancestorFrozen = false;
+                setChanged();
+            }
+            planCompiler.stopLearning();
             if (!invalidNested && registerFactoryState()) {
-                ensureRoomGenerated();
-                // Black-box and blueprint execution use a frozen power profile. Rebuilding here
-                // would rescan an unloaded/idle room and overwrite its persisted stress demand.
-                if (usesRuntimeIndex() || recoverSimulatedPowerProfileOnLoad) {
-                    boolean recoveringFrozenProfile = recoverSimulatedPowerProfileOnLoad;
-                    if (recoveringFrozenProfile) {
-                        addChunkRef("power-profile-recovery");
-                    }
-                    try {
-                        rebuildRuntimeIndex(pocketLevel(), true);
-                    } finally {
-                        if (recoveringFrozenProfile) {
-                            removeChunkRef("power-profile-recovery");
-                        }
-                    }
+                if (ancestorFrozen) {
+                    releasePocketChunksImmediately();
+                    return;
                 }
-                refreshChildFactoryBinding();
-                if (recoverSimulatedPowerProfileOnLoad) {
-                    simulatedPowerProfileCaptured = true;
-                    recoverSimulatedPowerProfileOnLoad = false;
+                if (isSimulatedMode()) {
+                    releasePocketChunksImmediately();
                     setChanged();
+                    sendSync();
+                    return;
                 }
+                ensureRoomGenerated();
+                if (usesRuntimeIndex()) rebuildRuntimeIndex(pocketLevel(), true);
+                refreshChildFactoryBinding();
                 refreshChunkRefsForMode();
             } else if (blueprintApplied) {
                 setChanged();
                 sendSync();
             }
         }
+    }
+
+    @Override
+    public void destroy() {
+        PocketLearningObserver.unregister(this);
+        super.destroy();
     }
 
     /**
@@ -3696,8 +4787,14 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     public void prepareForSimulatedMove() {
         simulatedMoveInProgress = true;
         if (level != null && !level.isClientSide()) {
+            blackboxDebug("simulated_move_preparing", () -> "runtime=" + runtimeScheduler.debugSummary()
+                    + ", transit=" + factoryTransit.debugSummary());
+            if (operationMode == OperationMode.BLACKBOX_PREPARING
+                    || operationMode == OperationMode.BLACKBOX_LEARNING) {
+                abortLearning("simulated_move_started");
+            }
             clearExternalStressState();
-            clearStressRelay();
+            if (!isSimulatedMode()) clearStressRelay();
         }
     }
 
@@ -3712,7 +4809,16 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 if (!registerFactoryState()) {
                     bindingConflict = true;
                 }
+                blackboxDebug("simulated_move_finishing", () -> "bindingConflict=" + bindingConflict
+                        + ", simulated=" + isSimulatedMode() + ", runtime=" + runtimeScheduler.debugSummary());
                 markRuntimeIndexDirty();
+                if (isSimulatedMode()) {
+                    PocketFreezeManager.ensurePersistentLease(this);
+                    releasePocketChunksImmediately();
+                    setChanged();
+                    sendSync();
+                    return;
+                }
                 refreshChildFactoryBinding();
                 refreshChunkRefsForMode();
                 setChanged();
@@ -3720,6 +4826,8 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             }
         } finally {
             simulatedMoveInProgress = false;
+            blackboxDebug("simulated_move_finished", () -> "bindingConflict=" + bindingConflict
+                    + ", simulated=" + isSimulatedMode());
         }
     }
 
@@ -3737,13 +4845,23 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         if (level == null || level.isClientSide()) {
             return;
         }
+        if (ancestorFrozen) {
+            clearExternalStressState();
+            releasePocketChunksImmediately();
+            return;
+        }
+        if (bindingConflict) {
+            clearExternalStressState();
+            releasePocketChunksImmediately();
+            return;
+        }
         if (invalidNested && !blueprintApplied) {
             clearExternalStressState();
             clearStressRelay();
             return;
         }
         if (operationMode == OperationMode.BLACKBOX_ACTIVE || operationMode == OperationMode.BLUEPRINT) {
-            applySelectedOverclockIfReady();
+            applySelectedOverclock();
         }
         if (operationMode == OperationMode.BLACKBOX_ACTIVE || operationMode == OperationMode.BLUEPRINT) {
             settleSimulatedStress();
@@ -3764,7 +4882,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         }
         switch (operationMode) {
             case CHUNK_LOADED -> tickChunkLoaded();
-            case BLACKBOX_DRAINING -> tickDraining();
+            case BLACKBOX_PREPARING -> tickPreparing();
             case BLACKBOX_LEARNING -> tickLearning();
             case BLACKBOX_ACTIVE -> tickBlackbox();
             case BLUEPRINT -> tickBlueprint();
@@ -3783,6 +4901,10 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         for (NestedStressPortBlockEntity stressPort : roomStressPorts(pocket)) {
             stressPort.clearStressAllocation();
         }
+    }
+
+    void clearStressRelayBeforeFreeze() {
+        clearStressRelay();
     }
 
     @Override
@@ -3805,33 +4927,42 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             return Component.translatable("message.create_nested_factory.factory.destroy_failed");
         }
         if (isRoomMutationLocked()) {
+            blackboxDebug("space_destruction_rejected", () -> "reason=room_mutation_locked");
             return Component.translatable("message.create_nested_factory.room_mutation.active");
         }
         if (hasPlayersInside()) {
+            blackboxDebug("space_destruction_rejected", () -> "reason=players_inside");
             return Component.translatable("message.create_nested_factory.factory.players_prevent_destroy");
         }
         if (hasChildFactoryInRoom()) {
+            blackboxDebug("space_destruction_rejected", () -> "reason=child_factory_present");
             return Component.translatable("message.create_nested_factory.factory.child_factory_prevents_destroy");
         }
         if (!(nested ? isValidNestedFactory() : rootRoomAllocated)) {
+            blackboxDebug("space_destruction_rejected", () -> "reason=invalid_room_binding");
             return Component.translatable("message.create_nested_factory.factory.destroy_failed");
         }
 
         MinecraftServer server = level.getServer();
         if (server == null) {
+            blackboxDebug("space_destruction_rejected", () -> "reason=server_unavailable");
             return Component.translatable("message.create_nested_factory.factory.destroy_failed");
         }
         RoomMutationTaskManager tasks = RoomMutationTaskManager.get(server);
         RoomMutationTaskManager.FactoryRef reference = roomTaskReference();
         if (!tasks.scheduleDestroy(NestedFactoryBlock.POCKET_DIMENSION, roomOrigin(), roomBounds(roomOrigin()),
                 reference, true)) {
+            blackboxDebug("space_destruction_rejected", () -> "reason=destroy_task_not_scheduled");
             return Component.translatable("message.create_nested_factory.room_mutation.active");
         }
 
+        blackboxDebug("space_destruction_started", () -> "runtime=" + runtimeScheduler.debugSummary()
+                + ", transit=" + factoryTransit.debugSummary());
         invalidateProductionBatch(player, "gui_destroy");
         dropPendingPortItemsAndDiscardFluids();
         dropInstalledOverclockBatteries();
         evacuateFactorySpace();
+        NestedFactorySaveData.get(server).releaseFreezeLease(factoryId);
         Block.popResource(level, worldPosition, new ItemStack(ModItems.NESTED_FACTORY.get()));
         level.setBlock(worldPosition, Blocks.AIR.defaultBlockState(),
                 Block.UPDATE_NEIGHBORS | Block.UPDATE_CLIENTS);
@@ -3839,6 +4970,9 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     private boolean hasChildFactoryInRoom() {
+        if (hasRecordedChild()) {
+            return true;
+        }
         ServerLevel pocket = pocketLevel();
         if (pocket == null) {
             return false;
@@ -3862,11 +4996,13 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             MinecraftServer server = level.getServer();
             if (server != null) {
                 clearExternalStressState();
-                clearStressRelay();
+                if (!isSimulatedMode()) clearStressRelay();
                 PocketChunkForceManager.releaseAll(server, externalChunkForceOwner());
                 PocketChunkForceManager.releaseAll(server, roomChunkForceOwner());
                 chunkRefCounts.clear();
                 pocketChunksForced = false;
+                pocketRandomTicksForced = false;
+                nextRandomTickScan = 0L;
                 unregisterFactoryState();
             }
         }
@@ -3894,7 +5030,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             loadingOverclockInventory = false;
         }
         selectedOverclockTier = OverclockTier.NORMAL;
-        if (productionBatch.isEmpty()) {
+        if (runtimeScheduler.isIdle()) {
             activeOverclockTier = OverclockTier.NORMAL;
         }
         invalidateOverclockRecipe();
@@ -3961,18 +5097,16 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         }
         tag.putIntArray("Bounds", bounds.toArray());
         tag.putString("OperationMode", operationMode.getSerializedName());
-        tag.putInt("DrainLastCount", drainLastCount);
-        tag.putInt("DrainStaticCount", drainStaticCount);
-        tag.putInt("LearningTicksRemaining", learningTicksRemaining);
+        tag.putString("LearningStage", learningStage.name());
         tag.put("PowerProfile", powerProfile.write());
-        tag.putBoolean("SimulatedPowerProfileCaptured", simulatedPowerProfileCaptured);
-        blackbox.write(tag, registries);
-        tag.put("ProductionBatch", productionBatch.write(new CompoundTag(), registries));
+        tag.put("FactoryPlan", plan.write(new CompoundTag(), registries));
+        tag.put("BlackboxRuntimeScheduler", runtimeScheduler.write(new CompoundTag(), registries));
         tag.putInt("OverclockBatteryFormat", 2);
         tag.put("OverclockBatteries", writeOverclockBatteries(registries));
         tag.putInt("SelectedOverclockTier", selectedOverclockTier.id());
         tag.putInt("ActiveOverclockTier", activeOverclockTier.id());
-        tag.put("PortChannels", portChannels.write(new CompoundTag(), registries));
+        tag.put("FactoryTransit", factoryTransit.write(new CompoundTag(), registries));
+        tag.putInt("SimulatedIoFormatVersion", SIMULATED_IO_FORMAT_VERSION);
         tag.putString("FactoryId", factoryId);
         tag.putBoolean("RootRoomAllocated", rootRoomAllocated);
         if (rootRoomAllocated) {
@@ -3980,6 +5114,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             tag.putLong("RootRoomOrigin", rootRoomOrigin.asLong());
         }
         tag.putBoolean("Nested", nested);
+        tag.putBoolean("AncestorFrozen", ancestorFrozen);
         tag.putBoolean("Enterable", enterable);
         tag.putBoolean("InvalidNested", invalidNested);
         tag.putInt("NestingDepth", nestingDepth);
@@ -4011,6 +5146,9 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         if (preBlueprintSnapshot != null) {
             tag.put("PreBlueprintSnapshot", preBlueprintSnapshot.write(new CompoundTag()));
         }
+        if (clientPacket && operationMode == OperationMode.CHUNK_LOADED) {
+            tag.put("LiveTransferRates", transferTelemetry.writeSnapshot(registries, telemetryTick()));
+        }
         super.write(tag, registries, clientPacket);
     }
 
@@ -4027,20 +5165,33 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         }
         bounds.fromArray(tag.getIntArray("Bounds"));
         String modeName = tag.getString("OperationMode");
-        operationMode = readOperationMode(modeName, clientPacket);
-        drainLastCount = tag.getInt("DrainLastCount");
-        drainStaticCount = tag.getInt("DrainStaticCount");
-        learningTicksRemaining = tag.getInt("LearningTicksRemaining");
-        powerProfile.read(tag.getCompound("PowerProfile"));
-        simulatedPowerProfileCaptured = tag.getBoolean("SimulatedPowerProfileCaptured");
-        recoverSimulatedPowerProfileOnLoad = !clientPacket
-                && operationMode == OperationMode.BLACKBOX_ACTIVE
-                && !simulatedPowerProfileCaptured;
-        blackbox.read(tag, registries);
-        if (tag.contains("ProductionBatch")) {
-            productionBatch.read(tag.getCompound("ProductionBatch"), registries);
+        operationMode = readOperationMode(modeName);
+        boolean interruptedLearning = !clientPacket && (operationMode == OperationMode.BLACKBOX_PREPARING
+                || operationMode == OperationMode.BLACKBOX_LEARNING);
+        if (interruptedLearning) debugInterruptedLearningOnLoad = true;
+        if (interruptedLearning) {
+            operationMode = OperationMode.CHUNK_LOADED;
+            learningSession = null;
+            lockedProcessingPlan = new FactoryPlan();
+            learningObservations.clear();
+            preparingTicksRemaining = 0;
+        }
+        if (clientPacket) {
+            try {
+                learningStage = LearningStage.valueOf(tag.getString("LearningStage"));
+            } catch (IllegalArgumentException ignored) {
+                learningStage = LearningStage.WARMUP;
+            }
         } else {
-            productionBatch.clear();
+            learningStage = LearningStage.WARMUP;
+        }
+        learningStageTicks = 0;
+        powerProfile.read(tag.getCompound("PowerProfile"));
+        plan.read(tag.getCompound("FactoryPlan"), registries);
+        if (tag.contains("BlackboxRuntimeScheduler")) {
+            runtimeScheduler.read(tag.getCompound("BlackboxRuntimeScheduler"), registries);
+        } else {
+            runtimeScheduler.clear();
         }
         loadingOverclockInventory = true;
         int repairedCollapsedBatteryCount;
@@ -4058,13 +5209,33 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                 : OverclockTier.normalizeSelection(loadedSelectedTier, getOverclockBatteryCount());
         activeOverclockTier = tag.contains("ActiveOverclockTier")
                 ? OverclockTier.byId(tag.getInt("ActiveOverclockTier")) : selectedOverclockTier;
-        if (!clientPacket && productionBatch.isEmpty()) {
+        if (!clientPacket && runtimeScheduler.isIdle()) {
             activeOverclockTier = selectedOverclockTier;
         }
-        invalidateOverclockRecipe();
-        if (tag.contains("PortChannels")) {
-            portChannels.read(tag.getCompound("PortChannels"), registries);
+        FactoryPlan loadedRuntimePlan = plan;
+        if (isSimulatedMode() && plan.allowsMechanicalOverclock()
+                && activeOverclockTier.multiplier() != 1.0f) {
+            loadedRuntimePlan = plan.scaledRecipe(activeOverclockTier.multiplier());
         }
+        boolean loadedRuntimeValid = runtimeScheduler.validate(loadedRuntimePlan);
+        if (!isSimulatedMode() || !loadedRuntimeValid) {
+            if (!clientPacket && !runtimeScheduler.isIdle()) {
+                appendDebugLoadRepair(!isSimulatedMode()
+                        ? "runtime_cleared_outside_simulated_mode"
+                        : "runtime_cleared_plan_or_ownership_mismatch");
+            }
+            runtimeScheduler.clear();
+        }
+        invalidateOverclockRecipe();
+        if (tag.contains("FactoryTransit")) factoryTransit.read(tag.getCompound("FactoryTransit"), registries);
+        if (!clientPacket && isSimulatedMode()
+                && tag.getInt("SimulatedIoFormatVersion") != SIMULATED_IO_FORMAT_VERSION) {
+            FactoryTransit.DestructionReport obsolete = factoryTransit.destroyAll();
+            appendDebugLoadRepair("obsolete_simulated_port_cache_destroyed:items=" + obsolete.itemCount()
+                    + ",fluids=" + obsolete.fluidAmount() + ",extensions=" + obsolete.extensionCount());
+            setChanged();
+        }
+        if (interruptedLearning) factoryTransit.restoreLiveInputs();
         portableBinding = tag.getBoolean(PORTABLE_BINDING_KEY);
         if (tag.contains("FactoryId")) {
             factoryId = tag.getString("FactoryId");
@@ -4074,6 +5245,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         rootSlotId = rootRoomAllocated && tag.contains("RootSlotId") ? tag.getInt("RootSlotId") : -1;
         rootRoomOrigin = rootRoomAllocated ? BlockPos.of(tag.getLong("RootRoomOrigin")) : BlockPos.ZERO;
         nested = tag.getBoolean("Nested");
+        ancestorFrozen = tag.getBoolean("AncestorFrozen");
         enterable = tag.getBoolean("Enterable");
         invalidNested = tag.getBoolean("InvalidNested");
         nestingDepth = tag.getInt("NestingDepth");
@@ -4099,17 +5271,27 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         preBlueprintSnapshot = tag.contains("PreBlueprintSnapshot")
                 ? readRestoreSnapshot(tag.getCompound("PreBlueprintSnapshot"))
                 : null;
-        // H3 intentionally has no legacy bare-Item compatibility. A v1 blackbox or blueprint
-        // loads as empty data and is forced out of simulated execution instead of guessing
-        // default components for historical items.
+        if (clientPacket) {
+            if (operationMode == OperationMode.CHUNK_LOADED
+                    && tag.contains("LiveTransferRates", Tag.TAG_COMPOUND)) {
+                transferTelemetry.readSnapshot(tag.getCompound("LiveTransferRates"), registries);
+            } else {
+                transferTelemetry.clear();
+            }
+        }
+        // Plan v9 intentionally has no legacy compatibility. Earlier black-box data lacks the
+        // immutable contract fingerprint and persisted RUNNING transaction, so it loads empty and is
+        // forced out of simulated execution instead of inventing missing production rights.
         if (!clientPacket && (operationMode == OperationMode.BLACKBOX_ACTIVE || operationMode == OperationMode.BLUEPRINT)
-                && !blackbox.hasCompleteRecipe()) {
+                && !plan.hasCompleteRecipe()) {
+            appendDebugLoadRepair("simulated_mode_cleared_incomplete_plan");
             operationMode = OperationMode.CHUNK_LOADED;
             blueprintApplied = false;
             appliedBlueprint = null;
             preBlueprintSnapshot = null;
         }
         if (blueprintApplied && appliedBlueprint == null) {
+            if (!clientPacket) appendDebugLoadRepair("blueprint_flag_cleared_missing_blueprint");
             blueprintApplied = false;
             if (!clientPacket && operationMode == OperationMode.BLUEPRINT) {
                 operationMode = OperationMode.CHUNK_LOADED;
@@ -4117,6 +5299,11 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             preBlueprintSnapshot = null;
         }
         super.read(tag, registries, clientPacket);
+    }
+
+    private void appendDebugLoadRepair(String action) {
+        if (action == null || action.isEmpty()) return;
+        debugLoadRepair = debugLoadRepair.isEmpty() ? action : debugLoadRepair + "," + action;
     }
 
     private ListTag writeOverclockBatteries(HolderLookup.Provider registries) {
@@ -4185,33 +5372,16 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         }
     }
 
-    private static OperationMode readOperationMode(String name, boolean clientPacket) {
+    private static OperationMode readOperationMode(String name) {
         if (name == null || name.isEmpty()) {
             return OperationMode.CHUNK_LOADED;
         }
-        if (name.equalsIgnoreCase("blackbox")) {
-            return OperationMode.BLACKBOX_ACTIVE;
-        }
         try {
-            OperationMode mode = OperationMode.valueOf(name.toUpperCase(Locale.ROOT));
-            // 鎺掔┖/瀛︿範鏄复鏃剁湡瀹炶繍琛屾€侊紝鏈嶅姟绔噸鍚笉鎭㈠锛涗絾瀹㈡埛绔悓姝ヨ淇濈暀鐪熷疄鐘舵€佺敤浜庢樉绀恒€?
-            if (!clientPacket && (mode == OperationMode.BLACKBOX_DRAINING || mode == OperationMode.BLACKBOX_LEARNING)) {
-                return OperationMode.CHUNK_LOADED;
-            }
-            return mode;
+            return OperationMode.valueOf(name.toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
             return OperationMode.CHUNK_LOADED;
         }
     }
 }
-
-
-
-
-
-
-
-
-
 
 

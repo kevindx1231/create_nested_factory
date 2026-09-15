@@ -2,7 +2,7 @@ package com.createnestedfactory.create_nested_factory_logistics.chemical;
 
 import com.createnestedfactory.create_nested_factory.PocketRegistry;
 import com.createnestedfactory.create_nested_factory.block.PortMode;
-import com.createnestedfactory.create_nested_factory.block.entity.FactoryPortChannels;
+import com.createnestedfactory.create_nested_factory.block.entity.FactoryTransit;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedPortBlockEntity;
 import com.createnestedfactory.create_nested_factory_logistics.MekanismLogisticsCompat;
@@ -21,7 +21,6 @@ import java.util.Set;
 
 /** Capability bridge for Mekanism chemicals and Pipez gas pipes. */
 public final class MekanismChemicalHandler implements IChemicalHandler {
-    private static final String EXTENSION_NAMESPACE = "create_nested_factory_logistics";
     private static final String INPUT_KEY = "InputChemicals";
     private static final String OUTPUT_KEY = "OutputChemicals";
 
@@ -79,8 +78,8 @@ public final class MekanismChemicalHandler implements IChemicalHandler {
     }
 
     private ChemicalLedger ledger() {
-        FactoryPortChannels.PortResourceChannel channel = factory.getPortChannel(portId);
-        return new ChemicalLedger(channel.extensionData(EXTENSION_NAMESPACE), factory);
+        FactoryTransit.PortResourceChannel channel = factory.getPortChannel(portId);
+        return channel.participant(ChemicalLedger.PARTICIPANT_ID, ChemicalLedger.class);
     }
 
     @Override
@@ -169,7 +168,8 @@ public final class MekanismChemicalHandler implements IChemicalHandler {
         if (!remaining.isEmpty()) {
             remaining = ledger().insert(INPUT_KEY, remaining, action);
         }
-        if (action.execute() && !remaining.equals(stack)) {
+        if (action.execute() && remaining.getAmount() < stack.getAmount()) {
+            ledger().markBoundaryTransfer();
             factory.setChanged();
         }
         return remaining;
@@ -180,7 +180,8 @@ public final class MekanismChemicalHandler implements IChemicalHandler {
         if (!remaining.isEmpty()) {
             remaining = ledger().insert(OUTPUT_KEY, remaining, action);
         }
-        if (action.execute() && !remaining.equals(stack)) {
+        if (action.execute() && remaining.getAmount() < stack.getAmount()) {
+            ledger().markBoundaryTransfer();
             factory.setChanged();
         }
         return remaining;
@@ -189,11 +190,13 @@ public final class MekanismChemicalHandler implements IChemicalHandler {
     private ChemicalStack extractFromRoom(long amount, Action action) {
         ChemicalStack result = ledger().extract(OUTPUT_KEY, amount, action);
         long remaining = amount - result.getAmount();
+        ChemicalStack fromRoom = ChemicalStack.EMPTY;
         if (remaining > 0) {
-            ChemicalStack fromRoom = extractFrom(chemicalsInRoom(), remaining, action);
+            fromRoom = extractFrom(chemicalsInRoom(), remaining, action);
             result = merge(result, fromRoom);
         }
         if (action.execute() && !result.isEmpty()) {
+            if (!fromRoom.isEmpty()) ledger().markBoundaryTransfer();
             factory.setChanged();
         }
         return result;
@@ -207,6 +210,7 @@ public final class MekanismChemicalHandler implements IChemicalHandler {
             result = merge(result, external);
         }
         if (action.execute() && !result.isEmpty()) {
+            ledger().markBoundaryTransfer();
             factory.setChanged();
         }
         return result;

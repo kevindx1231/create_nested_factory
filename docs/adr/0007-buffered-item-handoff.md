@@ -1,5 +1,5 @@
 ﻿---
-status: proposed
+status: superseded by ADR-0014
 ---
 
 # 使用端口组物品交接缓冲兼容主动物流

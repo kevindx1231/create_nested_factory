@@ -11,7 +11,9 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.saveddata.SavedData;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * World-level persistent allocation data for factory pocket rooms.
@@ -34,6 +36,9 @@ public final class NestedFactorySaveData extends SavedData {
     private int nextRootSlotId;
     private final Map<String, RootAllocation> rootAllocations = new HashMap<>();
     private final Map<BlockPos, String> rootOwnersByOrigin = new HashMap<>();
+    /** Root factory identities whose complete nested tree is forbidden from running physically. */
+    private final Set<String> frozenRootFactoryIds = new HashSet<>();
+    private final Map<String, String> parentByFactoryId = new HashMap<>();
 
     public static NestedFactorySaveData get(MinecraftServer server) {
         ServerLevel overworld = server.overworld();
@@ -86,6 +91,38 @@ public final class NestedFactorySaveData extends SavedData {
         }
     }
 
+    public synchronized void acquireFreezeLease(String rootFactoryId) {
+        if (rootFactoryId != null && !rootFactoryId.isBlank() && frozenRootFactoryIds.add(rootFactoryId)) {
+            setDirty();
+        }
+    }
+
+    public synchronized void releaseFreezeLease(String rootFactoryId) {
+        if (rootFactoryId != null && frozenRootFactoryIds.remove(rootFactoryId)) {
+            setDirty();
+        }
+    }
+
+    public synchronized void observeFactoryParent(String factoryId, String parentFactoryId) {
+        if (factoryId == null || factoryId.isBlank()) return;
+        String normalizedParent = parentFactoryId == null ? "" : parentFactoryId;
+        if (!normalizedParent.equals(parentByFactoryId.put(factoryId, normalizedParent))) setDirty();
+    }
+
+    public synchronized boolean hasFreezeLeaseInAncestry(String factoryId) {
+        Set<String> visited = new HashSet<>();
+        String current = factoryId;
+        while (current != null && !current.isBlank() && visited.add(current)) {
+            if (frozenRootFactoryIds.contains(current)) return true;
+            current = parentByFactoryId.get(current);
+        }
+        return false;
+    }
+
+    public synchronized boolean hasFreezeLeaseInAncestors(String factoryId) {
+        return factoryId != null && hasFreezeLeaseInAncestry(parentByFactoryId.get(factoryId));
+    }
+
     private RootAllocation reserveIfAvailable(String factoryId, int slotId, BlockPos origin) {
         if (origin == null) {
             return null;
@@ -135,6 +172,15 @@ public final class NestedFactorySaveData extends SavedData {
                 // Corrupt coordinates must not prevent the whole world data from loading.
             }
         }
+        for (Tag leaseTag : tag.getList("FrozenRootFactoryIds", Tag.TAG_STRING)) {
+            String rootFactoryId = leaseTag.getAsString();
+            if (!rootFactoryId.isBlank()) data.frozenRootFactoryIds.add(rootFactoryId);
+        }
+        for (Tag parentTag : tag.getList("FactoryParents", Tag.TAG_COMPOUND)) {
+            CompoundTag entry = (CompoundTag) parentTag;
+            String factoryId = entry.getString("FactoryId");
+            if (!factoryId.isBlank()) data.parentByFactoryId.put(factoryId, entry.getString("ParentFactoryId"));
+        }
         return data;
     }
 
@@ -155,6 +201,18 @@ public final class NestedFactorySaveData extends SavedData {
             roots.add(root);
         }
         tag.put("RootAllocations", roots);
+        ListTag leases = new ListTag();
+        frozenRootFactoryIds.stream().sorted()
+                .forEach(rootFactoryId -> leases.add(net.minecraft.nbt.StringTag.valueOf(rootFactoryId)));
+        tag.put("FrozenRootFactoryIds", leases);
+        ListTag parents = new ListTag();
+        parentByFactoryId.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry -> {
+            CompoundTag parent = new CompoundTag();
+            parent.putString("FactoryId", entry.getKey());
+            parent.putString("ParentFactoryId", entry.getValue());
+            parents.add(parent);
+        });
+        tag.put("FactoryParents", parents);
         return tag;
     }
 }

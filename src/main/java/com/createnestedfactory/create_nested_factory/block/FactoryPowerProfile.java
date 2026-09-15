@@ -2,7 +2,7 @@ package com.createnestedfactory.create_nested_factory.block;
 
 import net.minecraft.nbt.CompoundTag;
 
-/** Captured mechanical power profile for live, black-box, and blueprint operation. */
+/** Instantaneous mechanical power profile for the loaded physical room. */
 public final class FactoryPowerProfile {
     private float generatedSU;
     private float consumedSU;
@@ -67,12 +67,24 @@ public final class FactoryPowerProfile {
     public FactoryPowerProfile scaled(float multiplier) {
         float scale = Float.isFinite(multiplier) && multiplier >= 0f ? multiplier : 1.0f;
         FactoryPowerProfile scaled = new FactoryPowerProfile();
-        scaled.generatedSU = generatedSU * scale;
+        scaled.generatedSU = generatedSU;
         scaled.consumedSU = consumedSU * scale;
-        scaled.measuredExternalStressDemandSU = measuredExternalStressDemandSU * scale;
+        float connectedDeficit = Math.max(0f, consumedSU - internalGeneratedSU());
+        float internalAvailable = Math.abs(connectedDeficit - measuredExternalStressDemandSU) <= 0.01f
+                ? internalGeneratedSU()
+                : Math.max(0f, consumedSU - measuredExternalStressDemandSU);
+        scaled.measuredExternalStressDemandSU = Math.max(0f, scaled.consumedSU - internalAvailable);
         scaled.hasMeasuredExternalStressDemand = hasMeasuredExternalStressDemand;
         scaled.generatedSUExcludesRelayStress = generatedSUExcludesRelayStress;
         return scaled;
+    }
+
+    public String debugSummary() {
+        return "generatedSU=" + generatedSU
+                + ", consumedSU=" + consumedSU
+                + ", externalDemandSU=" + externalStressDemandSU()
+                + ", measured=" + hasMeasuredExternalStressDemand
+                + ", excludesRelay=" + generatedSUExcludesRelayStress;
     }
 
     public CompoundTag write() {
