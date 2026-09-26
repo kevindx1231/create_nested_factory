@@ -1,0 +1,21 @@
+{
+  "type": "create_nested_factory:declared_source",
+  "schema_version": 1,
+  "display": {
+    "name": "圆石发生器"
+  },
+  "cycle_ticks": 20,
+  "outputs": {
+    "items": [
+      {
+        "item": "minecraft:cobblestone",
+        "count": 1
+      }
+    ]
+  },
+  "stress": {
+    "consumed_su": 256,
+    "internal_generated_su": 0
+  },
+  "allow_overclock": true
+}

@@ -1,0 +1,23 @@
+{
+  "variants": {
+    "facing=north,half=lower,open=false": { "model": "create_nested_factory:block/factory_passage_down_closed" },
+    "facing=east,half=lower,open=false": { "model": "create_nested_factory:block/factory_passage_down_closed", "y": 90 },
+    "facing=south,half=lower,open=false": { "model": "create_nested_factory:block/factory_passage_down_closed", "y": 180 },
+    "facing=west,half=lower,open=false": { "model": "create_nested_factory:block/factory_passage_down_closed", "y": 270 },
+
+    "facing=north,half=lower,open=true": { "model": "create_nested_factory:block/factory_passage_down_open" },
+    "facing=east,half=lower,open=true": { "model": "create_nested_factory:block/factory_passage_down_open", "y": 90 },
+    "facing=south,half=lower,open=true": { "model": "create_nested_factory:block/factory_passage_down_open", "y": 180 },
+    "facing=west,half=lower,open=true": { "model": "create_nested_factory:block/factory_passage_down_open", "y": 270 },
+
+    "facing=north,half=upper,open=false": { "model": "create_nested_factory:block/factory_passage_up_closed" },
+    "facing=east,half=upper,open=false": { "model": "create_nested_factory:block/factory_passage_up_closed", "y": 90 },
+    "facing=south,half=upper,open=false": { "model": "create_nested_factory:block/factory_passage_up_closed", "y": 180 },
+    "facing=west,half=upper,open=false": { "model": "create_nested_factory:block/factory_passage_up_closed", "y": 270 },
+
+    "facing=north,half=upper,open=true": { "model": "create_nested_factory:block/factory_passage_up_open" },
+    "facing=east,half=upper,open=true": { "model": "create_nested_factory:block/factory_passage_up_open", "y": 90 },
+    "facing=south,half=upper,open=true": { "model": "create_nested_factory:block/factory_passage_up_open", "y": 180 },
+    "facing=west,half=upper,open=true": { "model": "create_nested_factory:block/factory_passage_up_open", "y": 270 }
+  }
+}

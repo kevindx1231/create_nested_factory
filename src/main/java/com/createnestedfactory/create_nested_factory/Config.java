@@ -37,7 +37,7 @@ public final class Config {
 
     private static final ModConfigSpec.BooleanValue BLACKBOX_DEBUG_LOGGING = BUILDER
             .comment("Write structured [CNF-BLACKBOX] diagnostics for learning, runtime, stress and ownership events")
-            .define("blackboxDebugLogging", true);
+            .define("blackboxDebugLogging", false);
 
     static final ModConfigSpec SPEC = BUILDER.build();
 

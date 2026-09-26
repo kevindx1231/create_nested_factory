@@ -1,13 +1,14 @@
 package com.createnestedfactory.create_nested_factory_logistics;
 
 import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity;
+import com.createnestedfactory.create_nested_factory.block.entity.NestedExtensionInterfaceBlockEntity;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedPortBlockEntity;
-import com.createnestedfactory.create_nested_factory.block.entity.FluidNetworkEndpointResolver;
 import com.createnestedfactory.create_nested_factory.block.entity.FactoryTransit;
 import com.createnestedfactory.create_nested_factory_logistics.chemical.ChemicalLedger;
 import com.createnestedfactory.create_nested_factory_logistics.chemical.MekanismChemicalHandler;
+import com.createnestedfactory.create_nested_factory_logistics.chemical.MekanismExtensionChemicalHandler;
 import com.createnestedfactory.create_nested_factory_logistics.heat.MekanismHeatHandler;
-import com.createnestedfactory.create_nested_factory_logistics.pipez.PipezFluidNetworkAdapter;
+import com.createnestedfactory.create_nested_factory_logistics.heat.MekanismExtensionHeatHandler;
 import mekanism.api.chemical.IChemicalHandler;
 import mekanism.api.heat.IHeatHandler;
 import net.minecraft.core.Direction;
@@ -36,7 +37,6 @@ public final class MekanismLogisticsCompat {
     public static void initialize(IEventBus modEventBus) {
         FactoryTransit.registerParticipant(ChemicalLedger.PARTICIPANT_ID, ChemicalLedger::new);
         modEventBus.addListener(MekanismLogisticsCompat::registerCapabilities);
-        FluidNetworkEndpointResolver.registerAdapter(PipezFluidNetworkAdapter.INSTANCE);
     }
 
     private static void registerCapabilities(RegisterCapabilitiesEvent event) {
@@ -46,12 +46,18 @@ public final class MekanismLogisticsCompat {
         event.registerBlockEntity(CHEMICAL, ModBlockEntities.NESTED_PORT.get(),
                 (be, side) -> be instanceof NestedPortBlockEntity port
                         ? MekanismChemicalHandler.forPort(port, side) : null);
+        event.registerBlockEntity(CHEMICAL, ModBlockEntities.NESTED_EXTENSION_INTERFACE.get(),
+                (be, side) -> be instanceof NestedExtensionInterfaceBlockEntity extension
+                        ? MekanismExtensionChemicalHandler.create(extension, side) : null);
         event.registerBlockEntity(HEAT, ModBlockEntities.NESTED_FACTORY.get(),
                 (be, side) -> be instanceof NestedFactoryBlockEntity factory
                         ? MekanismHeatHandler.forFactory(factory, side) : null);
         event.registerBlockEntity(HEAT, ModBlockEntities.NESTED_PORT.get(),
                 (be, side) -> be instanceof NestedPortBlockEntity port
                         ? MekanismHeatHandler.forPort(port, side) : null);
+        event.registerBlockEntity(HEAT, ModBlockEntities.NESTED_EXTENSION_INTERFACE.get(),
+                (be, side) -> be instanceof NestedExtensionInterfaceBlockEntity extension
+                        ? MekanismExtensionHeatHandler.create(extension, side) : null);
     }
 }
 

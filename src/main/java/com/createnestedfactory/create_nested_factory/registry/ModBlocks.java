@@ -2,12 +2,15 @@ package com.createnestedfactory.create_nested_factory.registry;
 
 import com.createnestedfactory.create_nested_factory.Create_nested_factory;
 import com.createnestedfactory.create_nested_factory.block.NestedFactoryBlock;
+import com.createnestedfactory.create_nested_factory.block.NestedExtensionInterfaceBlock;
 import com.createnestedfactory.create_nested_factory.block.NestedPortBlock;
 import com.createnestedfactory.create_nested_factory.block.NestedStressPortBlock;
 import com.createnestedfactory.create_nested_factory.block.NestedWallBlock;
+import com.createnestedfactory.create_nested_factory.block.FactoryPassageBlock;
 import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.material.MapColor;
+import net.minecraft.world.level.material.PushReaction;
 import net.neoforged.neoforge.registries.DeferredBlock;
 import net.neoforged.neoforge.registries.DeferredRegister;
 
@@ -25,10 +28,25 @@ public class ModBlocks {
                     .mapColor(MapColor.METAL)
                     .strength(2.0F, 3.0F)));
 
+    public static final DeferredBlock<NestedExtensionInterfaceBlock> NESTED_EXTENSION_INTERFACE =
+            BLOCKS.register("nested_extension_interface",
+                    () -> new NestedExtensionInterfaceBlock(BlockBehaviour.Properties.of()
+                            .mapColor(MapColor.METAL)
+                            .strength(2.0F, 3.0F)));
+
     public static final DeferredBlock<NestedStressPortBlock> NESTED_STRESS_PORT = BLOCKS.register("nested_stress_port",
             () -> new NestedStressPortBlock(BlockBehaviour.Properties.of()
                     .mapColor(MapColor.METAL)
                     .strength(2.0F, 3.0F)
+                    .noOcclusion()));
+
+    public static final DeferredBlock<FactoryPassageBlock> FACTORY_PASSAGE = BLOCKS.register("factory_passage",
+            () -> new FactoryPassageBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.METAL)
+                    .strength(3.0F, 6.0F)
+                    .sound(SoundType.METAL)
+                    .pushReaction(PushReaction.BLOCK)
+                    .noLootTable()
                     .noOcclusion()));
 
     public static final DeferredBlock<NestedWallBlock> SNOW_WALL = BLOCKS.register("snow_wall",

@@ -325,7 +325,6 @@ public final class RoomMutationTaskManager extends SavedData {
             BlockPos pos = boundaryPosition(task.shellBounds, task.cursor);
             BlockState state = NestedFactoryBlock.wallState(pos.getX(), pos.getY(), pos.getZ());
             writeSilent(level, pos, state);
-            level.sendBlockUpdated(pos, state, state, Block.UPDATE_CLIENTS);
         }
         return task.cursor >= boundaryVolume;
     }
@@ -424,7 +423,11 @@ public final class RoomMutationTaskManager extends SavedData {
     }
 
     private static void writeSilent(ServerLevel level, BlockPos pos, BlockState state) {
-        level.setBlock(pos, state, Block.UPDATE_KNOWN_SHAPE | Block.UPDATE_SUPPRESS_DROPS);
+        // UPDATE_CLIENTS must be part of the mutation itself so vanilla sends the real old -> new
+        // transition. A later state -> same-state notification can leave a stale client block
+        // entity ticker behind when a room clear replaces a Create block entity with air.
+        level.setBlock(pos, state,
+                Block.UPDATE_KNOWN_SHAPE | Block.UPDATE_SUPPRESS_DROPS | Block.UPDATE_CLIENTS);
     }
 
     private static long volume(int[] bounds) {

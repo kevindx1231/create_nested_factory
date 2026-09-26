@@ -138,6 +138,101 @@ dependencies {
     // http://www.gradle.org/docs/current/userguide/dependency_management.html
 }
 
+def neoForgeMergedJar = files(layout.buildDirectory.file("moddev/artifacts/neoforge-${neo_version}-merged.jar"))
+def neoForgeServerRuntime = files(providers.provider {
+    layout.buildDirectory.file('moddev/serverLegacyClasspath.txt').get().asFile.readLines()
+})
+sourceSets.test.compileClasspath += neoForgeMergedJar
+sourceSets.test.runtimeClasspath += neoForgeMergedJar + neoForgeServerRuntime
+
+tasks.named('compileTestJava') {
+    dependsOn tasks.named('createMinecraftArtifacts')
+}
+
+tasks.register('testPassageTravelGuard', JavaExec) {
+    group = 'verification'
+    description = 'Runs the factory passage transition-guard regression test.'
+    dependsOn tasks.named('testClasses'), tasks.named('writeServerLegacyClasspath')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.createnestedfactory.create_nested_factory.registry.PassageTravelGuardRegression'
+}
+
+tasks.register('testPocketFreezeIndex', JavaExec) {
+    group = 'verification'
+    description = 'Runs dynamic Pocket freeze-boundary and persistence regression checks.'
+    dependsOn tasks.named('testClasses'), tasks.named('writeServerLegacyClasspath')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.createnestedfactory.create_nested_factory.PocketFreezeIndexRegression'
+}
+
+tasks.register('testPocketRegistryScopes', JavaExec) {
+    group = 'verification'
+    description = 'Runs transient Pocket registry server-isolation regression checks.'
+    dependsOn tasks.named('testClasses'), tasks.named('writeServerLegacyClasspath')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.createnestedfactory.create_nested_factory.PocketRegistryScopeRegression'
+}
+
+tasks.register('testReleaseFixes', JavaExec) {
+    group = 'verification'
+    description = 'Runs focused regression checks for release-audit fixes.'
+    dependsOn tasks.named('testClasses'), tasks.named('writeServerLegacyClasspath')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.createnestedfactory.create_nested_factory.ReleaseFixRegression'
+}
+
+tasks.register('testFactoryLearningController', JavaExec) {
+    group = 'verification'
+    description = 'Runs interface-level regression checks for the extracted factory learning controller.'
+    dependsOn tasks.named('testClasses'), tasks.named('writeServerLegacyClasspath')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.createnestedfactory.create_nested_factory.block.entity.FactoryLearningControllerRegression'
+}
+
+tasks.register('testPlantBlueprintCapital', JavaExec) {
+    group = 'verification'
+    description = 'Runs capital-free built-in tree and crop blueprint regression checks.'
+    dependsOn tasks.named('testClasses'), tasks.named('writeServerLegacyClasspath')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.createnestedfactory.create_nested_factory.block.entity.PlantBlueprintCapitalRegression'
+}
+
+tasks.register('testFactoryRoomGeometry', JavaExec) {
+    group = 'verification'
+    description = 'Runs exact six-direction room mutation geometry regression checks.'
+    dependsOn tasks.named('testClasses'), tasks.named('writeServerLegacyClasspath')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.createnestedfactory.create_nested_factory.block.entity.FactoryRoomGeometryRegression'
+}
+
+tasks.register('testFactoryLifecycleTransitions', JavaExec) {
+    group = 'verification'
+    description = 'Runs explicit factory lifecycle transition-table regression checks.'
+    dependsOn tasks.named('testClasses'), tasks.named('writeServerLegacyClasspath')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.createnestedfactory.create_nested_factory.block.entity.FactoryLifecycleTransitionsRegression'
+}
+
+tasks.register('testFactorySessionLocationPolicy', JavaExec) {
+    group = 'verification'
+    description = 'Runs server-side factory-session location recovery regression checks.'
+    dependsOn tasks.named('testClasses'), tasks.named('writeServerLegacyClasspath')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.createnestedfactory.create_nested_factory.block.FactorySessionLocationPolicyRegression'
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('testPassageTravelGuard')
+    dependsOn tasks.named('testPocketFreezeIndex')
+    dependsOn tasks.named('testPocketRegistryScopes')
+    dependsOn tasks.named('testReleaseFixes')
+    dependsOn tasks.named('testFactoryLearningController')
+    dependsOn tasks.named('testPlantBlueprintCapital')
+    dependsOn tasks.named('testFactoryRoomGeometry')
+    dependsOn tasks.named('testFactoryLifecycleTransitions')
+    dependsOn tasks.named('testFactorySessionLocationPolicy')
+}
+
 // This block of code expands all declared replace properties in the specified resource targets.
 // A missing property will result in an error. Properties are expanded using ${} Groovy notation.
 var generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {

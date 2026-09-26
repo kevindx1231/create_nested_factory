@@ -3,6 +3,7 @@
 /.gradle-user-home/
 /build/
 /bin/
+**/build/
 
 # IDE
 /.idea/
@@ -13,10 +14,19 @@
 /run/
 /logs/
 /out/
+**/run/
+/error/
+
+# Local release artifacts (GitHub Releases owns distributed JARs)
+/*.jar
 
 # Local configuration and personal notes
 /.claude/
 /note/
+/代码分析/
+/兼容模组源码/
+/模组依赖与环境版本信息.md
+/docs/release-audit/
 /Github push.txt
 /8.30问题汇总.md
 /问题汇总.md

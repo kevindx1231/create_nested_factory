@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0037
 ---
 
 # 蓝图只复制会被消耗或可提取的启动资本合同

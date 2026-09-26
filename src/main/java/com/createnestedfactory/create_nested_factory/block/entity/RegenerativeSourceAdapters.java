@@ -34,8 +34,10 @@ import java.util.function.IntSupplier;
 public final class RegenerativeSourceAdapters {
     static final String COBBLESTONE_PROOF = "create_nested_factory:cobblestone@8";
     static final String BASALT_PROOF = "create_nested_factory:basalt@8";
-    static final String TREE_PROOF = "create_nested_factory:vanilla_tree@6";
-    static final String CROP_PROOF = "create_nested_factory:crop@1";
+    static final String TREE_PROOF = RegenerativeStartupCapitalPolicy.TREE_ADAPTER_ID + "@"
+            + RegenerativeStartupCapitalPolicy.TREE_RULE_VERSION;
+    static final String CROP_PROOF = RegenerativeStartupCapitalPolicy.CROP_ADAPTER_ID + "@"
+            + RegenerativeStartupCapitalPolicy.CROP_RULE_VERSION;
     private static final Map<String, RegenerativeSourceAdapter> ADAPTERS = new ConcurrentHashMap<>();
 
     static {
@@ -301,12 +303,12 @@ public final class RegenerativeSourceAdapters {
     private static final class TreeAdapter implements RegenerativeSourceAdapter {
         @Override
         public String id() {
-            return "create_nested_factory:vanilla_tree";
+            return RegenerativeStartupCapitalPolicy.TREE_ADAPTER_ID;
         }
 
         @Override
         public int ruleVersion() {
-            return 6;
+            return RegenerativeStartupCapitalPolicy.TREE_RULE_VERSION;
         }
 
         @Override
@@ -342,7 +344,6 @@ public final class RegenerativeSourceAdapters {
         private final Map<Long, Block> saplingTypes = new HashMap<>();
         private final Map<Block, TreeGroup> groups = new HashMap<>();
         private final Map<ItemVariant, Long> certifiedOutputs = new HashMap<>();
-        private final Map<ItemVariant, Long> startupSaplings = new HashMap<>();
         private final int required;
         private long lastCertifiedOutputTick = Long.MIN_VALUE;
 
@@ -355,22 +356,18 @@ public final class RegenerativeSourceAdapters {
                     for (int z = bounds.minZ(origin) + 1; z < bounds.maxZ(origin); z++) {
                         pos.set(x, y, z);
                         BlockState state = level.getBlockState(pos);
-                        if (isVanillaSapling(state)) addSapling(pos, state, true);
+                        if (isVanillaSapling(state)) addSapling(pos, state);
                     }
                 }
             }
         }
 
-        private void addSapling(BlockPos pos, BlockState state, boolean startup) {
+        private void addSapling(BlockPos pos, BlockState state) {
             long key = pos.asLong();
             Block sapling = state.getBlock();
             phases.put(key, Phase.ARMED);
             saplingTypes.put(key, sapling);
             groups.computeIfAbsent(sapling, TreeGroup::new);
-            if (startup) {
-                ItemStack stack = new ItemStack(sapling.asItem());
-                if (!stack.isEmpty()) startupSaplings.merge(ItemVariant.of(stack), 1L, Math::addExact);
-            }
         }
 
         @Override
@@ -388,7 +385,7 @@ public final class RegenerativeSourceAdapters {
                                       BlockState newState, int windowIndex) {
             long key = pos.asLong();
             if (isVanillaSapling(newState)) {
-                addSapling(pos, newState, false);
+                addSapling(pos, newState);
                 return true;
             }
             Block sapling = isVanillaSapling(oldState) ? oldState.getBlock() : saplingTypes.get(key);
@@ -480,11 +477,6 @@ public final class RegenerativeSourceAdapters {
         }
 
         @Override
-        public Map<ItemVariant, Long> startupCapitalItems() {
-            return Map.copyOf(startupSaplings);
-        }
-
-        @Override
         public boolean hasNaturalWait() {
             return true;
         }
@@ -526,7 +518,12 @@ public final class RegenerativeSourceAdapters {
     private static final class CropAdapter implements RegenerativeSourceAdapter {
         @Override
         public String id() {
-            return "create_nested_factory:crop";
+            return RegenerativeStartupCapitalPolicy.CROP_ADAPTER_ID;
+        }
+
+        @Override
+        public int ruleVersion() {
+            return RegenerativeStartupCapitalPolicy.CROP_RULE_VERSION;
         }
 
         @Override
@@ -567,7 +564,6 @@ public final class RegenerativeSourceAdapters {
         private final Map<Long, Block> cells = new HashMap<>();
         private final Map<Block, CropGroup> groups = new HashMap<>();
         private final Map<ItemVariant, Long> certifiedOutputs = new HashMap<>();
-        private final Map<ItemVariant, Long> startupItems = new HashMap<>();
         private final int required;
         private long lastCertifiedOutputTick = Long.MIN_VALUE;
 
@@ -581,22 +577,17 @@ public final class RegenerativeSourceAdapters {
                         pos.set(x, y, z);
                         Block crop = cropType(level.getBlockState(pos));
                         if (crop != null) {
-                            boolean root = cropType(level.getBlockState(pos.below())) != crop;
-                            addCell(pos, crop, root);
+                            addCell(pos, crop);
                         }
                     }
                 }
             }
         }
 
-        private void addCell(BlockPos pos, Block crop, boolean startup) {
+        private void addCell(BlockPos pos, Block crop) {
             long key = pos.asLong();
-            Block previous = cells.put(key, crop);
+            cells.put(key, crop);
             groups.computeIfAbsent(crop, CropGroup::new);
-            if (startup && previous == null) {
-                ItemStack capital = new ItemStack(crop.asItem());
-                if (!capital.isEmpty()) startupItems.merge(ItemVariant.of(capital), 1L, Math::addExact);
-            }
         }
 
         @Override
@@ -614,7 +605,7 @@ public final class RegenerativeSourceAdapters {
                                       BlockState newState, int windowIndex) {
             Block oldCrop = cropType(oldState);
             Block newCrop = cropType(newState);
-            if (newCrop != null) addCell(pos, newCrop, false);
+            if (newCrop != null) addCell(pos, newCrop);
 
             Block fruitStem = stemCropForFruit(level, pos, oldState, newState);
             if (fruitStem != null) {
@@ -722,11 +713,6 @@ public final class RegenerativeSourceAdapters {
         public long claimedOutputAmount(ItemStack stack, long observed, boolean hasMaterialInputs) {
             if (!allowsOutput(stack) || observed <= 0) return 0;
             return Math.min(observed, certifiedOutputs.getOrDefault(ItemVariant.of(stack), 0L));
-        }
-
-        @Override
-        public Map<ItemVariant, Long> startupCapitalItems() {
-            return Map.copyOf(startupItems);
         }
 
         @Override

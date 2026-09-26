@@ -108,7 +108,7 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
                     ? boundRoomOrigin
                     : NestedFactoryBlock.findRoomOrigin((ServerLevel) level, worldPosition);
             if (roomOrigin != null) {
-                PocketRegistry.unregisterPort(roomOrigin, old, worldPosition);
+                PocketRegistry.unregisterPort(level.getServer(), roomOrigin, old, worldPosition);
             }
             level.invalidateCapabilities(worldPosition);
             registerPort();
@@ -147,8 +147,8 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
     }
 
     private boolean isMappedInput(NestedFactoryBlockEntity factory) {
-        Direction face = factory.getFaceForPortId(targetPortId);
-        return face != null && factory.getFaceMode(face) == PortMode.INPUT;
+        FactoryLogicalPortEndpoint endpoint = factory.resolveLogicalPort(targetPortId);
+        return endpoint != null && endpoint.mode() == PortMode.INPUT;
     }
 
     boolean hasItemInputConsumer() {
@@ -370,10 +370,8 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
         NestedFactoryBlockEntity factory = findFactory();
         PortMode mode = PortMode.NONE;
         if (factory != null) {
-            Direction face = factory.getFaceForPortId(targetPortId);
-            if (face != null) {
-                mode = factory.getFaceMode(face);
-            }
+            FactoryLogicalPortEndpoint endpoint = factory.resolveLogicalPort(targetPortId);
+            if (endpoint != null) mode = endpoint.mode();
         }
         if (mode != mappedFaceMode) {
             mappedFaceMode = mode;
@@ -612,7 +610,7 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
             return null;
         }
         if (!boundFactoryId.isBlank()) {
-            PocketRegistry.FactoryLocation location = PocketRegistry.findFactoryLocationById(boundFactoryId);
+            PocketRegistry.FactoryLocation location = PocketRegistry.findFactoryLocationById(level.getServer(), boundFactoryId);
             if (location != null && level.getServer() != null) {
                 ServerLevel factoryLevel = level.getServer().getLevel(location.dimension());
                 if (factoryLevel != null
@@ -661,7 +659,7 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
                         : NestedFactoryBlock.findRoomOrigin((ServerLevel) level, worldPosition);
             }
             if (registeredRoomOrigin != null) {
-                PocketRegistry.unregisterPort(registeredRoomOrigin, targetPortId, worldPosition);
+                PocketRegistry.unregisterPort(level.getServer(), registeredRoomOrigin, targetPortId, worldPosition);
             }
             registeredRoomOrigin = null;
             clearMirroredPressure();
@@ -702,7 +700,7 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
                         ? registeredRoomOrigin
                         : NestedFactoryBlock.findRoomOrigin((ServerLevel) level, worldPosition);
                 if (roomOrigin != null) {
-                    PocketRegistry.unregisterPort(roomOrigin, targetPortId, worldPosition);
+                    PocketRegistry.unregisterPort(level.getServer(), roomOrigin, targetPortId, worldPosition);
                 }
             }
         }
@@ -723,7 +721,7 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
             roomOrigin = boundRoomOrigin;
         }
         if (roomOrigin != null) {
-            PocketRegistry.registerPort(roomOrigin, targetPortId, worldPosition);
+            PocketRegistry.registerPort(level.getServer(), roomOrigin, targetPortId, worldPosition);
             registeredRoomOrigin = roomOrigin;
             // Pipez caches endpoint capabilities. Rebuild the cache immediately after a port
             // loads so an extracting Pipez side cannot retain an earlier null result.
@@ -762,7 +760,4 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
     }
 
 }
-
-
-
 

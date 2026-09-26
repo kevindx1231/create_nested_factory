@@ -3,6 +3,7 @@ package com.createnestedfactory.create_nested_factory_logistics.chemical;
 import com.createnestedfactory.create_nested_factory.PocketRegistry;
 import com.createnestedfactory.create_nested_factory.block.PortMode;
 import com.createnestedfactory.create_nested_factory.block.entity.FactoryTransit;
+import com.createnestedfactory.create_nested_factory.block.entity.FactoryLogicalPortEndpoint;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedPortBlockEntity;
 import com.createnestedfactory.create_nested_factory_logistics.MekanismLogisticsCompat;
@@ -28,24 +29,42 @@ public final class MekanismChemicalHandler implements IChemicalHandler {
     private final int portId;
     private final boolean externalSide;
     private final PortMode mode;
+    private final Direction externalFace;
+    private final boolean extensionAccess;
 
     private MekanismChemicalHandler(NestedFactoryBlockEntity factory, int portId,
-                                    boolean externalSide, PortMode mode) {
+                                    boolean externalSide, PortMode mode,
+                                    Direction externalFace, boolean extensionAccess) {
         this.factory = factory;
         this.portId = portId;
         this.externalSide = externalSide;
         this.mode = mode;
+        this.externalFace = externalFace;
+        this.extensionAccess = extensionAccess;
     }
 
     public static IChemicalHandler forFactory(NestedFactoryBlockEntity factory, Direction side) {
-        if (factory == null || side == null || !factory.isLiveResourceTransferMode()) {
+        if (factory == null || side == null || factory.isFaceTakenOver(side)
+                || !factory.isLiveResourceTransferMode()) {
             return null;
         }
-        PortMode mode = factory.getFaceMode(side);
-        if (mode == PortMode.NONE) {
+        return createExternal(factory.resolveLogicalPort(side), false);
+    }
+
+    public static IChemicalHandler forExtension(FactoryLogicalPortEndpoint endpoint) {
+        if (endpoint == null || !endpoint.factory().isLiveResourceTransferMode()) {
             return null;
         }
-        return new MekanismChemicalHandler(factory, factory.getPortId(side), true, mode);
+        return createExternal(endpoint, true);
+    }
+
+    private static IChemicalHandler createExternal(FactoryLogicalPortEndpoint endpoint,
+                                                    boolean extensionAccess) {
+        if (endpoint == null || !endpoint.isConfigured()) {
+            return null;
+        }
+        return new MekanismChemicalHandler(endpoint.factory(), endpoint.portId(), true, endpoint.mode(),
+                endpoint.face(), extensionAccess);
     }
 
     public static IChemicalHandler forPort(NestedPortBlockEntity port, Direction side) {
@@ -56,12 +75,22 @@ public final class MekanismChemicalHandler implements IChemicalHandler {
         if (factory == null || !factory.isLiveResourceTransferMode()) {
             return null;
         }
-        Direction face = factory.getFaceForPortId(port.getTargetPortId());
-        if (face == null || factory.getFaceMode(face) == PortMode.NONE) {
+        FactoryLogicalPortEndpoint endpoint = factory.resolveLogicalPort(port.getTargetPortId());
+        if (endpoint == null || !endpoint.isConfigured()) {
             return null;
         }
         return new MekanismChemicalHandler(factory, port.getTargetPortId(), false,
-                factory.getFaceMode(face));
+                endpoint.mode(), null, false);
+    }
+
+    private boolean active() {
+        if (!factory.isLiveResourceTransferMode() || mode == PortMode.NONE) {
+            return false;
+        }
+        return !externalSide || externalFace == null
+                || (factory.getFaceMode(externalFace) == mode
+                && factory.getPortId(externalFace) == portId
+                && (extensionAccess || !factory.isFaceTakenOver(externalFace)));
     }
 
     private boolean isInput() {
@@ -70,7 +99,7 @@ public final class MekanismChemicalHandler implements IChemicalHandler {
 
     private boolean hasRoomPort() {
         return factory.getPocketLevel() != null
-                && !PocketRegistry.getPorts(factory.roomOrigin(), portId).isEmpty();
+                && !PocketRegistry.getPorts(factory.getPocketLevel().getServer(), factory.roomOrigin(), portId).isEmpty();
     }
 
     private String ledgerKey() {
@@ -84,12 +113,12 @@ public final class MekanismChemicalHandler implements IChemicalHandler {
 
     @Override
     public int getChemicalTanks() {
-        return factory.isLiveResourceTransferMode() && mode != PortMode.NONE && hasRoomPort() ? 1 : 0;
+        return active() && hasRoomPort() ? 1 : 0;
     }
 
     @Override
     public ChemicalStack getChemicalInTank(int tank) {
-        if (tank != 0 || !factory.isLiveResourceTransferMode()) {
+        if (tank != 0 || !active()) {
             return ChemicalStack.EMPTY;
         }
         // Only expose the side's consumable/output balance. A write-only input endpoint and a
@@ -112,18 +141,18 @@ public final class MekanismChemicalHandler implements IChemicalHandler {
 
     @Override
     public long getChemicalTankCapacity(int tank) {
-        return tank == 0 && factory.isLiveResourceTransferMode() && hasRoomPort() ? Long.MAX_VALUE : 0;
+        return tank == 0 && active() && hasRoomPort() ? Long.MAX_VALUE : 0;
     }
 
     @Override
     public boolean isValid(int tank, ChemicalStack stack) {
-        return tank == 0 && !stack.isEmpty() && factory.isLiveResourceTransferMode()
+        return tank == 0 && !stack.isEmpty() && active()
                 && ((externalSide && isInput()) || (!externalSide && !isInput()));
     }
 
     @Override
     public ChemicalStack insertChemical(int tank, ChemicalStack stack, Action action) {
-        if (tank != 0 || stack.isEmpty() || !factory.isLiveResourceTransferMode()) {
+        if (tank != 0 || stack.isEmpty() || !active()) {
             return stack;
         }
         if (externalSide) {
@@ -134,7 +163,7 @@ public final class MekanismChemicalHandler implements IChemicalHandler {
 
     @Override
     public ChemicalStack extractChemical(int tank, long amount, Action action) {
-        if (tank != 0 || amount <= 0 || !factory.isLiveResourceTransferMode()) {
+        if (tank != 0 || amount <= 0 || !active()) {
             return ChemicalStack.EMPTY;
         }
         if (externalSide) {
@@ -223,11 +252,13 @@ public final class MekanismChemicalHandler implements IChemicalHandler {
         List<IChemicalHandler> handlers = new ArrayList<>();
         Set<IChemicalHandler> seen = Collections.newSetFromMap(new IdentityHashMap<>());
         for (Direction face : factory.getFacesForPortId(portId)) {
-            BlockPos pos = factory.getBlockPos().relative(face);
-            IChemicalHandler handler = factory.getLevel().getCapability(
-                    MekanismLogisticsCompat.CHEMICAL, pos, face.getOpposite());
-            if (handler != null && seen.add(handler)) {
-                handlers.add(handler);
+            for (NestedFactoryBlockEntity.ExternalAccessPoint access : factory.getExternalAccessPoints(face)) {
+                BlockPos pos = access.origin().relative(access.face());
+                IChemicalHandler handler = factory.getLevel().getCapability(
+                        MekanismLogisticsCompat.CHEMICAL, pos, access.face().getOpposite());
+                if (handler != null && seen.add(handler)) {
+                    handlers.add(handler);
+                }
             }
         }
         return handlers;
@@ -240,7 +271,7 @@ public final class MekanismChemicalHandler implements IChemicalHandler {
         }
         List<IChemicalHandler> handlers = new ArrayList<>();
         Set<IChemicalHandler> seen = Collections.newSetFromMap(new IdentityHashMap<>());
-        for (BlockPos portPos : PocketRegistry.getPorts(factory.roomOrigin(), portId)) {
+        for (BlockPos portPos : PocketRegistry.getPorts(pocket.getServer(), factory.roomOrigin(), portId)) {
             if (!(pocket.getBlockEntity(portPos) instanceof NestedPortBlockEntity port)
                     || port.getTargetPortId() != portId) {
                 continue;

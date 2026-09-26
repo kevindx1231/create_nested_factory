@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "B": { "item": "create:brass_sheet" },
+    "F": { "item": "create:fluid_pipe" },
+    "N": { "item": "create_nested_factory:nested_port" },
+    "S": { "item": "create:shaft" }
+  },
+  "pattern": [
+    "BFB",
+    "SNS",
+    "BFB"
+  ],
+  "result": {
+    "id": "create_nested_factory:nested_extension_interface",
+    "count": 2
+  }
+}

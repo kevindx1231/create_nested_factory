@@ -2,6 +2,7 @@ package com.createnestedfactory.create_nested_factory.item;
 
 import com.createnestedfactory.create_nested_factory.block.NestedFactoryBlock;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity;
+import com.createnestedfactory.create_nested_factory.Config;
 import com.createnestedfactory.create_nested_factory.PocketRegistry;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
@@ -48,7 +49,15 @@ public final class FactoryBlockItem extends BlockItem {
     private static boolean canPlaceBoundFactory(Level level, BlockPos pos, net.minecraft.world.item.ItemStack stack) {
         CompoundTag data = NestedFactoryBlockEntity.getFactoryItemData(stack);
         if (!data.getBoolean(NestedFactoryBlockEntity.PORTABLE_BINDING_KEY)) {
-            return true;
+            if (!level.dimension().equals(NestedFactoryBlock.POCKET_DIMENSION)
+                    || !(level instanceof ServerLevel serverLevel)) {
+                return true;
+            }
+            NestedFactoryBlockEntity parent = NestedFactoryBlock.findFactoryAt(serverLevel, pos);
+            return parent != null
+                    && parent.getBounds().isBuildableAt(parent.roomOrigin(), pos)
+                    && !parent.hasRecordedChild()
+                    && parent.getNestingDepth() + 1 <= Config.maxNestingDepth + 1;
         }
 
         boolean nested = data.getBoolean("Nested");
@@ -74,7 +83,7 @@ public final class FactoryBlockItem extends BlockItem {
             return false;
         }
         int slotId = data.getInt("NestedSlotId");
-        return slotId >= 0 && PocketRegistry.canClaimNestedSlot(slotId,
+        return slotId >= 0 && PocketRegistry.canClaimNestedSlot(serverLevel.getServer(), slotId,
                 new PocketRegistry.FactoryLocation(data.getString("FactoryId"),
                         level.dimension(), pos));
     }

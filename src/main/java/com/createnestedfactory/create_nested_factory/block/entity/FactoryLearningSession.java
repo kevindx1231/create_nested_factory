@@ -130,6 +130,7 @@ public final class FactoryLearningSession {
     public Map<ItemVariant, Long> startupCapitalItems() {
         Map<ItemVariant, Long> result = new HashMap<>();
         for (Proof proof : supportedProofs()) {
+            if (!RegenerativeStartupCapitalPolicy.copiesEvidenceCapital(proof.adapterId())) continue;
             proof.evidence().startupCapitalItems().forEach((variant, count) -> {
                 if (variant != null && count != null && count > 0) result.merge(variant, count, Math::addExact);
             });

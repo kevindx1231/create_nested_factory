@@ -1,9 +1,11 @@
 package com.createnestedfactory.create_nested_factory;
 
 import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity;
+import com.createnestedfactory.create_nested_factory.block.entity.NestedExtensionInterfaceBlockEntity;
 import com.createnestedfactory.create_nested_factory.client.ModClientEvents;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedPortBlockEntity;
 import com.createnestedfactory.create_nested_factory.integration.NestedFactoryUnpackingHandler;
+import com.createnestedfactory.create_nested_factory.integration.NestedExtensionInterfaceUnpackingHandler;
 import com.createnestedfactory.create_nested_factory.integration.NestedPortUnpackingHandler;
 import com.simibubi.create.api.packager.unpacking.UnpackingHandler;
 import com.createnestedfactory.create_nested_factory.network.PlayerMessagePayload;
@@ -62,6 +64,8 @@ public class Create_nested_factory {
         event.enqueueWork(() -> {
             UnpackingHandler.REGISTRY.register(ModBlocks.NESTED_FACTORY.get(), NestedFactoryUnpackingHandler.INSTANCE);
             UnpackingHandler.REGISTRY.register(ModBlocks.NESTED_PORT.get(), NestedPortUnpackingHandler.INSTANCE);
+            UnpackingHandler.REGISTRY.register(ModBlocks.NESTED_EXTENSION_INTERFACE.get(),
+                    NestedExtensionInterfaceUnpackingHandler.INSTANCE);
         });
         LOGGER.info("Nested Factory common setup");
     }
@@ -82,6 +86,12 @@ public class Create_nested_factory {
                 (be, side) -> be instanceof NestedPortBlockEntity port ? port.getItemHandler(side) : null);
         event.registerBlockEntity(Capabilities.FluidHandler.BLOCK, ModBlockEntities.NESTED_PORT.get(),
                 (be, side) -> be instanceof NestedPortBlockEntity port ? port.getFluidHandler(side) : null);
+        event.registerBlockEntity(Capabilities.ItemHandler.BLOCK, ModBlockEntities.NESTED_EXTENSION_INTERFACE.get(),
+                (be, side) -> be instanceof NestedExtensionInterfaceBlockEntity extension
+                        ? extension.getItemHandler(side) : null);
+        event.registerBlockEntity(Capabilities.FluidHandler.BLOCK, ModBlockEntities.NESTED_EXTENSION_INTERFACE.get(),
+                (be, side) -> be instanceof NestedExtensionInterfaceBlockEntity extension
+                        ? extension.getFluidHandler(side) : null);
     }
 
     @SubscribeEvent

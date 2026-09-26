@@ -90,3 +90,15 @@ tasks.named('jar', Jar) {
     enabled = false
     from(rootProject.file('LICENSE.md'))
 }
+
+tasks.register('testSubLevelReturnTransform', JavaExec) {
+    group = 'verification'
+    description = 'Runs moving SubLevel player-return transform regression checks.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.createnestedfactory.create_nested_factory_simulated.SubLevelReturnTransformRegression'
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('testSubLevelReturnTransform')
+}

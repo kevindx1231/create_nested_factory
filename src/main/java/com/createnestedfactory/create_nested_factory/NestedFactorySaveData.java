@@ -109,6 +109,12 @@ public final class NestedFactorySaveData extends SavedData {
         if (!normalizedParent.equals(parentByFactoryId.put(factoryId, normalizedParent))) setDirty();
     }
 
+    public synchronized void forgetFactoryParent(String factoryId) {
+        if (factoryId != null && !factoryId.isBlank() && parentByFactoryId.remove(factoryId) != null) {
+            setDirty();
+        }
+    }
+
     public synchronized boolean hasFreezeLeaseInAncestry(String factoryId) {
         Set<String> visited = new HashSet<>();
         String current = factoryId;

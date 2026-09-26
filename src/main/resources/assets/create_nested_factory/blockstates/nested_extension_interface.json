@@ -1,0 +1,20 @@
+{
+  "multipart": [
+    {
+      "when": {
+        "powered": "false"
+      },
+      "apply": {
+        "model": "create_nested_factory:block/nested_extension_interface"
+      }
+    },
+    {
+      "when": {
+        "powered": "true"
+      },
+      "apply": {
+        "model": "create_nested_factory:block/nested_extension_interface_disabled"
+      }
+    }
+  ]
+}

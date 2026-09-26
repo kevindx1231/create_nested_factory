@@ -7,6 +7,8 @@ import org.slf4j.Logger;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
+import java.util.EnumSet;
+
 /**
  * Loads bundled compatibility code only when its external mod APIs are present.
  *
@@ -19,18 +21,36 @@ public final class OptionalCompatBootstrap {
     private OptionalCompatBootstrap() {
     }
 
-    public static void register(IEventBus modEventBus) {
-        if (isLoaded("mekanism")) {
-            invoke("com.createnestedfactory.create_nested_factory_logistics.MekanismLogisticsCompat",
-                    "initialize", IEventBus.class, modEventBus);
-        }
+    enum CompatInitializer {
+        MEKANISM,
+        PIPEZ,
+        SIMULATED
+    }
 
-        // The bundled Simulated integration uses both APIs. Do not load any of it
-        // unless both providers are available. The Mixin plugin applies the same rule.
-        if (isLoaded("simulated") && isLoaded("sable")) {
-            invoke("com.createnestedfactory.create_nested_factory_simulated.CreateNestedFactorySimulated",
-                    "initialize");
+    public static void register(IEventBus modEventBus) {
+        for (CompatInitializer initializer : initializersFor(
+                isLoaded("mekanism"), isLoaded("pipez"), isLoaded("simulated"), isLoaded("sable"))) {
+            switch (initializer) {
+                case MEKANISM -> invoke(
+                        "com.createnestedfactory.create_nested_factory_logistics.MekanismLogisticsCompat",
+                        "initialize", IEventBus.class, modEventBus);
+                case PIPEZ -> invoke(
+                        "com.createnestedfactory.create_nested_factory_logistics.PipezLogisticsCompat",
+                        "initialize");
+                case SIMULATED -> invoke(
+                        "com.createnestedfactory.create_nested_factory_simulated.CreateNestedFactorySimulated",
+                        "initialize");
+            }
         }
+    }
+
+    static EnumSet<CompatInitializer> initializersFor(boolean mekanismLoaded, boolean pipezLoaded,
+                                                        boolean simulatedLoaded, boolean sableLoaded) {
+        EnumSet<CompatInitializer> initializers = EnumSet.noneOf(CompatInitializer.class);
+        if (mekanismLoaded) initializers.add(CompatInitializer.MEKANISM);
+        if (pipezLoaded) initializers.add(CompatInitializer.PIPEZ);
+        if (simulatedLoaded && sableLoaded) initializers.add(CompatInitializer.SIMULATED);
+        return initializers;
     }
 
     private static boolean isLoaded(String modId) {

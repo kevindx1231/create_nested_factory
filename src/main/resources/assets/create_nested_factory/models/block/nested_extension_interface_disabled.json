@@ -1,0 +1,6 @@
+{
+  "parent": "create_nested_factory:block/nested_extension_interface_base",
+  "textures": {
+    "interface": "create_nested_factory:block/extension_interface_disable"
+  }
+}

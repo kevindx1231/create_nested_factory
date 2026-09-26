@@ -19,7 +19,9 @@ public final class ModCreativeModeTabs {
                     .displayItems((parameters, output) -> {
                         output.accept(ModItems.NESTED_FACTORY.get());
                         output.accept(ModItems.NESTED_PORT.get());
+                        output.accept(ModItems.NESTED_EXTENSION_INTERFACE.get());
                         output.accept(ModItems.NESTED_STRESS_PORT.get());
+                        output.accept(ModItems.FACTORY_PASSAGE.get());
                         output.accept(ModItems.SPACE_EXPAND_MECHANISM.get());
                         output.accept(ModItems.SPACE_COLLAPSE_MECHANISM.get());
                         output.accept(ModItems.STURDY_CASING.get());

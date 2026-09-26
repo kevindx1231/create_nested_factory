@@ -4,6 +4,7 @@ import com.createnestedfactory.create_nested_factory.Create_nested_factory;
 import com.createnestedfactory.create_nested_factory.item.SpaceCollapserItem;
 import com.createnestedfactory.create_nested_factory.item.SpaceExpanderItem;
 import com.createnestedfactory.create_nested_factory.item.FactoryBlockItem;
+import com.createnestedfactory.create_nested_factory.item.FactoryPassageItem;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.neoforged.neoforge.registries.DeferredItem;
@@ -15,7 +16,11 @@ public class ModItems {
     public static final DeferredItem<FactoryBlockItem> NESTED_FACTORY = ITEMS.register("nested_factory",
             () -> new FactoryBlockItem(ModBlocks.NESTED_FACTORY.get(), new Item.Properties().stacksTo(1)));
     public static final DeferredItem<BlockItem> NESTED_PORT = ITEMS.registerSimpleBlockItem("nested_port", ModBlocks.NESTED_PORT);
+    public static final DeferredItem<BlockItem> NESTED_EXTENSION_INTERFACE =
+            ITEMS.registerSimpleBlockItem("nested_extension_interface", ModBlocks.NESTED_EXTENSION_INTERFACE);
     public static final DeferredItem<BlockItem> NESTED_STRESS_PORT = ITEMS.registerSimpleBlockItem("nested_stress_port", ModBlocks.NESTED_STRESS_PORT);
+    public static final DeferredItem<FactoryPassageItem> FACTORY_PASSAGE = ITEMS.register("factory_passage",
+            () -> new FactoryPassageItem(ModBlocks.FACTORY_PASSAGE.get(), new Item.Properties()));
     public static final DeferredItem<BlockItem> SNOW_WALL = ITEMS.registerSimpleBlockItem("snow_wall", ModBlocks.SNOW_WALL);
     public static final DeferredItem<BlockItem> WHITE_CONCRETE_WALL = ITEMS.registerSimpleBlockItem("white_concrete_wall", ModBlocks.WHITE_CONCRETE_WALL);
 

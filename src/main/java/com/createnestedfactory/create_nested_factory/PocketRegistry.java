@@ -2,12 +2,15 @@ package com.createnestedfactory.create_nested_factory;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
 
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class PocketRegistry {
@@ -24,80 +27,109 @@ public class PocketRegistry {
     public static final int SLOT_GRID_WIDTH = 1024;
     public static final int ROOT_REGION_SIZE = 256;
 
-    private static final Map<BlockPos, FactoryLocation> FACTORIES = new ConcurrentHashMap<>();
-    private static final Map<String, Set<BlockPos>> ROOT_REGIONS = new ConcurrentHashMap<>();
-    private static final Map<SlotKey, NestedSlot> NESTED_SLOTS = new ConcurrentHashMap<>();
-    private static final Map<Integer, SlotKey> SLOT_KEYS_BY_ID = new ConcurrentHashMap<>();
-    private static final Map<PortKey, Set<BlockPos>> PORTS = new ConcurrentHashMap<>();
-    private static final Map<BlockPos, Set<BlockPos>> STRESS_PORTS = new ConcurrentHashMap<>();
+    /** One transient registry per running server; persistent allocation remains in SavedData. */
+    static final class RuntimeState {
+        private final Map<BlockPos, FactoryLocation> factories = new ConcurrentHashMap<>();
+        private final Map<String, Set<BlockPos>> rootRegions = new ConcurrentHashMap<>();
+        private final Map<SlotKey, NestedSlot> nestedSlots = new ConcurrentHashMap<>();
+        private final Map<Integer, SlotKey> slotKeysById = new ConcurrentHashMap<>();
+        private final Map<PortKey, Set<BlockPos>> ports = new ConcurrentHashMap<>();
+        private final Map<BlockPos, Set<BlockPos>> stressPorts = new ConcurrentHashMap<>();
 
-    public static boolean register(BlockPos roomOrigin, FactoryLocation location) {
-        return registerRoot(roomOrigin, location);
+        boolean registerRoot(BlockPos roomOrigin, FactoryLocation location) {
+            FactoryLocation existing = factories.putIfAbsent(roomOrigin, location);
+            if (existing != null) {
+                if (!existing.factoryId().equals(location.factoryId())) return false;
+                factories.replace(roomOrigin, existing, location);
+            }
+            for (String region : rootRegionsForOrigin(roomOrigin)) {
+                rootRegions.computeIfAbsent(region, ignored -> ConcurrentHashMap.newKeySet()).add(roomOrigin);
+            }
+            return true;
+        }
+    }
+
+    /** Generic only so the world-isolation invariant can be regression-tested without booting Minecraft. */
+    static final class ServerStates<K> {
+        private final Map<K, RuntimeState> states = new WeakHashMap<>();
+
+        synchronized RuntimeState get(K server) {
+            return states.computeIfAbsent(Objects.requireNonNull(server, "server"), ignored -> new RuntimeState());
+        }
+
+        synchronized void remove(K server) {
+            if (server != null) states.remove(server);
+        }
+    }
+
+    private static final ServerStates<MinecraftServer> SERVER_STATES = new ServerStates<>();
+
+    private static RuntimeState state(MinecraftServer server) {
+        return SERVER_STATES.get(server);
+    }
+
+    public static void releaseServer(MinecraftServer server) {
+        SERVER_STATES.remove(server);
+    }
+
+    public static boolean register(MinecraftServer server, BlockPos roomOrigin, FactoryLocation location) {
+        return registerRoot(server, roomOrigin, location);
     }
 
     /**
      * Registers a root room without allowing a later factory to overwrite an existing owner.
      */
-    public static boolean registerRoot(BlockPos roomOrigin, FactoryLocation location) {
-        FactoryLocation existing = FACTORIES.putIfAbsent(roomOrigin, location);
-        if (existing != null) {
-            if (!existing.factoryId().equals(location.factoryId())) {
-                return false;
-            }
-            // A physical transfer can change the block's current local position while
-            // preserving the same factory identity and room allocation.
-            FACTORIES.replace(roomOrigin, existing, location);
-        }
-        for (String region : rootRegionsForOrigin(roomOrigin)) {
-            ROOT_REGIONS.computeIfAbsent(region, k -> ConcurrentHashMap.newKeySet()).add(roomOrigin);
-        }
-        return true;
+    public static boolean registerRoot(MinecraftServer server, BlockPos roomOrigin, FactoryLocation location) {
+        return state(server).registerRoot(roomOrigin, location);
     }
 
-    public static void unregister(BlockPos roomOrigin, FactoryLocation expectedOwner) {
-        unregisterRoot(roomOrigin, expectedOwner);
+    public static void unregister(MinecraftServer server, BlockPos roomOrigin, FactoryLocation expectedOwner) {
+        unregisterRoot(server, roomOrigin, expectedOwner);
     }
 
     /**
      * Removes a root registration only when the caller still owns that origin.
      */
-    public static void unregisterRoot(BlockPos roomOrigin, FactoryLocation expectedOwner) {
-        if (!FACTORIES.remove(roomOrigin, expectedOwner)) {
+    public static void unregisterRoot(MinecraftServer server, BlockPos roomOrigin, FactoryLocation expectedOwner) {
+        RuntimeState state = state(server);
+        if (!state.factories.remove(roomOrigin, expectedOwner)) {
             return;
         }
         for (String region : rootRegionsForOrigin(roomOrigin)) {
-            Set<BlockPos> origins = ROOT_REGIONS.get(region);
+            Set<BlockPos> origins = state.rootRegions.get(region);
             if (origins != null) {
                 origins.remove(roomOrigin);
                 if (origins.isEmpty()) {
-                    ROOT_REGIONS.remove(region, origins);
+                    state.rootRegions.remove(region, origins);
                 }
             }
         }
     }
 
-    public static FactoryLocation get(BlockPos roomOrigin) {
-        return FACTORIES.get(roomOrigin);
+    public static FactoryLocation get(MinecraftServer server, BlockPos roomOrigin) {
+        return state(server).factories.get(roomOrigin);
     }
 
-    public static boolean isFactoryRegistered(String factoryId) {
+    public static boolean isFactoryRegistered(MinecraftServer server, String factoryId) {
         if (factoryId == null || factoryId.isBlank()) {
             return false;
         }
-        return FACTORIES.values().stream().anyMatch(location -> factoryId.equals(location.factoryId()))
-                || NESTED_SLOTS.values().stream().anyMatch(slot -> factoryId.equals(slot.location().factoryId()));
+        RuntimeState state = state(server);
+        return state.factories.values().stream().anyMatch(location -> factoryId.equals(location.factoryId()))
+                || state.nestedSlots.values().stream().anyMatch(slot -> factoryId.equals(slot.location().factoryId()));
     }
 
-    public static FactoryLocation findFactoryLocationById(String factoryId) {
+    public static FactoryLocation findFactoryLocationById(MinecraftServer server, String factoryId) {
         if (factoryId == null || factoryId.isBlank()) {
             return null;
         }
-        for (FactoryLocation location : FACTORIES.values()) {
+        RuntimeState state = state(server);
+        for (FactoryLocation location : state.factories.values()) {
             if (factoryId.equals(location.factoryId())) {
                 return location;
             }
         }
-        for (NestedSlot slot : NESTED_SLOTS.values()) {
+        for (NestedSlot slot : state.nestedSlots.values()) {
             if (factoryId.equals(slot.location().factoryId())) {
                 return slot.location();
             }
@@ -105,8 +137,8 @@ public class PocketRegistry {
         return null;
     }
 
-    public static Set<BlockPos> getRootOriginsInRegion(int regionX, int regionZ) {
-        Set<BlockPos> origins = ROOT_REGIONS.get(regionKey(regionX, regionZ));
+    public static Set<BlockPos> getRootOriginsInRegion(MinecraftServer server, int regionX, int regionZ) {
+        Set<BlockPos> origins = state(server).rootRegions.get(regionKey(regionX, regionZ));
         return origins == null ? Set.of() : origins;
     }
 
@@ -117,10 +149,11 @@ public class PocketRegistry {
     }
 
     public static NestedSlot registerNestedSlot(int slotId, FactoryLocation location, ServerLevel level) {
+        RuntimeState state = state(level.getServer());
         int slotX = slotXForId(slotId);
         int slotZ = slotZForId(slotId);
         SlotKey key = new SlotKey(slotX, slotZ);
-        NestedSlot existing = NESTED_SLOTS.get(key);
+        NestedSlot existing = state.nestedSlots.get(key);
         if (existing != null) {
             if (!existing.location().factoryId().equals(location.factoryId())) {
                 return null;
@@ -128,42 +161,45 @@ public class PocketRegistry {
             location = new FactoryLocation(existing.location().factoryId(), location.dimension(), location.pos());
         }
         NestedSlot slot = new NestedSlot(slotId, slotX, slotZ, location);
-        NESTED_SLOTS.put(key, slot);
-        SLOT_KEYS_BY_ID.put(slotId, key);
+        state.nestedSlots.put(key, slot);
+        state.slotKeysById.put(slotId, key);
         NestedFactorySaveData.get(level.getServer()).observeSlotId(slotId);
         return slot;
     }
 
-    public static boolean canClaimNestedSlot(int slotId, FactoryLocation location) {
-        NestedSlot existing = getNestedSlotById(slotId);
+    public static boolean canClaimNestedSlot(MinecraftServer server, int slotId, FactoryLocation location) {
+        NestedSlot existing = getNestedSlotById(server, slotId);
         return existing == null || existing.location().equals(location);
     }
 
-    public static NestedSlot getNestedSlot(int slotX, int slotZ) {
-        return NESTED_SLOTS.get(new SlotKey(slotX, slotZ));
+    public static NestedSlot getNestedSlot(MinecraftServer server, int slotX, int slotZ) {
+        return state(server).nestedSlots.get(new SlotKey(slotX, slotZ));
     }
 
-    public static NestedSlot getNestedSlotById(int slotId) {
-        SlotKey key = SLOT_KEYS_BY_ID.get(slotId);
-        return key == null ? null : NESTED_SLOTS.get(key);
+    public static NestedSlot getNestedSlotById(MinecraftServer server, int slotId) {
+        RuntimeState state = state(server);
+        SlotKey key = state.slotKeysById.get(slotId);
+        return key == null ? null : state.nestedSlots.get(key);
     }
 
-    public static void unregisterNestedSlot(int slotId) {
-        SlotKey key = SLOT_KEYS_BY_ID.remove(slotId);
+    public static void unregisterNestedSlot(MinecraftServer server, int slotId) {
+        RuntimeState state = state(server);
+        SlotKey key = state.slotKeysById.remove(slotId);
         if (key != null) {
-            NESTED_SLOTS.remove(key);
+            state.nestedSlots.remove(key);
         }
     }
 
-    public static void unregisterNestedSlot(int slotId, FactoryLocation expectedOwner) {
-        SlotKey key = SLOT_KEYS_BY_ID.get(slotId);
+    public static void unregisterNestedSlot(MinecraftServer server, int slotId, FactoryLocation expectedOwner) {
+        RuntimeState state = state(server);
+        SlotKey key = state.slotKeysById.get(slotId);
         if (key == null) {
             return;
         }
-        NestedSlot existing = NESTED_SLOTS.get(key);
+        NestedSlot existing = state.nestedSlots.get(key);
         if (existing != null && existing.location().equals(expectedOwner)) {
-            if (NESTED_SLOTS.remove(key, existing)) {
-                SLOT_KEYS_BY_ID.remove(slotId, key);
+            if (state.nestedSlots.remove(key, existing)) {
+                state.slotKeysById.remove(slotId, key);
             }
         }
     }
@@ -195,51 +231,55 @@ public class PocketRegistry {
         return regionX + ":" + regionZ;
     }
 
-    public static void registerPort(BlockPos roomOrigin, int portId, BlockPos portPos) {
-        PORTS.computeIfAbsent(new PortKey(roomOrigin, portId), ignored -> ConcurrentHashMap.newKeySet())
+    public static void registerPort(MinecraftServer server, BlockPos roomOrigin, int portId, BlockPos portPos) {
+        state(server).ports.computeIfAbsent(new PortKey(roomOrigin, portId), ignored -> ConcurrentHashMap.newKeySet())
                 .add(portPos.immutable());
     }
 
-    public static void unregisterPort(BlockPos roomOrigin, int portId, BlockPos portPos) {
+    public static void unregisterPort(MinecraftServer server, BlockPos roomOrigin, int portId, BlockPos portPos) {
+        RuntimeState state = state(server);
         PortKey key = new PortKey(roomOrigin, portId);
-        Set<BlockPos> ports = PORTS.get(key);
+        Set<BlockPos> ports = state.ports.get(key);
         if (ports == null) {
             return;
         }
         ports.remove(portPos);
         if (ports.isEmpty()) {
-            PORTS.remove(key, ports);
+            state.ports.remove(key, ports);
         }
     }
 
-    public static Set<BlockPos> getPorts(BlockPos roomOrigin, int portId) {
-        Set<BlockPos> ports = PORTS.get(new PortKey(roomOrigin, portId));
+    public static Set<BlockPos> getPorts(MinecraftServer server, BlockPos roomOrigin, int portId) {
+        Set<BlockPos> ports = state(server).ports.get(new PortKey(roomOrigin, portId));
         return ports == null ? Set.of() : Set.copyOf(ports);
     }
 
-    public static void registerStressPort(BlockPos roomOrigin, BlockPos portPos) {
-        STRESS_PORTS.computeIfAbsent(roomOrigin, k -> ConcurrentHashMap.newKeySet()).add(portPos);
+    public static void registerStressPort(MinecraftServer server, BlockPos roomOrigin, BlockPos portPos) {
+        state(server).stressPorts.computeIfAbsent(roomOrigin, k -> ConcurrentHashMap.newKeySet())
+                .add(portPos.immutable());
     }
 
-    public static void unregisterStressPort(BlockPos roomOrigin, BlockPos portPos) {
-        Set<BlockPos> ports = STRESS_PORTS.get(roomOrigin);
+    public static void unregisterStressPort(MinecraftServer server, BlockPos roomOrigin, BlockPos portPos) {
+        RuntimeState state = state(server);
+        Set<BlockPos> ports = state.stressPorts.get(roomOrigin);
         if (ports == null) {
             return;
         }
         ports.remove(portPos);
         if (ports.isEmpty()) {
-            STRESS_PORTS.remove(roomOrigin, ports);
+            state.stressPorts.remove(roomOrigin, ports);
         }
     }
 
-    public static Set<BlockPos> getStressPorts(BlockPos roomOrigin) {
-        Set<BlockPos> ports = STRESS_PORTS.get(roomOrigin);
+    public static Set<BlockPos> getStressPorts(MinecraftServer server, BlockPos roomOrigin) {
+        Set<BlockPos> ports = state(server).stressPorts.get(roomOrigin);
         return ports == null ? Set.of() : ports;
     }
 
     /** Removes all transient port registrations for a factory room that is being destroyed. */
-    public static void clearRoomRegistrations(BlockPos roomOrigin) {
-        PORTS.keySet().removeIf(key -> key.roomOrigin().equals(roomOrigin));
-        STRESS_PORTS.remove(roomOrigin);
+    public static void clearRoomRegistrations(MinecraftServer server, BlockPos roomOrigin) {
+        RuntimeState state = state(server);
+        state.ports.keySet().removeIf(key -> key.roomOrigin().equals(roomOrigin));
+        state.stressPorts.remove(roomOrigin);
     }
 }
