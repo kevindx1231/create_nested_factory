@@ -9,6 +9,7 @@
     "LevelFreezeMixin",
     "LevelTicksFreezeMixin",
     "ServerLevelFreezeMixin",
+    "ServerLevelRandomTickFreezeMixin",
     "LevelChunkLearningMixin",
     "DrillBlockEntityLearningMixin",
     "DrillMovementBehaviourLearningMixin"

@@ -4,7 +4,7 @@
 
 > Build real factories inside persistent Pocket rooms, connect them through Create logistics, and turn verified production lines into nestable black-box factories.
 
-当前正式版 / Latest stable release: **v1.5.0**
+当前正式版 / Latest stable release: **v1.5.1**
 
 <a id="简体中文"></a>
 
@@ -14,7 +14,7 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 
 ### 运行要求
 
-| 项目 | v1.5.0 支持版本 |
+| 项目 | v1.5.1 支持版本 |
 |---|---|
 | Minecraft | 1.21.1 |
 | Java | 21 |
@@ -23,7 +23,7 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 
 客户端和专用服务器应安装相同版本的本模组及必需依赖。
 
-### v1.5.0 完整功能
+### v1.5.1 完整功能
 
 #### Pocket 工厂与嵌套空间
 
@@ -130,7 +130,7 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 - 潜行右键另一座兼容工厂应用蓝图；不能应用到蓝图来源本身，也不能覆盖尚未取消的现有蓝图。
 - 蓝图模式不加载真实 Pocket 产线，直接按经过验证的合同运行；取消蓝图时按所有权规则结算或清理模拟状态。
 - 终端蓝图工厂专门用于在最大房间深度之外继续封装生产。
-- v1.5.0 使用当前计划/蓝图格式；缺少所有权、来源或应力证明的旧格式不会猜测迁移，必须重新学习并重新复制蓝图。
+- v1.5.1 使用当前计划/蓝图格式；缺少所有权、来源或应力证明的旧格式不会猜测迁移，必须重新学习并重新复制蓝图。
 
 #### 工厂通道
 
@@ -165,7 +165,7 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 
 ### 可选兼容
 
-| 模组组合 | v1.5.0 支持内容 |
+| 模组组合 | v1.5.1 支持内容 |
 |---|---|
 | 不安装可选模组 | 完整基础 Pocket、端口、应力、学习、黑盒、蓝图、冻结和通道功能 |
 | Mekanism 10.7+ | 工厂面与扩展接口的 Chemical 和 Heat capability；Heat 双向，Chemical 遵守端口方向 |
@@ -210,7 +210,7 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 
 1. 安装 Minecraft 1.21.1、Java 21 和 NeoForge 21.1.x。
 2. 安装 Create 6.0.9–6.0.x。
-3. 从 [Releases](https://github.com/kevindx1231/create_nested_factory/releases) 下载 `create_nested_factory-1.5.0.jar`。
+3. 从 [Releases](https://github.com/kevindx1231/create_nested_factory/releases) 下载 `create_nested_factory-1.5.1.jar`。
 4. 把 JAR 放入客户端和服务器的 `mods` 目录；不要同时保留本模组的其他版本。
 5. 如需兼容功能，再安装上表中的可选模组。
 
@@ -249,7 +249,7 @@ Linux/macOS：
 ./gradlew check build --stacktrace
 ```
 
-正式 JAR 输出到 `build/libs/create_nested_factory-1.5.0.jar`。`check` 会运行通道、防重入、冻结索引、服务器隔离、学习控制器、房间几何、生命周期转换、蓝图资本和发布修复回归任务。
+正式 JAR 输出到 `build/libs/create_nested_factory-1.5.1.jar`。`check` 会运行通道、防重入、冻结索引、服务器隔离、学习控制器、房间几何、生命周期转换、蓝图资本和发布修复回归任务。
 
 ### 问题反馈
 
@@ -279,7 +279,7 @@ Create Nested Factory is an automation mod for Minecraft 1.21.1, NeoForge, and C
 
 ### Requirements
 
-| Component | Supported by v1.5.0 |
+| Component | Supported by v1.5.1 |
 |---|---|
 | Minecraft | 1.21.1 |
 | Java | 21 |
@@ -288,7 +288,7 @@ Create Nested Factory is an automation mod for Minecraft 1.21.1, NeoForge, and C
 
 Clients and dedicated servers should install the same version of this mod and all required dependencies.
 
-### Complete v1.5.0 feature set
+### Complete v1.5.1 feature set
 
 #### Pocket factories and nested spaces
 
@@ -395,7 +395,7 @@ Clients and dedicated servers should install the same version of this mod and al
 - Sneak-right-click another compatible factory to apply it. A blueprint cannot target its source factory or overwrite an existing blueprint until that mode is cancelled.
 - Blueprint mode runs the verified contract without loading the physical Pocket line. Cancelling it settles or clears simulated state according to ownership rules.
 - Terminal blueprint-only factories allow one additional encapsulation layer beyond the maximum room depth.
-- v1.5.0 uses the current plan and blueprint format. Older formats without ownership, source, or stress evidence are not guessed or migrated; relearn and recopy them.
+- v1.5.1 uses the current plan and blueprint format. Older formats without ownership, source, or stress evidence are not guessed or migrated; relearn and recopy them.
 
 #### Factory Passages
 
@@ -430,7 +430,7 @@ Clients and dedicated servers should install the same version of this mod and al
 
 ### Optional compatibility
 
-| Mod combination | v1.5.0 integration |
+| Mod combination | v1.5.1 integration |
 |---|---|
 | No optional mods | Complete base Pocket, port, stress, learning, black-box, blueprint, freeze, and passage features |
 | Mekanism 10.7+ | Chemical and Heat capabilities on factory faces and extension interfaces; Heat is bidirectional and Chemical follows port direction |
@@ -475,7 +475,7 @@ Data-pack recipes cover ordinary crafting, mixing, splashing, and Create sequenc
 
 1. Install Minecraft 1.21.1, Java 21, and NeoForge 21.1.x.
 2. Install Create 6.0.9–6.0.x.
-3. Download `create_nested_factory-1.5.0.jar` from [Releases](https://github.com/kevindx1231/create_nested_factory/releases).
+3. Download `create_nested_factory-1.5.1.jar` from [Releases](https://github.com/kevindx1231/create_nested_factory/releases).
 4. Put the JAR in the `mods` directory on both client and server. Do not keep another version of Create Nested Factory in the same instance.
 5. Install any optional mods required for the integrations listed above.
 
@@ -514,7 +514,7 @@ Linux/macOS:
 ./gradlew check build --stacktrace
 ```
 
-The release JAR is written to `build/libs/create_nested_factory-1.5.0.jar`. `check` runs passage/re-entry, freeze-index, server-isolation, learning-controller, room-geometry, lifecycle-transition, blueprint-capital, and release-fix regression tasks.
+The release JAR is written to `build/libs/create_nested_factory-1.5.1.jar`. `check` runs passage/re-entry, freeze-index, server-isolation, learning-controller, room-geometry, lifecycle-transition, blueprint-capital, and release-fix regression tasks.
 
 ### Reporting issues
 
