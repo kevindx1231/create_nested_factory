@@ -1,0 +1,27 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "B": {
+      "item": "create:brass_sheet"
+    },
+    "D": {
+      "item": "create:framed_glass_door"
+    },
+    "E": {
+      "item": "create:electron_tube"
+    },
+    "S": {
+      "item": "create_nested_factory:sturdy_alloy_sheet"
+    }
+  },
+  "pattern": [
+    "BEB",
+    "SDS",
+    "BEB"
+  ],
+  "result": {
+    "id": "create_nested_factory:factory_passage",
+    "count": 2
+  }
+}

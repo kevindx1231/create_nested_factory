@@ -29,7 +29,8 @@
       "create_nested_factory:nested_factory",
       "create_nested_factory:nested_port",
       "create_nested_factory:nested_extension_interface",
-      "create_nested_factory:nested_stress_port"
+      "create_nested_factory:nested_stress_port",
+      "create_nested_factory:factory_passage"
     ]
   }
 }
