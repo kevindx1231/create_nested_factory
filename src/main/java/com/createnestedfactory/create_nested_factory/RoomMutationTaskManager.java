@@ -379,6 +379,9 @@ public final class RoomMutationTaskManager extends SavedData {
                 }
             }
             NestedFactorySaveData.get(server).releaseRootAllocation(task.factory.factoryId());
+            FactoryDirectorySavedData.get(server).forget(task.factory.factoryId());
+            com.createnestedfactory.create_nested_factory.command.FactoryCommandService
+                    .onRoomDeleted(server, task.factory.factoryId());
         }
     }
 

@@ -84,8 +84,11 @@ public final class FactoryPassageSavedData extends SavedData {
         Endpoint previous = endpoints.get(key);
         EndpointKey oldKey = passageId == null || passageId.isBlank() ? null : keysByPassageId.get(passageId);
         Endpoint moved = oldKey == null || oldKey.equals(key) ? null : endpoints.get(oldKey);
-        long sequence = previous != null ? previous.placementSequence()
-                : moved != null ? moved.placementSequence() : allocatePlacementSequence();
+        // Identity owns order. An occupied destination may belong to an older, unrelated endpoint.
+        long sequence = moved != null ? moved.placementSequence()
+                : previous != null && (previous.passageId().isBlank()
+                || previous.passageId().equals(passageId)) ? previous.placementSequence()
+                : allocatePlacementSequence();
         Endpoint endpoint = new Endpoint(dimension, pos, passageId, targetFactoryId, targetRootFactoryId, sequence);
         if (endpoint.equals(previous)) return;
         if (!endpoint.passageId().isBlank()) {
@@ -107,6 +110,16 @@ public final class FactoryPassageSavedData extends SavedData {
             unindex(key, removed);
             setDirty();
         }
+    }
+
+    public synchronized void unregister(Endpoint expected) {
+        EndpointKey key = new EndpointKey(expected.dimension(), expected.pos());
+        if (expected.equals(endpoints.get(key))) unregister(expected.dimension(), expected.pos());
+    }
+
+    public synchronized void unregister(ResourceKey<Level> dimension, BlockPos pos, String passageId) {
+        Endpoint current = endpoints.get(new EndpointKey(dimension, pos));
+        if (current != null && current.passageId().equals(passageId)) unregister(dimension, pos);
     }
 
     public synchronized List<Endpoint> boundTo(String factoryId) {

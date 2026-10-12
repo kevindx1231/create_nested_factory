@@ -1,15 +1,14 @@
 package com.createnestedfactory.create_nested_factory.block.entity;
 
 import com.createnestedfactory.create_nested_factory.FactoryPassageSavedData;
-import com.createnestedfactory.create_nested_factory.FactoryPassageAvailability;
-import com.createnestedfactory.create_nested_factory.PocketRegistry;
+import com.createnestedfactory.create_nested_factory.FactoryPassageNavigation;
+import com.createnestedfactory.create_nested_factory.FactoryPassageMovement;
 import com.createnestedfactory.create_nested_factory.block.FactoryPassageBlock;
 import com.createnestedfactory.create_nested_factory.block.NestedFactoryBlock;
 import com.createnestedfactory.create_nested_factory.block.OperationMode;
 import com.createnestedfactory.create_nested_factory.network.PlayerMessagePayload;
 import com.createnestedfactory.create_nested_factory.registry.ModAttachments;
 import com.createnestedfactory.create_nested_factory.registry.ModBlockEntities;
-import com.createnestedfactory.create_nested_factory.registry.ModBlocks;
 import com.simibubi.create.foundation.blockEntity.SyncedBlockEntity;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
@@ -25,7 +24,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.UUID;
@@ -39,6 +37,9 @@ public final class FactoryPassageBlockEntity extends SyncedBlockEntity {
     private String targetRootFactoryId = "";
     private ItemStack marker = ItemStack.EMPTY;
     private long lastFailureMessageTick = Long.MIN_VALUE;
+    private long lastTravelTick = Long.MIN_VALUE;
+    private final java.util.Set<UUID> travellingPlayers = new java.util.HashSet<>();
+    private boolean endpointResolutionPending;
 
     private record ResolvedEndpoint(FactoryPassageSavedData.Endpoint endpoint,
                                     FactoryPassageBlockEntity passage) {
@@ -46,9 +47,7 @@ public final class FactoryPassageBlockEntity extends SyncedBlockEntity {
 
     public enum BindingResult {
         BOUND,
-        UNBOUND,
-        PHYSICALIZED_PASSAGE,
-        PHYSICALIZED_TARGET
+        UNBOUND
     }
 
     public FactoryPassageBlockEntity(BlockPos pos, BlockState state) {
@@ -83,24 +82,18 @@ public final class FactoryPassageBlockEntity extends SyncedBlockEntity {
         return marker;
     }
 
-    public void setMarker(ItemStack stack) {
-        marker = stack.copyWithCount(1);
+    public boolean setMarker(ItemStack stack) {
+        ItemStack updated = stack.isEmpty() ? ItemStack.EMPTY : stack.copyWithCount(1);
+        if (ItemStack.matches(marker, updated)) return false;
+        marker = updated;
         setChanged();
         if (level != null && !level.isClientSide()) {
             sendData();
         }
+        return true;
     }
 
     public BindingResult setBinding(ModAttachments.FactoryReference reference) {
-        if (FactoryPassageAvailability.isPhysicalized(this)) {
-            return BindingResult.PHYSICALIZED_PASSAGE;
-        }
-        if (reference != null && reference.isComplete()) {
-            NestedFactoryBlockEntity target = resolveFactoryReference(reference);
-            if (target != null && FactoryPassageAvailability.isPhysicalized(target)) {
-                return BindingResult.PHYSICALIZED_TARGET;
-            }
-        }
         if (reference == null || !reference.isComplete()) {
             targetDimension = null;
             targetPos = null;
@@ -121,10 +114,6 @@ public final class FactoryPassageBlockEntity extends SyncedBlockEntity {
     }
 
     public void describeBinding(ServerPlayer player) {
-        if (FactoryPassageAvailability.isPhysicalized(this)) {
-            notifyFailure(player, "message.create_nested_factory.passage.physicalized_passage");
-            return;
-        }
         if (!isBound()) {
             PlayerMessagePayload.sendTo(player,
                     Component.translatable("message.create_nested_factory.passage.unbound")
@@ -132,10 +121,6 @@ public final class FactoryPassageBlockEntity extends SyncedBlockEntity {
             return;
         }
         NestedFactoryBlockEntity factory = resolveTargetFactory();
-        if (factory != null && FactoryPassageAvailability.isPhysicalized(factory)) {
-            notifyFailure(player, "message.create_nested_factory.passage.physicalized_target");
-            return;
-        }
         Component name = factory == null ? Component.literal(targetFactoryId) : factory.getDisplayName();
         PlayerMessagePayload.sendTo(player,
                 Component.translatable("message.create_nested_factory.passage.bound_target", name)
@@ -146,10 +131,17 @@ public final class FactoryPassageBlockEntity extends SyncedBlockEntity {
         if (level == null || level.isClientSide() || !(level instanceof ServerLevel serverLevel)) {
             return;
         }
-        if (FactoryPassageAvailability.isPhysicalized(this)) {
-            notifyFailure(player, "message.create_nested_factory.passage.physicalized_passage");
+        if (!FactoryPassageNavigation.space(level, worldPosition).ready()) {
+            notifyFailure(player, "message.create_nested_factory.passage.loading");
             return;
         }
+        long tick = level.getGameTime();
+        if (lastTravelTick != tick) {
+            travellingPlayers.clear();
+            lastTravelTick = tick;
+        }
+        if (!travellingPlayers.add(player.getUUID())) return;
+        endpointResolutionPending = false;
         if (isBound()) {
             travelIntoFactory(player);
         } else if (serverLevel.dimension().equals(NestedFactoryBlock.POCKET_DIMENSION)) {
@@ -162,15 +154,15 @@ public final class FactoryPassageBlockEntity extends SyncedBlockEntity {
     private void travelIntoFactory(ServerPlayer player) {
         NestedFactoryBlockEntity target = resolveTargetFactory();
         if (target == null) {
-            notifyFailure(player, "message.create_nested_factory.passage.target_missing");
+            notifyFailure(player, endpointResolutionPending ? "message.create_nested_factory.passage.loading"
+                    : "message.create_nested_factory.passage.target_missing");
             return;
         }
-        if (FactoryPassageAvailability.isPhysicalized(target)) {
-            notifyFailure(player, "message.create_nested_factory.passage.physicalized_target");
-            return;
-        }
-
         ResolvedEndpoint primaryInner = resolvePrimaryInner(target);
+        if (endpointResolutionPending) {
+            notifyFailure(player, "message.create_nested_factory.passage.loading");
+            return;
+        }
         FactoryPassagePairing.IntoStatus pairing = FactoryPassagePairing.classifyInto(
                 isBound() && targetFactoryId.equals(target.getFactoryId()), primaryInner != null);
         if (pairing == FactoryPassagePairing.IntoStatus.UNPAIRED) {
@@ -179,17 +171,21 @@ public final class FactoryPassageBlockEntity extends SyncedBlockEntity {
         }
         Vec3 destination = null;
         float yRot = player.getYRot();
+        ModAttachments.PassageTravelGuard previousGuard = player.getData(ModAttachments.PASSAGE_TRAVEL_GUARD);
         if (pairing == FactoryPassagePairing.IntoStatus.PRIMARY_INNER) {
             FactoryPassageSavedData.Endpoint endpoint = primaryInner.endpoint();
-            destination = arrivalPosition(endpoint.pos());
-            yRot = primaryInner.passage().getBlockState().getValue(FactoryPassageBlock.FACING).toYRot();
-            player.setData(ModAttachments.PASSAGE_TRAVEL_GUARD,
-                    ModAttachments.PassageTravelGuard.arrival(primaryInner.passage().getPassageId(),
-                            endpoint.dimension(), endpoint.pos()));
+            var arrival = FactoryPassageNavigation.arrival(player, endpoint);
+            if (arrival.status() != FactoryPassageNavigation.Status.READY) {
+                notifyFailure(player, "message.create_nested_factory.passage.loading");
+                return;
+            }
+            destination = arrival.destination().position();
+            yRot = arrival.destination().yRot();
+            FactoryPassageNavigation.guard(player, primaryInner.passage());
         }
         boolean travelled = NestedFactoryBlock.enterFactoryViaPassage(player, target, destination, yRot, passageId);
         if (!travelled) {
-            player.setData(ModAttachments.PASSAGE_TRAVEL_GUARD, ModAttachments.PassageTravelGuard.empty());
+            player.setData(ModAttachments.PASSAGE_TRAVEL_GUARD, previousGuard);
         }
     }
 
@@ -199,16 +195,16 @@ public final class FactoryPassageBlockEntity extends SyncedBlockEntity {
             notifyFailure(player, "message.create_nested_factory.passage.unpaired");
             return;
         }
-        if (FactoryPassageAvailability.isPhysicalized(owner)) {
-            notifyFailure(player, "message.create_nested_factory.passage.physicalized_owner");
-            return;
-        }
         if (owner.getOperationMode() != OperationMode.CHUNK_LOADED) {
             notifyFailure(player, "message.create_nested_factory.passage.chunk_loaded_required");
             return;
         }
 
         ResolvedEndpoint primaryInner = resolvePrimaryInner(owner);
+        if (endpointResolutionPending) {
+            notifyFailure(player, "message.create_nested_factory.passage.loading");
+            return;
+        }
         if (primaryInner == null || !primaryInner.endpoint().pos().equals(worldPosition)) {
             notifyFailure(player, "message.create_nested_factory.passage.inactive_inner");
             return;
@@ -224,30 +220,28 @@ public final class FactoryPassageBlockEntity extends SyncedBlockEntity {
 
         ResolvedEndpoint fallbackOuter = resolveFirstBoundOuter(owner.getFactoryId());
         if (fallbackOuter == null) {
+            if (endpointResolutionPending) {
+                notifyFailure(player, "message.create_nested_factory.passage.loading");
+                return;
+            }
             NestedFactoryBlock.exitCurrentFactoryViaPassage(player, null, null, player.getYRot());
             return;
         }
         FactoryPassageSavedData.Endpoint endpoint = fallbackOuter.endpoint();
-        Vec3 destination = arrivalPosition(endpoint.pos());
-        player.setData(ModAttachments.PASSAGE_TRAVEL_GUARD,
-                ModAttachments.PassageTravelGuard.arrival(fallbackOuter.passage().getPassageId(),
-                        endpoint.dimension(), endpoint.pos()));
-        float yRot = fallbackOuter.passage().getBlockState().getValue(FactoryPassageBlock.FACING).toYRot();
-        boolean travelled = NestedFactoryBlock.exitCurrentFactoryViaPassage(player, endpoint.dimension(),
-                destination, yRot);
-        if (!travelled) {
-            player.setData(ModAttachments.PASSAGE_TRAVEL_GUARD, ModAttachments.PassageTravelGuard.empty());
-        }
+        NestedFactoryBlock.exitCurrentFactoryViaPassage(player, endpoint);
     }
 
     private ResolvedEndpoint resolveFirstBoundOuter(String factoryId) {
         MinecraftServer server = level.getServer();
         if (server == null) return null;
         for (FactoryPassageSavedData.Endpoint endpoint : FactoryPassageSavedData.get(server).boundTo(factoryId)) {
-            if (!isIndexedEndpointValid(server, endpoint)) continue;
-            FactoryPassageBlockEntity passage = resolveEndpoint(server, endpoint);
-            if (passage != null && !FactoryPassageAvailability.isPhysicalized(passage)
-                    && factoryId.equals(passage.targetFactoryId)) {
+            var resolution = FactoryPassageNavigation.resolve(server, endpoint);
+            if (resolution.status() == FactoryPassageNavigation.Status.RETRY_LATER) {
+                endpointResolutionPending = true;
+                return null;
+            }
+            FactoryPassageBlockEntity passage = resolution.passage();
+            if (passage != null && factoryId.equals(passage.targetFactoryId)) {
                 return new ResolvedEndpoint(endpoint, passage);
             }
         }
@@ -264,60 +258,19 @@ public final class FactoryPassageBlockEntity extends SyncedBlockEntity {
                 factory.getBounds().maxZ(origin));
         for (FactoryPassageSavedData.Endpoint endpoint : FactoryPassageSavedData.get(server)
                 .unboundInPocket(min, max)) {
-            if (!isIndexedEndpointValid(server, endpoint)) continue;
-            FactoryPassageBlockEntity passage = resolveEndpoint(server, endpoint);
-            if (passage == null || passage.isBound()
-                    || FactoryPassageAvailability.isPhysicalized(passage)) continue;
+            var resolution = FactoryPassageNavigation.resolve(server, endpoint);
+            if (resolution.status() == FactoryPassageNavigation.Status.RETRY_LATER) {
+                endpointResolutionPending = true;
+                return null;
+            }
+            FactoryPassageBlockEntity passage = resolution.passage();
+            if (passage == null || passage.isBound()) continue;
             ServerLevel pocket = server.getLevel(NestedFactoryBlock.POCKET_DIMENSION);
             if (pocket != null && NestedFactoryBlock.findFactoryAt(pocket, endpoint.pos()) == factory) {
                 return new ResolvedEndpoint(endpoint, passage);
             }
         }
         return null;
-    }
-
-    /** Validates loaded endpoints without loading every indexed candidate. */
-    private boolean isIndexedEndpointValid(MinecraftServer server, FactoryPassageSavedData.Endpoint endpoint) {
-        ServerLevel endpointLevel = server.getLevel(endpoint.dimension());
-        if (endpointLevel == null) {
-            return false;
-        }
-        if (!endpointLevel.hasChunkAt(endpoint.pos())) {
-            return true;
-        }
-        BlockState state = endpointLevel.getBlockState(endpoint.pos());
-        if (!state.is(ModBlocks.FACTORY_PASSAGE.get())
-                || state.getValue(FactoryPassageBlock.HALF) != DoubleBlockHalf.LOWER
-                || !(endpointLevel.getBlockEntity(endpoint.pos()) instanceof FactoryPassageBlockEntity passage)) {
-            FactoryPassageSavedData.get(server).unregister(endpoint.dimension(), endpoint.pos());
-            return false;
-        }
-        if (!endpoint.targetFactoryId().equals(passage.targetFactoryId)) {
-            passage.registerEndpoint();
-            return false;
-        }
-        return !FactoryPassageAvailability.isPhysicalized(passage);
-    }
-
-    private FactoryPassageBlockEntity resolveEndpoint(MinecraftServer server,
-                                                       FactoryPassageSavedData.Endpoint endpoint) {
-        ServerLevel endpointLevel = server.getLevel(endpoint.dimension());
-        if (endpointLevel == null) {
-            return null;
-        }
-        endpointLevel.getChunkAt(endpoint.pos());
-        BlockState state = endpointLevel.getBlockState(endpoint.pos());
-        if (!state.is(ModBlocks.FACTORY_PASSAGE.get())
-                || state.getValue(FactoryPassageBlock.HALF) != DoubleBlockHalf.LOWER
-                || !(endpointLevel.getBlockEntity(endpoint.pos()) instanceof FactoryPassageBlockEntity passage)) {
-            FactoryPassageSavedData.get(server).unregister(endpoint.dimension(), endpoint.pos());
-            return null;
-        }
-        if (!endpoint.targetFactoryId().equals(passage.targetFactoryId)) {
-            passage.registerEndpoint();
-            return null;
-        }
-        return FactoryPassageAvailability.isPhysicalized(passage) ? null : passage;
     }
 
     private NestedFactoryBlockEntity resolveTargetFactory() {
@@ -344,24 +297,14 @@ public final class FactoryPassageBlockEntity extends SyncedBlockEntity {
 
     private NestedFactoryBlockEntity resolveFactoryReference(ModAttachments.FactoryReference reference) {
         if (reference == null || !reference.isComplete() || level == null || level.getServer() == null) return null;
-        MinecraftServer server = level.getServer();
-        PocketRegistry.FactoryLocation current = PocketRegistry.findFactoryLocationById(server, reference.factoryId());
-        ResourceKey<Level> dimension = current == null ? reference.dimension() : current.dimension();
-        BlockPos pos = current == null ? reference.pos() : current.pos();
-        ServerLevel targetLevel = server.getLevel(dimension);
-        if (targetLevel == null) return null;
-        targetLevel.getChunkAt(pos);
-        return targetLevel.getBlockEntity(pos) instanceof NestedFactoryBlockEntity factory
-                && reference.factoryId().equals(factory.getFactoryId()) ? factory : null;
-    }
-
-    private static Vec3 arrivalPosition(BlockPos pos) {
-        return new Vec3(pos.getX() + 0.5, pos.getY() + 0.125, pos.getZ() + 0.5);
+        var resolved = FactoryPassageNavigation.resolveFactory(level.getServer(), reference);
+        endpointResolutionPending |= resolved.status() == FactoryPassageNavigation.Status.RETRY_LATER;
+        return resolved.factory();
     }
 
     private void notifyFailure(ServerPlayer player, String key) {
         long now = player.serverLevel().getGameTime();
-        if (now - lastFailureMessageTick < 40) {
+        if (lastFailureMessageTick != Long.MIN_VALUE && now - lastFailureMessageTick < 40) {
             return;
         }
         lastFailureMessageTick = now;
@@ -375,15 +318,19 @@ public final class FactoryPassageBlockEntity extends SyncedBlockEntity {
     }
 
     public void onDestroyed() {
-        if (level != null && !level.isClientSide() && level.getServer() != null) {
-            FactoryPassageSavedData.get(level.getServer()).unregister(level.dimension(), worldPosition);
+        if (level != null && !level.isClientSide() && level.getServer() != null
+                && !FactoryPassageMovement.isMoving(level, worldPosition)) {
+            FactoryPassageSavedData.get(level.getServer()).unregister(level.dimension(), worldPosition, passageId);
+            FactoryPassageNavigation.destroyed(this);
         }
     }
 
-    private void registerEndpoint() {
-        if (level != null && !level.isClientSide() && level.getServer() != null) {
+    public void registerEndpoint() {
+        if (level != null && !level.isClientSide() && level.getServer() != null
+                && !FactoryPassageMovement.isMoving(level, worldPosition)) {
             FactoryPassageSavedData.get(level.getServer())
                     .register(level.dimension(), worldPosition, passageId, targetFactoryId, targetRootFactoryId);
+            FactoryPassageNavigation.registered(this);
         }
     }
 

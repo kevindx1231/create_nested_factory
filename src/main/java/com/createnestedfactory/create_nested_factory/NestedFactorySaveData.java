@@ -12,8 +12,10 @@ import net.minecraft.world.level.saveddata.SavedData;
 
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * World-level persistent allocation data for factory pocket rooms.
@@ -34,6 +36,10 @@ public final class NestedFactorySaveData extends SavedData {
 
     private int nextSlotId;
     private int nextRootSlotId;
+    /** Only completed command deletions place slots in these persistent reuse pools. */
+    private final TreeSet<Integer> freeNestedSlots = new TreeSet<>();
+    private final TreeSet<Integer> freeRootSlots = new TreeSet<>();
+    private final TreeSet<BlockPos> freeLegacyRootOrigins = new TreeSet<>();
     private final Map<String, RootAllocation> rootAllocations = new HashMap<>();
     private final Map<BlockPos, String> rootOwnersByOrigin = new HashMap<>();
     /** Root factory identities whose complete nested tree is forbidden from running physically. */
@@ -48,12 +54,13 @@ public final class NestedFactorySaveData extends SavedData {
     }
 
     public synchronized int allocateSlotId() {
-        int id = nextSlotId++;
+        int id = freeNestedSlots.isEmpty() ? nextSlotId++ : freeNestedSlots.pollFirst();
         setDirty();
         return id;
     }
 
     public synchronized void observeSlotId(int slotId) {
+        if (freeNestedSlots.remove(slotId)) setDirty();
         if (slotId >= nextSlotId) {
             nextSlotId = slotId + 1;
             setDirty();
@@ -73,8 +80,13 @@ public final class NestedFactorySaveData extends SavedData {
             return persisted;
         }
 
+        while (!freeLegacyRootOrigins.isEmpty()) {
+            RootAllocation allocation = reserveIfAvailable(factoryId, NO_ROOT_SLOT_ID, freeLegacyRootOrigins.pollFirst());
+            if (allocation != null) return allocation;
+        }
+
         while (true) {
-            int slotId = nextRootSlotId++;
+            int slotId = freeRootSlots.isEmpty() ? nextRootSlotId++ : freeRootSlots.pollFirst();
             BlockPos origin = NestedFactoryBlock.getRootRoomOrigin(slotId);
             RootAllocation allocation = reserveIfAvailable(factoryId, slotId, origin);
             if (allocation != null) {
@@ -89,6 +101,34 @@ public final class NestedFactorySaveData extends SavedData {
             rootOwnersByOrigin.remove(allocation.roomOrigin(), factoryId);
             setDirty();
         }
+    }
+
+    /** The caller must wait for actual room cleanup, rather than merely unregistering its block. */
+    public synchronized void recycleCommandSlot(boolean nested, int slotId, BlockPos origin) {
+        if (origin == null) return;
+        if (nested) {
+            if (slotId >= 0 && slotId < nextSlotId && freeNestedSlots.add(slotId)) setDirty();
+        } else if (!rootOwnersByOrigin.containsKey(origin)) {
+            if (slotId >= 0 && slotId < nextRootSlotId
+                    && NestedFactoryBlock.getRootRoomOrigin(slotId).equals(origin)) {
+                if (freeRootSlots.add(slotId)) setDirty();
+            } else if (freeLegacyRootOrigins.add(origin)) setDirty();
+        }
+    }
+
+    /** Includes unloaded and portable descendants already known to the allocation data. */
+    public synchronized List<String> descendantFactoryIds(String factoryId) {
+        Set<String> visited = new HashSet<>();
+        visited.add(factoryId);
+        boolean changed;
+        do {
+            changed = false;
+            for (var entry : parentByFactoryId.entrySet()) {
+                if (visited.contains(entry.getValue()) && visited.add(entry.getKey())) changed = true;
+            }
+        } while (changed);
+        visited.remove(factoryId);
+        return visited.stream().sorted().toList();
     }
 
     public synchronized void acquireFreezeLease(String rootFactoryId) {
@@ -142,6 +182,8 @@ public final class NestedFactorySaveData extends SavedData {
         RootAllocation allocation = new RootAllocation(slotId, immutableOrigin);
         rootAllocations.put(factoryId, allocation);
         rootOwnersByOrigin.put(immutableOrigin, factoryId);
+        freeRootSlots.remove(slotId);
+        freeLegacyRootOrigins.remove(immutableOrigin);
         if (slotId >= nextRootSlotId) {
             nextRootSlotId = slotId + 1;
         }
@@ -187,6 +229,19 @@ public final class NestedFactorySaveData extends SavedData {
             String factoryId = entry.getString("FactoryId");
             if (!factoryId.isBlank()) data.parentByFactoryId.put(factoryId, entry.getString("ParentFactoryId"));
         }
+        for (int slot : tag.getIntArray("FreeNestedSlots")) {
+            if (slot >= 0 && slot < data.nextSlotId) data.freeNestedSlots.add(slot);
+        }
+        for (int slot : tag.getIntArray("FreeRootSlots")) {
+            if (slot >= 0 && slot < data.nextRootSlotId
+                    && !data.rootOwnersByOrigin.containsKey(NestedFactoryBlock.getRootRoomOrigin(slot))) {
+                data.freeRootSlots.add(slot);
+            }
+        }
+        for (long encodedOrigin : tag.getLongArray("FreeLegacyRootOrigins")) {
+            BlockPos origin = BlockPos.of(encodedOrigin);
+            if (!data.rootOwnersByOrigin.containsKey(origin)) data.freeLegacyRootOrigins.add(origin);
+        }
         return data;
     }
 
@@ -195,6 +250,9 @@ public final class NestedFactorySaveData extends SavedData {
         tag.putInt("Format", DATA_FORMAT);
         tag.putInt("NextSlotId", nextSlotId);
         tag.putInt("NextRootSlotId", nextRootSlotId);
+        tag.putIntArray("FreeNestedSlots", freeNestedSlots.stream().mapToInt(Integer::intValue).toArray());
+        tag.putIntArray("FreeRootSlots", freeRootSlots.stream().mapToInt(Integer::intValue).toArray());
+        tag.putLongArray("FreeLegacyRootOrigins", freeLegacyRootOrigins.stream().mapToLong(BlockPos::asLong).toArray());
 
         ListTag roots = new ListTag();
         for (Map.Entry<String, RootAllocation> entry : rootAllocations.entrySet()) {

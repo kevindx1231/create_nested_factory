@@ -218,6 +218,26 @@ public final class PocketFreezeSavedData extends SavedData {
         return removed.snapshot();
     }
 
+    /** Command deletion must remove a recycled room from ancestor manifests and paused work too. */
+    public synchronized void removeDeletedFactoryRoom(String factoryId) {
+        boolean changed = treesByRoot.remove(factoryId) != null;
+        for (MutableTree tree : treesByRoot.values()) {
+            List<FrozenRoom> removed = tree.rooms.stream()
+                    .filter(room -> room.factoryId().equals(factoryId)).toList();
+            if (removed.isEmpty()) continue;
+            tree.rooms.removeAll(removed);
+            tree.scheduledTicks.removeIf(tick -> removed.stream().anyMatch(room -> room.contains(tick.pos())));
+            tree.blockEvents.removeIf(event -> removed.stream().anyMatch(room -> room.contains(event.pos())));
+            tree.invalidateSnapshot();
+            changed = true;
+        }
+        if (changed) {
+            thawingSnapshot = null;
+            rebuildIndex();
+            setDirty();
+        }
+    }
+
     public synchronized boolean captureTick(BlockPos pos, TickKind kind, String typeId,
                                             long remainingDelay, String priority, long subTickOrder) {
         MutableTree tree = findTree(pos, null);

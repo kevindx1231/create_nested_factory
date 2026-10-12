@@ -1,6 +1,7 @@
 package com.createnestedfactory.create_nested_factory.event;
 
 import com.createnestedfactory.create_nested_factory.Create_nested_factory;
+import com.createnestedfactory.create_nested_factory.FactoryPassageNavigation;
 import com.createnestedfactory.create_nested_factory.RoomMutationTaskManager;
 import com.createnestedfactory.create_nested_factory.PocketFreezeHooks;
 import com.createnestedfactory.create_nested_factory.PocketRegistry;
@@ -275,7 +276,10 @@ public class PocketEvents {
         if (!(event.getEntity() instanceof ServerPlayer player)) {
             return;
         }
-        FactoryPassageBlock.updateTravelGuard(player);
+        FactoryPassageNavigation.updateTravelGuard(player);
+        if (player.getData(ModAttachments.PASSAGE_RESUME_PENDING) && player.serverLevel().getGameTime() % 20 == 0) {
+            NestedFactoryBlock.resumeSessionForPlayer(player);
+        }
         if (!player.getMainHandItem().is(com.createnestedfactory.create_nested_factory.registry.ModItems.FACTORY_PASSAGE.get())
                 && !player.getOffhandItem().is(com.createnestedfactory.create_nested_factory.registry.ModItems.FACTORY_PASSAGE.get())) {
             player.setData(ModAttachments.PASSAGE_SELECTION, ModAttachments.PassageSelection.empty());

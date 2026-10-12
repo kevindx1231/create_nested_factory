@@ -3,6 +3,8 @@ package com.createnestedfactory.create_nested_factory.block.entity;
 import com.createnestedfactory.create_nested_factory.network.PlayerMessagePayload;
 
 import com.createnestedfactory.create_nested_factory.Create_nested_factory;
+import com.createnestedfactory.create_nested_factory.FactoryPassageNavigation;
+import com.createnestedfactory.create_nested_factory.FactoryDirectorySavedData;
 import com.createnestedfactory.create_nested_factory.NestedFactorySaveData;
 import com.createnestedfactory.create_nested_factory.PocketRegistry;
 import com.createnestedfactory.create_nested_factory.RoomMutationTaskManager;
@@ -216,6 +218,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     private String childFactoryId = "";
     private BlockPos childFactoryPos = null;
     private boolean portableBinding = false;
+    private boolean portableItemCreated;
     private boolean bindingConflict = false;
     private boolean factoryStateInitialized = false;
     private int boundsVersion = 0;
@@ -267,6 +270,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         FactoryLifecycleTransitions.Transition transition =
                 FactoryLifecycleTransitions.require(operationMode, event);
         operationMode = transition.to();
+        observeDirectoryEntry(false);
         blackboxTrace("lifecycle_transition", () -> "event=" + transition.event()
                 + ", from=" + transition.from().getSerializedName()
                 + ", to=" + transition.to().getSerializedName());
@@ -313,6 +317,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     public void setCustomName(String name) {
         String trimmed = name == null ? "" : name.trim();
         this.customName = trimmed.isEmpty() ? null : trimmed;
+        observeDirectoryEntry(false);
         setChanged();
         if (level != null && !level.isClientSide()) {
             sendData();
@@ -694,6 +699,17 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         return stack.getOrDefault(DataComponents.BLOCK_ENTITY_DATA, CustomData.EMPTY).copyTag();
     }
 
+    /** Command inspection must not abort learning or turn a live block into an item binding. */
+    public CompoundTag exportCommandBindingData(HolderLookup.Provider registries) {
+        CompoundTag data = saveWithFullMetadata(registries);
+        data.remove("id");
+        data.remove("x");
+        data.remove("y");
+        data.remove("z");
+        data.putBoolean(PORTABLE_BINDING_KEY, true);
+        return data;
+    }
+
     public ItemStack createPortableItem(HolderLookup.Provider registries) {
         if (terminalBlueprintOnly) {
             settleTerminalForPermanentRemoval(null, "terminal_factory_broken");
@@ -722,7 +738,43 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         if (customName != null && !customName.isBlank()) {
             stack.set(DataComponents.CUSTOM_NAME, Component.literal(customName));
         }
+        observeDirectoryEntry(true);
+        portableItemCreated = true;
         return stack;
+    }
+
+    private void observeDirectoryEntry(boolean item) {
+        if (level == null || level.isClientSide() || level.getServer() == null
+                || !factoryStateInitialized || bindingConflict || invalidNested
+                || (!hasPhysicalRoom() && !terminalBlueprintOnly)
+                || (!item && (portableItemCreated || isRemoved()))) return;
+        FactoryDirectorySavedData.get(level.getServer()).observe(new FactoryDirectorySavedData.Entry(
+                factoryId, nested ? parentFactoryId : "", nested, hasPhysicalRoom(), operationMode,
+                customName, item ? "" : level.dimension().location().toString(), item ? null : worldPosition));
+        FactoryDirectorySavedData.get(level.getServer()).observeBindingData(factoryId,
+                exportCommandBindingData(level.registryAccess()));
+    }
+
+    /** Backfills portable bindings from older saves when their item first becomes active. */
+    public static void observePortableItem(MinecraftServer server, ItemStack stack) {
+        if (!stack.has(DataComponents.BLOCK_ENTITY_DATA)) return;
+        CompoundTag data = getFactoryItemData(stack);
+        if (!data.getBoolean(PORTABLE_BINDING_KEY) || data.getBoolean("TerminalBlueprintOnly")) return;
+        String id = data.getString("FactoryId");
+        boolean nested = data.getBoolean("Nested");
+        if (id.isBlank() || (nested ? data.getInt("NestedSlotId") < 0 : !data.getBoolean("RootRoomAllocated"))) return;
+        FactoryDirectorySavedData directory = FactoryDirectorySavedData.get(server);
+        if (directory.isUnavailable(id)
+                || data.getBoolean(com.createnestedfactory.create_nested_factory.command.FactoryCommandService.COPY_KEY)) return;
+        // An inventory copy cannot replace a live block binding or resurrect newer snapshot state.
+        if (directory.find(id) == null) {
+            directory.observe(new FactoryDirectorySavedData.Entry(id, nested ? data.getString("ParentFactoryId") : "",
+                    nested, true, readOperationMode(data.getString("OperationMode")),
+                    data.getString("CustomName"), "", null));
+        }
+        if (directory.find(id).isItem() && directory.bindingData(id) == null) {
+            directory.observeBindingData(id, data);
+        }
     }
 
     public static void destroyPortableItem(ServerLevel sourceLevel, ItemEntity itemEntity) {
@@ -746,6 +798,8 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         if (server == null) {
             return;
         }
+        if (!com.createnestedfactory.create_nested_factory.command.FactoryCommandService
+                .canDestroyPortableRoom(server, data)) return;
         String factoryId = data.getString("FactoryId");
         if (factoryId.isBlank() || PocketRegistry.isFactoryRegistered(server, factoryId)) {
             return;
@@ -4553,9 +4607,13 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                     return false;
                 }
             }
+            FactoryPassageNavigation.registeredFactory(this);
+            observeDirectoryEntry(false);
             return true;
         }
         if (!rootRoomAllocated || PocketRegistry.registerRoot(level.getServer(), roomOrigin(), location)) {
+            if (rootRoomAllocated) FactoryPassageNavigation.registeredFactory(this);
+            observeDirectoryEntry(false);
             return rootRoomAllocated;
         }
         bindingConflict = true;
@@ -4612,6 +4670,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
         if (level != null && !level.isClientSide() && level.getServer() != null) {
             NestedFactorySaveData.get(level.getServer()).observeFactoryParent(factoryId, parentFactoryId);
         }
+        observeDirectoryEntry(false);
         setChanged();
     }
 
@@ -4646,6 +4705,12 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     public void onLoad() {
         super.onLoad();
         if (level != null && !level.isClientSide()) {
+            if (FactoryDirectorySavedData.get(level.getServer()).isUnavailable(factoryId)) {
+                bindingConflict = true;
+                enterable = false;
+                releasePocketChunksImmediately();
+                return;
+            }
             if (!factoryStateInitialized) {
                 initializeFactoryState();
             }
@@ -4711,6 +4776,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     @Override
     public void destroy() {
         PocketLearningObserver.unregister(this);
+        if (!simulatedMoveInProgress) FactoryPassageNavigation.destroyedFactory(this);
         super.destroy();
     }
 
@@ -4874,7 +4940,16 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     public Component requestSpaceDestruction(ServerPlayer player) {
-        if (level == null || level.isClientSide() || player == null) {
+        return requestSpaceDestruction(player, false);
+    }
+
+    /** Command entry point shares the existing destruction flow, including console callers. */
+    public Component requestSpaceDestructionForCommand() {
+        return requestSpaceDestruction(null, true);
+    }
+
+    private Component requestSpaceDestruction(ServerPlayer player, boolean command) {
+        if (level == null || level.isClientSide() || (!command && player == null)) {
             return Component.translatable("message.create_nested_factory.factory.destroy_failed");
         }
         if (isRoomMutationLocked()) {
@@ -4903,7 +4978,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
                     Block.UPDATE_NEIGHBORS | Block.UPDATE_CLIENTS);
             return null;
         }
-        if (!(nested ? isValidNestedFactory() : rootRoomAllocated)) {
+        if (!(nested ? (command ? hasPhysicalRoom() : isValidNestedFactory()) : rootRoomAllocated)) {
             blackboxDebug("space_destruction_rejected", () -> "reason=invalid_room_binding");
             return Component.translatable("message.create_nested_factory.factory.destroy_failed");
         }
@@ -4943,6 +5018,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
             NestedFactorySaveData saveData = NestedFactorySaveData.get(server);
             saveData.releaseFreezeLease(factoryId);
             saveData.forgetFactoryParent(factoryId);
+            FactoryDirectorySavedData.get(server).forget(factoryId);
         }
     }
 

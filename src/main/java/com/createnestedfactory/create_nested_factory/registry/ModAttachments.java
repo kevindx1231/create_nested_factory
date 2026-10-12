@@ -33,6 +33,10 @@ public class ModAttachments {
     public static final Supplier<AttachmentType<PassageTravelGuard>> PASSAGE_TRAVEL_GUARD = ATTACHMENT_TYPES.register("passage_travel_guard",
             () -> AttachmentType.builder(PassageTravelGuard::empty).build());
 
+    /** A login waits for its physical factory without consuming the persistent return stack. */
+    public static final Supplier<AttachmentType<Boolean>> PASSAGE_RESUME_PENDING = ATTACHMENT_TYPES.register("passage_resume_pending",
+            () -> AttachmentType.builder(() -> false).build());
+
     /** A persistent, directly loadable reference to one specific factory block entity. */
     public record FactoryReference(ResourceKey<Level> dimension, BlockPos pos, String factoryId, String rootFactoryId) {
         public boolean isComplete() {
@@ -58,8 +62,7 @@ public class ModAttachments {
     }
 
     public record PassageTravelGuard(String passageId, ResourceKey<Level> dimension, BlockPos pos,
-                                     int settlingTicks, int outsideTicks, long lastContactGameTime,
-                                     boolean contactObserved) {
+                                     int settlingTicks, int outsideTicks, boolean arrived, boolean contactObserved) {
         public static final int ARRIVAL_SETTLING_TICKS = 40;
         public static final int EXIT_CONFIRM_TICKS = 2;
 
@@ -69,64 +72,39 @@ public class ModAttachments {
         }
 
         public static PassageTravelGuard empty() {
-            return new PassageTravelGuard("", null, null, 0, 0, Long.MIN_VALUE, false);
+            return new PassageTravelGuard("", null, null, 0, 0, false, false);
         }
 
         public static PassageTravelGuard arrival(String passageId, ResourceKey<Level> dimension, BlockPos pos) {
-            if (passageId == null || passageId.isBlank() || dimension == null || pos == null) {
-                return empty();
-            }
-            return new PassageTravelGuard(passageId, dimension, pos, ARRIVAL_SETTLING_TICKS,
-                    0, Long.MIN_VALUE, false);
-        }
-
-        public boolean matches(String candidatePassageId, ResourceKey<Level> candidateDimension,
-                               BlockPos candidatePos) {
-            if (!isActive() || candidatePassageId == null || candidatePassageId.isBlank()) {
-                return false;
-            }
-            return passageId.equals(candidatePassageId);
+            if (passageId == null || passageId.isBlank() || dimension == null || pos == null) return empty();
+            return new PassageTravelGuard(passageId, dimension, pos, ARRIVAL_SETTLING_TICKS, 0, false, false);
         }
 
         public boolean isActive() {
             return !passageId.isBlank() && dimension != null && pos != null;
         }
 
-        /** Whether a passage collision must be ignored while this arrival guard is active. */
-        public boolean blocks(String candidatePassageId, ResourceKey<Level> candidateDimension,
-                              BlockPos candidatePos) {
-            return matches(candidatePassageId, candidateDimension, candidatePos);
+        public boolean blocks(String candidatePassageId) {
+            return isActive() && passageId.equals(candidatePassageId);
         }
 
-        /** Records broad collision contact before the narrower passage trigger test runs. */
-        public PassageTravelGuard onCollision(String candidatePassageId, ResourceKey<Level> candidateDimension,
-                                              BlockPos candidatePos, long gameTime) {
-            if (!matches(candidatePassageId, candidateDimension, candidatePos)) {
-                return this;
+        /** Null contact means the moving endpoint is temporarily unavailable, not that it was left. */
+        public PassageTravelGuard afterTick(ResourceKey<Level> playerDimension, Boolean inside,
+                                             boolean moving, BlockPos currentPos) {
+            if (!isActive()) return this;
+            if (!dimension.equals(playerDimension)) return arrived ? empty() : this;
+            if (inside == null) {
+                return new PassageTravelGuard(passageId, dimension, currentPos, settlingTicks, 0, true, contactObserved);
             }
-            return new PassageTravelGuard(passageId, candidateDimension, candidatePos, settlingTicks,
-                    0, gameTime, true);
-        }
-
-        /** Keeps the guard until the destination passage has been observed and then actually left. */
-        public PassageTravelGuard afterTick(ResourceKey<Level> playerDimension, long gameTime) {
-            if (!isActive() || lastContactGameTime == gameTime) {
-                return this;
+            int remaining = Math.max(0, settlingTicks - 1);
+            if (inside) return new PassageTravelGuard(passageId, dimension, currentPos, remaining, 0, true, true);
+            // Static passages retain their existing quick exit; moving arrivals have a settling grace period.
+            if ((moving || !contactObserved) && remaining > 0) {
+                return new PassageTravelGuard(passageId, dimension, currentPos, remaining, 0, true, contactObserved);
             }
-            if (contactObserved) {
-                int nextOutsideTicks = outsideTicks + 1;
-                return nextOutsideTicks >= EXIT_CONFIRM_TICKS ? empty()
-                        : new PassageTravelGuard(passageId, dimension, pos, settlingTicks,
-                        nextOutsideTicks, lastContactGameTime, true);
-            }
-            if (!dimension.equals(playerDimension)) {
-                return this;
-            }
-            if (settlingTicks > 1) {
-                return new PassageTravelGuard(passageId, dimension, pos, settlingTicks - 1,
-                        0, lastContactGameTime, false);
-            }
-            return empty();
+            int outside = outsideTicks + 1;
+            return outside >= EXIT_CONFIRM_TICKS ? empty()
+                    : new PassageTravelGuard(passageId, dimension, currentPos, remaining, outside, true, contactObserved);
         }
     }
 

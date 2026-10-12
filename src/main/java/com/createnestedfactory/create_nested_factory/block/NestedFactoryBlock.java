@@ -5,7 +5,8 @@ import com.createnestedfactory.create_nested_factory.network.PlayerMessagePayloa
 import com.createnestedfactory.create_nested_factory.Create_nested_factory;
 import com.createnestedfactory.create_nested_factory.Config;
 import com.createnestedfactory.create_nested_factory.FactoryReturnAnchors;
-import com.createnestedfactory.create_nested_factory.FactoryPassageAvailability;
+import com.createnestedfactory.create_nested_factory.FactoryPassageNavigation;
+import com.createnestedfactory.create_nested_factory.FactoryPassageSavedData;
 import com.mojang.logging.LogUtils;
 import com.createnestedfactory.create_nested_factory.NestedFactorySaveData;
 import com.createnestedfactory.create_nested_factory.PocketRegistry;
@@ -206,6 +207,10 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
                                                 Vec3 requestedDestination, float destinationYRot,
                                                 boolean allowUnrelatedFactory, String sourcePassageId) {
         abortSessionOutsidePocket(player, "entry_outside_pocket");
+        if (Boolean.TRUE.equals(player.getData(ModAttachments.PASSAGE_RESUME_PENDING))) {
+            resumeSessionForPlayer(player);
+            if (Boolean.TRUE.equals(player.getData(ModAttachments.PASSAGE_RESUME_PENDING))) return false;
+        }
         if (factory == null || !factory.isEnterable()) {
             if (factory != null) {
                 factory.blackboxDebug("factory_entry_rejected", () -> "reason=not_enterable, player="
@@ -219,10 +224,8 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
             PlayerMessagePayload.sendTo(player, Component.translatable("message.create_nested_factory.factory.not_enterable").withStyle(ChatFormatting.RED), false);
             return false;
         }
-        if (allowUnrelatedFactory && FactoryPassageAvailability.isPhysicalized(factory)) {
-            PlayerMessagePayload.sendTo(player, Component.translatable(
-                            "message.create_nested_factory.passage.physicalized_target")
-                    .withStyle(ChatFormatting.RED), false);
+        if (allowUnrelatedFactory && factory.isSimulatedMoveInProgress()) {
+            notifyPassageLoading(player);
             return false;
         }
         if (factory.getOperationMode() != OperationMode.CHUNK_LOADED) {
@@ -241,10 +244,17 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
             PlayerMessagePayload.sendTo(player, Component.translatable("message.create_nested_factory.room_mutation.wait").withStyle(ChatFormatting.YELLOW), false);
             return false;
         }
+        if (allowUnrelatedFactory) FactoryPassageNavigation.retain(player, factory);
         BlockPos origin = factory.roomOrigin();
 
         ModAttachments.FactorySession session = player.getData(ModAttachments.FACTORY_SESSION);
+        ModAttachments.FactorySession originalSession = session;
         boolean startingNewSession = !session.isActive();
+        if (allowUnrelatedFactory && !startingNewSession
+                && resolveSessionFactory(server, session.currentFactory()).status() == FactoryPassageNavigation.Status.RETRY_LATER) {
+            notifyPassageLoading(player);
+            return false;
+        }
         ModAttachments.FactoryReference targetReference = factoryReference(factory);
         if (startingNewSession) {
             session = new ModAttachments.FactorySession(factory.getFactoryId(), factory.getFactoryId(), targetReference,
@@ -267,6 +277,18 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
         }
 
         List<ModAttachments.ReturnFrame> stack = new ArrayList<>(session.stack());
+        if (allowUnrelatedFactory && !sourcePassageId.isBlank()) {
+            var source = FactoryPassageNavigation.resolve(server,
+                    FactoryPassageSavedData.get(server).findByPassageId(sourcePassageId));
+            if (source.status() != FactoryPassageNavigation.Status.READY) {
+                if (startingNewSession) {
+                    finishSessionWithoutCurrent(player, session);
+                    player.setData(ModAttachments.FACTORY_SESSION, originalSession);
+                }
+                return false;
+            }
+            FactoryPassageNavigation.retain(player, source.passage());
+        }
         if (startingNewSession) {
             ModAttachments.DynamicReturnAnchor dynamicAnchor = allowUnrelatedFactory
                     ? null : FactoryReturnAnchors.capture(player, factory);
@@ -294,14 +316,36 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
             Vec3 destination = requestedDestination == null
                     ? new Vec3(origin.getX() + 1.5, origin.getY() + 2.0, origin.getZ() + 1.5)
                     : requestedDestination;
-            player.teleportTo(pocketLevel, destination.x, destination.y, destination.z,
-                    requestedDestination == null ? player.getYRot() : destinationYRot, player.getXRot());
+            float yaw = requestedDestination == null ? player.getYRot() : destinationYRot;
+            if (allowUnrelatedFactory) {
+                if (!player.teleportTo(pocketLevel, destination.x, destination.y, destination.z,
+                        java.util.Set.of(), yaw, player.getXRot())) {
+                    rollbackPassageEntry(player, factory, originalSession, startingNewSession);
+                    return false;
+                }
+                player.setDeltaMovement(Vec3.ZERO);
+                player.hurtMarked = true;
+            } else {
+                player.teleportTo(pocketLevel, destination.x, destination.y, destination.z, yaw, player.getXRot());
+            }
             return true;
         } catch (RuntimeException exception) {
-            factory.onPlayerExited();
-            recoverOrEndSession(player, player.getData(ModAttachments.FACTORY_SESSION), "entry_teleport_exception", exception);
+            if (allowUnrelatedFactory) {
+                rollbackPassageEntry(player, factory, originalSession, startingNewSession);
+                LOGGER.warn("Passage entry teleport failed for {}", player.getScoreboardName(), exception);
+            } else {
+                factory.onPlayerExited();
+                recoverOrEndSession(player, player.getData(ModAttachments.FACTORY_SESSION), "entry_teleport_exception", exception);
+            }
             return false;
         }
+    }
+
+    private static void rollbackPassageEntry(ServerPlayer player, NestedFactoryBlockEntity factory,
+                                              ModAttachments.FactorySession originalSession, boolean startingNewSession) {
+        factory.onPlayerExited();
+        if (startingNewSession) finishSessionWithoutCurrent(player, player.getData(ModAttachments.FACTORY_SESSION));
+        player.setData(ModAttachments.FACTORY_SESSION, originalSession);
     }
 
     public static void exitCurrentFactory(ServerPlayer player) {
@@ -314,12 +358,38 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
         return exitCurrentFactoryInternal(player, dimension, destination, yRot);
     }
 
+    public static boolean exitCurrentFactoryViaPassage(ServerPlayer player, FactoryPassageSavedData.Endpoint endpoint) {
+        return exitCurrentFactoryInternal(player, null, null, player.getYRot(),
+                FactoryPassageNavigation.arrival(player, endpoint));
+    }
+
+    private static void notifyPassageLoading(ServerPlayer player) {
+        PlayerMessagePayload.sendTo(player, Component.translatable("message.create_nested_factory.passage.loading")
+                .withStyle(ChatFormatting.YELLOW), false);
+    }
+
     private static boolean exitCurrentFactoryInternal(ServerPlayer player, ResourceKey<Level> passageDimension,
                                                       Vec3 passageDestination, float passageYRot) {
+        return exitCurrentFactoryInternal(player, passageDimension, passageDestination, passageYRot, null);
+    }
+
+    private static boolean exitCurrentFactoryInternal(ServerPlayer player, ResourceKey<Level> passageDimension,
+                                                      Vec3 passageDestination, float passageYRot,
+                                                      FactoryPassageNavigation.Arrival passageArrival) {
+        if (Boolean.TRUE.equals(player.getData(ModAttachments.PASSAGE_RESUME_PENDING))) {
+            resumeSessionForPlayer(player);
+            if (Boolean.TRUE.equals(player.getData(ModAttachments.PASSAGE_RESUME_PENDING))) return false;
+        }
         ModAttachments.FactorySession session = player.getData(ModAttachments.FACTORY_SESSION);
         if (!session.isActive()) return false;
         MinecraftServer server = player.serverLevel().getServer();
-        NestedFactoryBlockEntity current = resolveFactory(server, session.currentFactory());
+        var currentResolution = resolveSessionFactory(server, session.currentFactory());
+        if (currentResolution.status() == FactoryPassageNavigation.Status.RETRY_LATER
+                && (passageArrival != null || session.stack().stream().anyMatch(ModAttachments.ReturnFrame::passage))) {
+            notifyPassageLoading(player);
+            return false;
+        }
+        NestedFactoryBlockEntity current = currentResolution.factory();
 
         if (!isCurrentSessionValid(server, player, session, current)) {
             if (current != null && player.serverLevel().dimension().equals(POCKET_DIMENSION)) current.onPlayerExited();
@@ -329,6 +399,25 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
 
         List<ModAttachments.ReturnFrame> stack = new ArrayList<>(session.stack());
         ModAttachments.ReturnFrame nextFrame = stack.isEmpty() ? null : stack.get(stack.size() - 1);
+        if (passageArrival == null && passageDimension == null && passageDestination == null && nextFrame != null
+                && nextFrame.passage() && !nextFrame.returnPassageId().isBlank()) {
+            passageArrival = FactoryPassageNavigation.returnArrival(player, nextFrame);
+        }
+        if (passageArrival != null) {
+            if (passageArrival.status() == FactoryPassageNavigation.Status.RETRY_LATER) {
+                notifyPassageLoading(player);
+                return false;
+            }
+            if (passageArrival.status() == FactoryPassageNavigation.Status.INVALID) {
+                current.onPlayerExited();
+                releaseStackedFactories(server, session);
+                recoverOrEndSession(player, session, "return_passage_missing");
+                return false;
+            }
+            passageDimension = passageArrival.destination().dimension();
+            passageDestination = passageArrival.destination().position();
+            passageYRot = passageArrival.destination().yRot();
+        }
         if (passageDimension == null && passageDestination == null && nextFrame != null
                 && nextFrame.sourceFactoryId().isEmpty() && nextFrame.passage()
                 && nextFrame.dynamicAnchor() != null) {
@@ -352,19 +441,21 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
             }
         }
 
-        if (current != null && player.serverLevel().dimension().equals(POCKET_DIMENSION)) current.onPlayerExited();
-
         if (passageDimension != null && passageDestination != null
                 && !passageDimension.equals(POCKET_DIMENSION)) {
-            boolean teleported = teleportExact(player, passageDimension, passageDestination, passageYRot,
-                    player.getXRot(), "external_passage_return");
+            boolean teleported = passageArrival == null
+                    ? teleportExact(player, passageDimension, passageDestination, passageYRot,
+                            player.getXRot(), "external_passage_return")
+                    : teleportPassage(player, passageArrival);
             if (!teleported) return false;
+            if (current != null) current.onPlayerExited();
             releaseStackedFactories(server, session);
             finishSessionWithoutCurrent(player, session);
             return true;
         }
 
         if (stack.isEmpty()) {
+            current.onPlayerExited();
             finishSessionWithoutCurrent(player, session);
             if (passageDimension != null && passageDestination != null) {
                 teleportExactOrSpawn(player, passageDimension, passageDestination, passageYRot, player.getXRot(),
@@ -375,6 +466,7 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
         }
         ModAttachments.ReturnFrame frame = stack.remove(stack.size() - 1);
         if (!isReturnFrameStructurallyValid(session, frame)) {
+            current.onPlayerExited();
             recoverOrEndSession(player, session, "invalid_return_frame");
             return false;
         }
@@ -382,8 +474,13 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
         if (frame.sourceFactoryId().isEmpty()) {
             if (dynamicResolution.status() == FactoryReturnAnchors.Status.RESOLVED
                     && dynamicResolution.destination() != null) {
-                if (!teleportResolvedOrFallback(player, dynamicResolution.destination(), frame,
-                        "dynamic_external_return")) return false;
+                if (teleportResolved(player, dynamicResolution.destination(), "dynamic_external_return")) {
+                    FactoryReturnAnchors.arrived(player, frame.dynamicAnchor(), current);
+                } else if (!teleportExact(player, frame.dimension(), frame.pos(), frame.yRot(), frame.xRot(),
+                        "dynamic_external_return")) {
+                    return false;
+                }
+                if (current != null) current.onPlayerExited();
                 finishSessionWithoutCurrent(player, session);
                 return true;
             }
@@ -397,14 +494,21 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
                     passageDestination == null ? frameDestination : passageDestination,
                     passageDestination == null ? frame.yRot() : passageYRot,
                     frame.xRot(), "external_return")) return false;
+            if (current != null) current.onPlayerExited();
             finishSessionWithoutCurrent(player, session);
             return true;
         }
 
-        NestedFactoryBlockEntity parent = resolveFactory(server, frame.sourceFactory());
+        var parentResolution = resolveSessionFactory(server, frame.sourceFactory());
+        if (frame.passage() && parentResolution.status() == FactoryPassageNavigation.Status.RETRY_LATER) {
+            notifyPassageLoading(player);
+            return false;
+        }
+        NestedFactoryBlockEntity parent = parentResolution.factory();
         if (parent == null || !parent.getFactoryId().equals(frame.sourceFactoryId())
                 || (!frame.passage() && !parent.getRootFactoryId().equals(session.rootFactoryId()))
                 || parent.getOperationMode() != OperationMode.CHUNK_LOADED) {
+            current.onPlayerExited();
             recoverOrEndSession(player, session, "invalid_parent_factory");
             return false;
         }
@@ -412,9 +516,11 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
         ResourceKey<Level> destinationDimension = passageDimension == null ? frame.dimension() : passageDimension;
         ServerLevel target = server.getLevel(destinationDimension);
         if (target == null) {
+            current.onPlayerExited();
             recoverOrEndSession(player, session, "missing_return_dimension");
             return false;
         }
+        boolean currentReleased = false;
         try {
             player.fallDistance = 0f;
             Vec3 frameDestination = passageDimension == null && frame.passage()
@@ -423,8 +529,14 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
             if (passageDimension == null && frame.passage()) {
                 guardPassageReturn(player, frame.returnPassageId(), frame.dimension(), frame.pos());
             }
-            player.teleportTo(target, destination.x, destination.y, destination.z,
-                    passageDestination == null ? frame.yRot() : passageYRot, frame.xRot());
+            if (passageArrival != null) {
+                if (!teleportPassage(player, passageArrival)) return false;
+            } else {
+                player.teleportTo(target, destination.x, destination.y, destination.z,
+                        passageDestination == null ? frame.yRot() : passageYRot, frame.xRot());
+            }
+            if (current != null) current.onPlayerExited();
+            currentReleased = true;
             player.setData(ModAttachments.FACTORY_SESSION,
                     new ModAttachments.FactorySession(parent.getRootFactoryId(), frame.sourceFactoryId(), frame.sourceFactory(),
                             session.grantedFlight(), session.originalMayFly(), session.originalFlying(),
@@ -432,19 +544,33 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
             FactoryReturnAnchors.release(player, frame.dynamicAnchor());
             return true;
         } catch (RuntimeException exception) {
+            if (!currentReleased) current.onPlayerExited();
             recoverOrEndSession(player, session, "return_teleport_exception", exception);
             return false;
         }
     }
 
+    private static boolean teleportPassage(ServerPlayer player, FactoryPassageNavigation.Arrival arrival) {
+        ModAttachments.PassageTravelGuard previous = player.getData(ModAttachments.PASSAGE_TRAVEL_GUARD);
+        FactoryPassageNavigation.guard(player, arrival.passage());
+        if (teleportResolved(player, arrival.destination(), "passage_return")) {
+            FactoryPassageNavigation.arrived(player, arrival);
+            return true;
+        }
+        player.setData(ModAttachments.PASSAGE_TRAVEL_GUARD, previous);
+        return false;
+    }
+
     public static void endSessionForPlayer(ServerPlayer player) {
+        boolean pending = Boolean.TRUE.equals(player.getData(ModAttachments.PASSAGE_RESUME_PENDING));
+        player.setData(ModAttachments.PASSAGE_RESUME_PENDING, false);
         ModAttachments.FactorySession session = player.getData(ModAttachments.FACTORY_SESSION);
         if (!session.isActive()) {
             player.setData(ModAttachments.FACTORY_SESSION, ModAttachments.FactorySession.defaults());
             return;
         }
         NestedFactoryBlockEntity current = resolveFactory(player.serverLevel().getServer(), session.currentFactory());
-        if (current != null && player.serverLevel().dimension().equals(POCKET_DIMENSION)) current.onPlayerExited();
+        if (!pending && current != null && player.serverLevel().dimension().equals(POCKET_DIMENSION)) current.onPlayerExited();
         finishSessionWithoutCurrent(player, session);
     }
 
@@ -464,7 +590,8 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
         player.setData(ModAttachments.FACTORY_SESSION, ModAttachments.FactorySession.defaults());
         try {
             NestedFactoryBlockEntity current = resolveFactory(server, session.currentFactory());
-            if (current != null && current.getFactoryId().equals(session.currentFactoryId())) {
+            if (!Boolean.TRUE.equals(player.getData(ModAttachments.PASSAGE_RESUME_PENDING))
+                    && current != null && current.getFactoryId().equals(session.currentFactoryId())) {
                 current.onPlayerExited();
             }
             releaseStackedFactories(server, session);
@@ -481,6 +608,10 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
     }
 
     public static void suspendSessionForPlayer(ServerPlayer player) {
+        if (Boolean.TRUE.equals(player.getData(ModAttachments.PASSAGE_RESUME_PENDING))) {
+            player.setData(ModAttachments.PASSAGE_RESUME_PENDING, false);
+            return;
+        }
         ModAttachments.FactorySession session = player.getData(ModAttachments.FACTORY_SESSION);
         if (!session.isActive() || !player.serverLevel().dimension().equals(POCKET_DIMENSION)) return;
         NestedFactoryBlockEntity current = resolveFactory(player.serverLevel().getServer(), session.currentFactory());
@@ -490,6 +621,7 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
     public static void resumeSessionForPlayer(ServerPlayer player) {
         ModAttachments.FactorySession session = player.getData(ModAttachments.FACTORY_SESSION);
         if (!session.isActive()) {
+            player.setData(ModAttachments.PASSAGE_RESUME_PENDING, false);
             if (player.serverLevel().dimension().equals(POCKET_DIMENSION)) teleportToOverworldSpawn(player, "pocket_without_session");
             return;
         }
@@ -502,7 +634,16 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
         MinecraftServer server = player.serverLevel().getServer();
         NestedFactoryBlockEntity current;
         try {
-            current = resolveFactory(server, session.currentFactory());
+            var resolution = resolveSessionFactory(server, session.currentFactory());
+            if (resolution.status() == FactoryPassageNavigation.Status.RETRY_LATER
+                    && session.stack().stream().anyMatch(ModAttachments.ReturnFrame::passage)) {
+                if (!Boolean.TRUE.equals(player.getData(ModAttachments.PASSAGE_RESUME_PENDING))) {
+                    notifyPassageLoading(player);
+                }
+                player.setData(ModAttachments.PASSAGE_RESUME_PENDING, true);
+                return;
+            }
+            current = resolution.factory();
         } catch (RuntimeException exception) {
             recoverOrEndSession(player, session, "current_factory_load_exception", exception);
             return;
@@ -520,6 +661,7 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
             current.onPlayerEntered(player.serverLevel().dimension(), player.blockPosition());
         }
         grantExplorationAbilities(player);
+        player.setData(ModAttachments.PASSAGE_RESUME_PENDING, false);
     }
 
     private static ModAttachments.FactoryReference factoryReference(NestedFactoryBlockEntity factory) {
@@ -546,25 +688,16 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
     }
 
     private static NestedFactoryBlockEntity resolveFactory(MinecraftServer server, ModAttachments.FactoryReference reference) {
-        if (reference == null || !reference.isComplete()) return null;
-        ServerLevel level = server.getLevel(reference.dimension());
-        if (level != null) {
-            level.getChunkAt(reference.pos());
-            if (level.getBlockEntity(reference.pos()) instanceof NestedFactoryBlockEntity factory
-                    && factory.getFactoryId().equals(reference.factoryId())
-                    && factory.getRootFactoryId().equals(reference.rootFactoryId())) {
-                return factory;
-            }
-        }
+        return resolveSessionFactory(server, reference).factory();
+    }
 
-        PocketRegistry.FactoryLocation current = PocketRegistry.findFactoryLocationById(server, reference.factoryId());
-        if (current == null) return null;
-        ServerLevel currentLevel = server.getLevel(current.dimension());
-        if (currentLevel == null) return null;
-        currentLevel.getChunkAt(current.pos());
-        if (!(currentLevel.getBlockEntity(current.pos()) instanceof NestedFactoryBlockEntity factory)) return null;
-        return factory.getFactoryId().equals(reference.factoryId())
-                && factory.getRootFactoryId().equals(reference.rootFactoryId()) ? factory : null;
+    private static FactoryPassageNavigation.FactoryResolution resolveSessionFactory(
+            MinecraftServer server, ModAttachments.FactoryReference reference) {
+        var resolved = FactoryPassageNavigation.resolveFactory(server, reference);
+        if (resolved.factory() != null && !resolved.factory().getRootFactoryId().equals(reference.rootFactoryId())) {
+            return new FactoryPassageNavigation.FactoryResolution(FactoryPassageNavigation.Status.INVALID, null);
+        }
+        return resolved;
     }
 
     private static boolean isCurrentSessionValid(MinecraftServer server, ServerPlayer player,
@@ -620,7 +753,11 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
             }
         }
         finishSessionWithoutCurrent(player, session);
-        if (anchor != null) {
+        if (anchor != null && anchor.passage() && !anchor.returnPassageId().isBlank()) {
+            var arrival = FactoryPassageNavigation.returnArrival(player, anchor);
+            if (arrival.status() == FactoryPassageNavigation.Status.READY && teleportPassage(player, arrival)) return;
+            teleportToOverworldSpawn(player, reason);
+        } else if (anchor != null) {
             teleportExactOrSpawn(player, anchor.dimension(), anchor.pos(), anchor.yRot(), anchor.xRot(), reason);
         } else {
             teleportToOverworldSpawn(player, reason);
@@ -642,13 +779,6 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
         teleportToOverworldSpawn(player, reason);
     }
 
-    private static boolean teleportResolvedOrFallback(ServerPlayer player,
-                                                      FactoryReturnAnchors.Destination destination,
-                                                      ModAttachments.ReturnFrame fallback, String reason) {
-        if (teleportResolved(player, destination, reason)) return true;
-        return teleportExact(player, fallback.dimension(), fallback.pos(), fallback.yRot(), fallback.xRot(), reason);
-    }
-
     private static boolean teleportResolved(ServerPlayer player, FactoryReturnAnchors.Destination destination,
                                              String reason) {
         try {
@@ -656,8 +786,16 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
             if (target != null) {
                 Vec3 pos = destination.position();
                 player.fallDistance = 0f;
-                player.teleportTo(target, pos.x, pos.y, pos.z, destination.yRot(), destination.xRot());
+                if (!player.teleportTo(target, pos.x, pos.y, pos.z, java.util.Set.of(),
+                        destination.yRot(), destination.xRot()) || player.serverLevel() != target) {
+                    FactoryPassageNavigation.trace(player, "return_failed", "reason=" + reason
+                            + ", target=" + destination.dimension().location() + ", actual=" + player.serverLevel().dimension().location());
+                    return false;
+                }
                 player.setDeltaMovement(destination.velocity());
+                player.hurtMarked = true;
+                FactoryPassageNavigation.trace(player, "return_completed", "reason=" + reason
+                        + ", dimension=" + destination.dimension().location() + ", position=" + pos);
                 return true;
             }
         } catch (RuntimeException exception) {
@@ -756,6 +894,7 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
     }
 
     private static void finishSessionWithoutCurrent(ServerPlayer player, ModAttachments.FactorySession session) {
+        player.setData(ModAttachments.PASSAGE_RESUME_PENDING, false);
         for (ModAttachments.ReturnFrame frame : session.stack()) {
             FactoryReturnAnchors.release(player, frame.dynamicAnchor());
         }

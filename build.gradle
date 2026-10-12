@@ -9,6 +9,14 @@ version = mod_version
 group = mod_group_id
 
 repositories {
+    exclusiveContent {
+        forRepository { mavenCentral() }
+        filter {
+            includeGroup 'org.mockito'
+            includeGroup 'net.bytebuddy'
+            includeGroup 'org.objenesis'
+        }
+    }
     maven { url = "https://maven.createmod.net" } // Create, Ponder, Flywheel
     maven { url = "https://maven.ithundxr.dev/snapshots" } // Registrate
 }
@@ -111,6 +119,7 @@ sourceSets.main.output.dir(
 
 
 dependencies {
+    testImplementation 'org.mockito:mockito-core:5.14.2'
     implementation("com.simibubi.create:create-${minecraft_version}:${create_version}:slim") { transitive = false }
     implementation("net.createmod.ponder:ponder-neoforge:${ponder_version}+mc${minecraft_version}")
     compileOnly("dev.engine-room.flywheel:flywheel-neoforge-api-${minecraft_version}:${flywheel_version}")
@@ -142,11 +151,11 @@ def neoForgeMergedJar = files(layout.buildDirectory.file("moddev/artifacts/neofo
 def neoForgeServerRuntime = files(providers.provider {
     layout.buildDirectory.file('moddev/serverLegacyClasspath.txt').get().asFile.readLines()
 })
-sourceSets.test.compileClasspath += neoForgeMergedJar
+sourceSets.test.compileClasspath += neoForgeMergedJar + neoForgeServerRuntime
 sourceSets.test.runtimeClasspath += neoForgeMergedJar + neoForgeServerRuntime
 
 tasks.named('compileTestJava') {
-    dependsOn tasks.named('createMinecraftArtifacts')
+    dependsOn tasks.named('createMinecraftArtifacts'), tasks.named('writeServerLegacyClasspath')
 }
 
 tasks.register('testPassageTravelGuard', JavaExec) {
@@ -155,6 +164,15 @@ tasks.register('testPassageTravelGuard', JavaExec) {
     dependsOn tasks.named('testClasses'), tasks.named('writeServerLegacyClasspath')
     classpath = sourceSets.test.runtimeClasspath
     mainClass = 'com.createnestedfactory.create_nested_factory.registry.PassageTravelGuardRegression'
+}
+
+tasks.register('testPassageInteractions', JavaExec) {
+    group = 'verification'
+    description = 'Exercises passage marker events, moving collisions and endpoint resolution.'
+    dependsOn tasks.named('testClasses'), tasks.named('writeServerLegacyClasspath')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.createnestedfactory.create_nested_factory.PassageInteractionRegression'
+    jvmArgs '-XX:+EnableDynamicAgentLoading'
 }
 
 tasks.register('testPocketFreezeIndex', JavaExec) {
@@ -222,6 +240,8 @@ tasks.register('testFactorySessionLocationPolicy', JavaExec) {
 }
 
 tasks.named('check') {
+    dependsOn tasks.named('testCnfCommands')
+    dependsOn tasks.named('testPassageInteractions')
     dependsOn tasks.named('testPassageTravelGuard')
     dependsOn tasks.named('testPocketFreezeIndex')
     dependsOn tasks.named('testPocketRegistryScopes')
@@ -231,6 +251,15 @@ tasks.named('check') {
     dependsOn tasks.named('testFactoryRoomGeometry')
     dependsOn tasks.named('testFactoryLifecycleTransitions')
     dependsOn tasks.named('testFactorySessionLocationPolicy')
+}
+
+tasks.register('testCnfCommands', JavaExec) {
+    group = 'verification'
+    description = 'Runs persistent factory directory and Brigadier command regression checks.'
+    dependsOn tasks.named('testClasses'), tasks.named('writeServerLegacyClasspath')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.createnestedfactory.create_nested_factory.CnfCommandsRegression'
+    jvmArgs '-XX:+EnableDynamicAgentLoading'
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.

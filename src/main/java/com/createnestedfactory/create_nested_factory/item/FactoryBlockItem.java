@@ -10,6 +10,8 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.context.BlockPlaceContext;
@@ -22,6 +24,14 @@ import net.minecraft.world.level.block.Block;
 public final class FactoryBlockItem extends BlockItem {
     public FactoryBlockItem(Block block, Item.Properties properties) {
         super(block, properties);
+    }
+
+    @Override
+    public void inventoryTick(ItemStack stack, Level level, Entity entity, int slotId, boolean selected) {
+        super.inventoryTick(stack, level, entity, slotId, selected);
+        if (level instanceof ServerLevel serverLevel && entity.tickCount % 20 == 0) {
+            NestedFactoryBlockEntity.observePortableItem(serverLevel.getServer(), stack);
+        }
     }
 
     @Override
@@ -40,10 +50,17 @@ public final class FactoryBlockItem extends BlockItem {
 
     @Override
     public InteractionResult place(BlockPlaceContext context) {
+        if (!com.createnestedfactory.create_nested_factory.command.FactoryCommandService.preparePlacement(context)) {
+            return InteractionResult.FAIL;
+        }
         if (!canPlaceBoundFactory(context.getLevel(), context.getClickedPos(), context.getItemInHand())) {
             return InteractionResult.FAIL;
         }
-        return super.place(context);
+        InteractionResult result = super.place(context);
+        if (result.consumesAction()) {
+            com.createnestedfactory.create_nested_factory.command.FactoryCommandService.recordPlacement(context);
+        }
+        return result;
     }
 
     private static boolean canPlaceBoundFactory(Level level, BlockPos pos, net.minecraft.world.item.ItemStack stack) {

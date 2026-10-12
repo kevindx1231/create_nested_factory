@@ -1,6 +1,5 @@
 package com.createnestedfactory.create_nested_factory.item;
 
-import com.createnestedfactory.create_nested_factory.FactoryPassageAvailability;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity;
 import com.createnestedfactory.create_nested_factory.network.PlayerMessagePayload;
 import com.createnestedfactory.create_nested_factory.registry.ModAttachments;
@@ -27,15 +26,6 @@ public final class FactoryPassageItem extends BlockItem {
         Player player = context.getPlayer();
         if (level.getBlockEntity(pos) instanceof NestedFactoryBlockEntity factory) {
             if (!level.isClientSide() && player instanceof ServerPlayer serverPlayer) {
-                if (FactoryPassageAvailability.isPhysicalized(factory)) {
-                    serverPlayer.setData(ModAttachments.PASSAGE_SELECTION,
-                            ModAttachments.PassageSelection.empty());
-                    PlayerMessagePayload.sendTo(serverPlayer,
-                            net.minecraft.network.chat.Component.translatable(
-                                            "message.create_nested_factory.passage.physicalized_target")
-                                    .withStyle(ChatFormatting.RED), false);
-                    return InteractionResult.SUCCESS;
-                }
                 ModAttachments.FactoryReference reference = new ModAttachments.FactoryReference(
                         level.dimension(), pos.immutable(), factory.getFactoryId(), factory.getRootFactoryId());
                 serverPlayer.setData(ModAttachments.PASSAGE_SELECTION,

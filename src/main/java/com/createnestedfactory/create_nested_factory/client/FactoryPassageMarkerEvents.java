@@ -1,7 +1,6 @@
 package com.createnestedfactory.create_nested_factory.client;
 
 import com.createnestedfactory.create_nested_factory.Create_nested_factory;
-import com.createnestedfactory.create_nested_factory.FactoryPassageAvailability;
 import com.createnestedfactory.create_nested_factory.block.FactoryPassageBlock;
 import com.createnestedfactory.create_nested_factory.block.entity.FactoryPassageBlockEntity;
 import com.createnestedfactory.create_nested_factory.registry.ModBlocks;
@@ -57,7 +56,6 @@ public final class FactoryPassageMarkerEvents {
         if (!(level.getBlockEntity(basePos) instanceof FactoryPassageBlockEntity passage)) {
             return;
         }
-        if (FactoryPassageAvailability.isPhysicalized(passage)) return;
 
         ItemStack marker = passage.getMarker();
         MutableComponent label = Component.translatable("tooltip.create_nested_factory.passage_marker");
@@ -73,7 +71,7 @@ public final class FactoryPassageMarkerEvents {
 
         List<MutableComponent> tip = new ArrayList<>();
         tip.add(label);
-        tip.add(Component.translatable("create.logistics.filter.click_to_set"));
+        tip.add(Component.translatable("tooltip.create_nested_factory.passage_marker_interaction"));
         CreateClient.VALUE_SETTINGS_HANDLER.showHoverTip(tip);
     }
 }

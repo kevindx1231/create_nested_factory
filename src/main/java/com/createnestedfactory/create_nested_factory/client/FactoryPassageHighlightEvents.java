@@ -1,7 +1,6 @@
 package com.createnestedfactory.create_nested_factory.client;
 
 import com.createnestedfactory.create_nested_factory.Create_nested_factory;
-import com.createnestedfactory.create_nested_factory.FactoryPassageAvailability;
 import com.createnestedfactory.create_nested_factory.block.FactoryPassageBlock;
 import com.createnestedfactory.create_nested_factory.block.entity.FactoryPassageBlockEntity;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity;
@@ -41,8 +40,7 @@ public final class FactoryPassageHighlightEvents {
         if (!event.getLevel().isClientSide() || !event.getItemStack().is(ModItems.FACTORY_PASSAGE.get())) {
             return;
         }
-        if (event.getLevel().getBlockEntity(event.getPos()) instanceof NestedFactoryBlockEntity factory
-                && !FactoryPassageAvailability.isPhysicalized(factory)) {
+        if (event.getLevel().getBlockEntity(event.getPos()) instanceof NestedFactoryBlockEntity factory) {
             selection = new Selection(event.getLevel().dimension(), event.getPos().immutable());
             selectionStack = event.getItemStack();
         } else {
@@ -90,7 +88,6 @@ public final class FactoryPassageHighlightEvents {
         BlockPos basePos = FactoryPassageBlock.getBasePos(hitPos, hitState);
         BlockEntity blockEntity = level.getBlockEntity(basePos);
         if (!(blockEntity instanceof FactoryPassageBlockEntity passage)
-                || FactoryPassageAvailability.isPhysicalized(passage)
                 || !passage.isBound()
                 || passage.getTargetDimension() == null
                 || !passage.getTargetDimension().equals(level.dimension())

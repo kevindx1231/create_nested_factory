@@ -23,6 +23,7 @@ public final class ReleaseFixRegression {
         check(failures, "pipez-only initializer", ReleaseFixRegression::pipezInitializesWithoutMekanism);
         check(failures, "passage routing", ReleaseFixRegression::passageUsesPrimaryInnerOrDefaultEntry);
         check(failures, "passage indexes", ReleaseFixRegression::passageIndexesRemainSelective);
+        check(failures, "passage replacement order", ReleaseFixRegression::passageReplacementKeepsIdentityOrder);
         check(failures, "terminal nesting", ReleaseFixRegression::terminalNestingClassification);
         check(failures, "diagnostic default", ReleaseFixRegression::blackboxDiagnosticsAreDisabledByDefault);
         if (!failures.isEmpty()) throw new AssertionError(failures.toString());
@@ -166,6 +167,21 @@ public final class ReleaseFixRegression {
         entry.putString("Dimension", dimension.location().toString());
         entry.putLong("Pos", pos.asLong());
         return entry;
+    }
+
+    private static void passageReplacementKeepsIdentityOrder() {
+        FactoryPassageSavedData data = new FactoryPassageSavedData();
+        BlockPos first = new BlockPos(1, 64, 0);
+        BlockPos second = new BlockPos(2, 64, 0);
+        data.register(Level.OVERWORLD, first, "old", "factory", "root");
+        data.register(Level.OVERWORLD, second, "moving", "factory", "root");
+        long sequence = data.findByPassageId("moving").placementSequence();
+        data.register(Level.OVERWORLD, first, "moving", "factory", "root");
+        require(data.findByPassageId("moving").placementSequence() == sequence,
+                "moving onto a previously indexed position inherited another passage's order");
+        data.register(Level.OVERWORLD, first, "replacement", "factory", "root");
+        require(data.findByPassageId("replacement").placementSequence() > sequence,
+                "a replacement passage inherited the removed passage's placement order");
     }
 
     private static void require(boolean condition, String message) {

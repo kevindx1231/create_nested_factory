@@ -1,6 +1,7 @@
 package com.createnestedfactory.create_nested_factory.block;
 
-import com.createnestedfactory.create_nested_factory.FactoryPassageAvailability;
+import com.createnestedfactory.create_nested_factory.FactoryPassageNavigation;
+import com.createnestedfactory.create_nested_factory.FactoryPassageMovement;
 import com.createnestedfactory.create_nested_factory.block.entity.FactoryPassageBlockEntity;
 import com.createnestedfactory.create_nested_factory.registry.ModAttachments;
 import com.createnestedfactory.create_nested_factory.registry.ModBlocks;
@@ -122,19 +123,14 @@ public final class FactoryPassageBlock extends HorizontalDirectionalBlock implem
                 PlayerMessagePayload.sendTo(player,
                         Component.translatable("message.create_nested_factory.passage.bound")
                                 .withStyle(ChatFormatting.AQUA), false);
-            } else if (result == FactoryPassageBlockEntity.BindingResult.PHYSICALIZED_PASSAGE) {
-                sendPhysicalizedMessage(player, "message.create_nested_factory.passage.physicalized_passage");
-            } else if (result == FactoryPassageBlockEntity.BindingResult.PHYSICALIZED_TARGET) {
-                sendPhysicalizedMessage(player, "message.create_nested_factory.passage.physicalized_target");
             }
             player.setData(ModAttachments.PASSAGE_SELECTION, ModAttachments.PassageSelection.empty());
         }
     }
 
     public static boolean isMarkerSlotHit(BlockState state, BlockPos pos, BlockHitResult hitResult) {
-        if (!state.is(ModBlocks.FACTORY_PASSAGE.get())
-                || state.getValue(HALF) != DoubleBlockHalf.UPPER
-                || hitResult.getDirection() != state.getValue(FACING)) {
+        if (!(state.getBlock() instanceof FactoryPassageBlock)
+                || state.getValue(HALF) != DoubleBlockHalf.UPPER) {
             return false;
         }
 
@@ -145,14 +141,6 @@ public final class FactoryPassageBlock extends HorizontalDirectionalBlock implem
     protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
                                                 BlockHitResult hitResult) {
         BlockPos basePos = getBasePos(pos, state);
-        if (!level.isClientSide() && level.getBlockEntity(basePos) instanceof FactoryPassageBlockEntity passage
-                && FactoryPassageAvailability.isPhysicalized(passage)) {
-            if (player instanceof ServerPlayer serverPlayer) {
-                sendPhysicalizedMessage(serverPlayer,
-                        "message.create_nested_factory.passage.physicalized_passage");
-            }
-            return InteractionResult.SUCCESS;
-        }
         if (player.isCrouching() && player instanceof ServerPlayer serverPlayer
                 && level.dimension().equals(NestedFactoryBlock.POCKET_DIMENSION)) {
             if (level.getBlockEntity(basePos) instanceof FactoryPassageBlockEntity passage) {
@@ -192,40 +180,18 @@ public final class FactoryPassageBlock extends HorizontalDirectionalBlock implem
                 || !(level.getBlockEntity(basePos) instanceof FactoryPassageBlockEntity passage)) {
             return;
         }
-        if (FactoryPassageAvailability.isPhysicalized(passage)) return;
+        FactoryPassageNavigation.Space space = FactoryPassageNavigation.space(level, basePos);
+        if (!space.ready()) return;
         ModAttachments.PassageTravelGuard guard = player.getData(ModAttachments.PASSAGE_TRAVEL_GUARD);
-        if (guard.blocks(passage.getPassageId(), level.dimension(), basePos)) {
-            ModAttachments.PassageTravelGuard contacted = guard.onCollision(
-                    passage.getPassageId(), level.dimension(), basePos, level.getGameTime());
-            if (!contacted.equals(guard)) {
-                player.setData(ModAttachments.PASSAGE_TRAVEL_GUARD, contacted);
-            }
-            return;
-        }
-        if (!isInside(player, basePos)) return;
+        if (guard.blocks(passage.getPassageId())) return;
+        if (!isInside(space.coordinates().toLocal(player.position()), basePos)) return;
         passage.tryTravel(player);
     }
 
-    private static void sendPhysicalizedMessage(ServerPlayer player, String key) {
-        PlayerMessagePayload.sendTo(player, Component.translatable(key).withStyle(ChatFormatting.RED), false);
-    }
-
-    public static void updateTravelGuard(ServerPlayer player) {
-        ModAttachments.PassageTravelGuard guard = player.getData(ModAttachments.PASSAGE_TRAVEL_GUARD);
-        if (!guard.isActive()) {
-            return;
-        }
-        ModAttachments.PassageTravelGuard updated = guard.afterTick(
-                player.serverLevel().dimension(), player.serverLevel().getGameTime());
-        if (!updated.equals(guard)) {
-            player.setData(ModAttachments.PASSAGE_TRAVEL_GUARD, updated);
-        }
-    }
-
-    public static boolean isInside(Entity entity, BlockPos basePos) {
-        double localX = entity.getX() - basePos.getX();
-        double localZ = entity.getZ() - basePos.getZ();
-        double localY = entity.getY() - basePos.getY();
+    public static boolean isInside(net.minecraft.world.phys.Vec3 position, BlockPos basePos) {
+        double localX = position.x - basePos.getX();
+        double localZ = position.z - basePos.getZ();
+        double localY = position.y - basePos.getY();
         return localX > 0.12 && localX < 0.88 && localZ > 0.12 && localZ < 0.88
                 && localY >= 0.0 && localY < 2.0;
     }
@@ -236,7 +202,7 @@ public final class FactoryPassageBlock extends HorizontalDirectionalBlock implem
 
     @Override
     public void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean movedByPiston) {
-        if (!state.is(newState.getBlock())) {
+        if (!state.is(newState.getBlock()) && !FactoryPassageMovement.isMoving(level, pos)) {
             BlockPos basePos = getBasePos(pos, state);
             if (!level.isClientSide() && level.getBlockEntity(basePos) instanceof FactoryPassageBlockEntity passage) {
                 passage.onDestroyed();
@@ -295,6 +261,16 @@ public final class FactoryPassageBlock extends HorizontalDirectionalBlock implem
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
         builder.add(FACING, HALF, OPEN);
+    }
+
+    @Override
+    protected BlockState rotate(BlockState state, net.minecraft.world.level.block.Rotation rotation) {
+        return state.setValue(FACING, rotation.rotate(state.getValue(FACING)));
+    }
+
+    @Override
+    protected BlockState mirror(BlockState state, net.minecraft.world.level.block.Mirror mirror) {
+        return state.rotate(mirror.getRotation(state.getValue(FACING)));
     }
 
     private static Map<Direction, VoxelShape> rotatedShapes(VoxelShape north) {

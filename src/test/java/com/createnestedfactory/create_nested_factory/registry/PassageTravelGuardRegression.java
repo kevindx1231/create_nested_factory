@@ -24,42 +24,41 @@ public final class PassageTravelGuardRegression {
         ModAttachments.PassageTravelGuard guard = ModAttachments.PassageTravelGuard.arrival(
                 passageId, Level.OVERWORLD, originalPlotPos);
 
-        require(guard.blocks(passageId, Level.OVERWORLD, reindexedPlotPos),
-                "arrival guard lost the same passage after its Plot position changed");
-        require(!guard.blocks("different-passage", Level.OVERWORLD, originalPlotPos),
-                "arrival guard blocked a different passage that reused the old position");
-
-        long tick = 1;
-        int prolongedContactTicks = ModAttachments.PassageTravelGuard.ARRIVAL_SETTLING_TICKS + 25;
-        for (; tick <= prolongedContactTicks; tick++) {
-            guard = guard.onCollision(passageId, Level.OVERWORLD, reindexedPlotPos, tick);
-            guard = guard.afterTick(Level.OVERWORLD, tick);
-            require(guard.isActive(),
-                    "arrival guard expired while the player was still touching the destination passage");
+        require(guard.blocks(passageId), "arrival guard lost its passage identity");
+        require(!guard.blocks("different-passage"), "arrival guard blocked another passage");
+        for (int i = 0; i < ModAttachments.PassageTravelGuard.ARRIVAL_SETTLING_TICKS + 25; i++) {
+            guard = guard.afterTick(Level.OVERWORLD, true, true, reindexedPlotPos);
+            require(guard.isActive(), "guard expired while the player remained inside the passage");
         }
-        require(guard.contactObserved(),
-                "arrival guard did not remember contact with the destination passage");
-        require(guard.pos().equals(reindexedPlotPos),
-                "arrival guard did not follow the passage's current indexed position");
-
-        guard = guard.afterTick(Level.OVERWORLD, tick++);
-        require(guard.isActive(),
-                "arrival guard released before confirming that the player left the passage");
-        guard = guard.afterTick(Level.OVERWORLD, tick);
-        require(!guard.isActive(),
-                "arrival guard did not release after the player left the passage");
+        require(guard.pos().equals(reindexedPlotPos), "guard did not follow the passage's new Plot position");
+        guard = guard.afterTick(Level.OVERWORLD, false, true, reindexedPlotPos);
+        guard = guard.afterTick(Level.OVERWORLD, null, true, reindexedPlotPos);
+        guard = guard.afterTick(Level.OVERWORLD, false, true, reindexedPlotPos);
+        require(guard.isActive(), "loading interruption was counted as confirmed departure");
+        guard = guard.afterTick(Level.OVERWORLD, false, true, reindexedPlotPos);
+        require(!guard.isActive(), "guard did not release after two confirmed outside ticks");
 
         guard = ModAttachments.PassageTravelGuard.arrival(passageId, Level.OVERWORLD, originalPlotPos);
-        for (int i = 0; i < ModAttachments.PassageTravelGuard.ARRIVAL_SETTLING_TICKS * 2; i++) {
-            guard = guard.afterTick(pocket, i);
+        for (int i = 0; i < 80; i++) guard = guard.afterTick(pocket, false, true, originalPlotPos);
+        require(guard.isActive(), "guard expired before arriving in its destination dimension");
+        guard = guard.afterTick(Level.OVERWORLD, true, true, originalPlotPos);
+        guard = guard.afterTick(Level.OVERWORLD, false, true, originalPlotPos);
+        guard = guard.afterTick(Level.OVERWORLD, false, true, originalPlotPos);
+        require(guard.isActive(), "first contact bypassed the moving arrival grace period");
+        guard = guard.afterTick(pocket, null, true, originalPlotPos);
+        require(!guard.isActive(), "guard survived a later departure to another dimension");
+
+        guard = ModAttachments.PassageTravelGuard.arrival(passageId, Level.OVERWORLD, originalPlotPos);
+        guard = guard.afterTick(Level.OVERWORLD, true, false, originalPlotPos);
+        guard = guard.afterTick(Level.OVERWORLD, false, false, originalPlotPos);
+        guard = guard.afterTick(Level.OVERWORLD, false, false, originalPlotPos);
+        require(!guard.isActive(), "static passage lost its quick release after leaving");
+
+        guard = ModAttachments.PassageTravelGuard.arrival(passageId, Level.OVERWORLD, originalPlotPos);
+        for (int i = 0; i <= ModAttachments.PassageTravelGuard.ARRIVAL_SETTLING_TICKS; i++) {
+            guard = guard.afterTick(Level.OVERWORLD, false, true, originalPlotPos);
         }
-        require(guard.isActive(),
-                "arrival guard expired before the cross-dimension teleport reached its destination");
-        for (int i = 0; i < ModAttachments.PassageTravelGuard.ARRIVAL_SETTLING_TICKS; i++) {
-            guard = guard.afterTick(Level.OVERWORLD, i);
-        }
-        require(!guard.isActive(),
-                "arrival guard did not release when the destination passage was never observed");
+        require(!guard.isActive(), "guard never released for a safe arrival outside the door");
 
         ModAttachments.ReturnFrame passageFrame = ModAttachments.ReturnFrame.externalPassage(
                 Level.OVERWORLD, Vec3.ZERO, 0, 0, "target-factory", passageId);

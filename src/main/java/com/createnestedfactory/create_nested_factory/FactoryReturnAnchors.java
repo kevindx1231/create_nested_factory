@@ -30,6 +30,11 @@ public final class FactoryReturnAnchors {
         Resolution resolve(ServerPlayer player, ModAttachments.DynamicReturnAnchor anchor,
                            NestedFactoryBlockEntity currentFactory);
 
+        /** Called only after teleporting to the resolved destination, before releasing the session. */
+        default void arrived(ServerPlayer player, ModAttachments.DynamicReturnAnchor anchor,
+                             NestedFactoryBlockEntity currentFactory) {
+        }
+
         void release(MinecraftServer server, UUID playerId, ModAttachments.DynamicReturnAnchor anchor);
     }
 
@@ -98,6 +103,18 @@ public final class FactoryReturnAnchors {
         } catch (LinkageError | RuntimeException exception) {
             LOGGER.warn("Factory return-anchor adapter {} failed to resolve", adapter.id(), exception);
             return Resolution.invalid();
+        }
+    }
+
+    public static void arrived(ServerPlayer player, ModAttachments.DynamicReturnAnchor anchor,
+                               NestedFactoryBlockEntity currentFactory) {
+        if (anchor == null) return;
+        Adapter adapter = adapter(anchor.resolverId());
+        if (adapter == null) return;
+        try {
+            adapter.arrived(player, anchor, currentFactory);
+        } catch (LinkageError | RuntimeException exception) {
+            LOGGER.warn("Factory return-anchor adapter {} failed to initialize arrival", adapter.id(), exception);
         }
     }
 
