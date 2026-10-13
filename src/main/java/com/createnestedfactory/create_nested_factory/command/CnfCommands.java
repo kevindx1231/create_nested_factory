@@ -24,9 +24,9 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.event.RegisterCommandsEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
+import net.minecraftforge.event.RegisterCommandsEvent;
 
 import java.util.ArrayDeque;
 import java.util.HashSet;
@@ -96,7 +96,7 @@ public final class CnfCommands {
     private static int info(CommandSourceStack source)
             throws com.mojang.brigadier.exceptions.CommandSyntaxException {
         if (!(source.getEntity() instanceof ServerPlayer player)) throw INFO_PLAYER_ONLY.create();
-        HitResult hit = player.pick(player.blockInteractionRange(), 1.0F, false);
+        HitResult hit = player.pick(player.getBlockReach(), 1.0F, false);
         if (!(hit instanceof BlockHitResult blockHit) || hit.getType() != HitResult.Type.BLOCK) {
             source.sendFailure(Component.translatable(PREFIX + "info_no_target"));
             return 0;

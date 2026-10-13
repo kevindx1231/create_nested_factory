@@ -111,6 +111,7 @@ public final class PocketFreezeManager {
             // Missing manifests are deliberately not treated as a valid simulated save.
             NestedFactorySaveData.get(server).releaseFreezeLease(root.getFactoryId());
             root.refreshChunkRefsAfterFreeze();
+            root.requestRoomPortConnectionRefresh();
             return;
         }
         root.blackboxDebug("thaw_tree_started", () -> "leaseOwner=" + root.getFactoryId());
@@ -152,6 +153,7 @@ public final class PocketFreezeManager {
             if (removed == null) continue;
             NestedFactorySaveData.get(server).releaseFreezeLease(tree.rootFactoryId());
             PocketFreezeHooks.restorePhysicalQueues(pocket, removed);
+            List<NestedFactoryBlockEntity> restoredFactories = new ArrayList<>();
             for (PocketFreezeSavedData.FrozenRoom room : removed.rooms()) {
                 NestedFactoryBlockEntity factory = resolveFactory(server, room);
                 if (factory == null) continue;
@@ -159,6 +161,11 @@ public final class PocketFreezeManager {
                     factory.setAncestorFrozen(hasPersistentLease(factory));
                 }
                 factory.refreshChunkRefsAfterFreeze();
+                restoredFactories.add(factory);
+            }
+            // All subtree freeze flags must be settled before ports announce their live endpoints.
+            for (NestedFactoryBlockEntity factory : restoredFactories) {
+                factory.requestRoomPortConnectionRefresh();
             }
             PocketChunkForceManager.releaseAll(server, thawOwner(tree.rootFactoryId()));
             forgetThawState(server, tree.rootFactoryId());

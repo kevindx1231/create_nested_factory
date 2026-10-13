@@ -1,7 +1,7 @@
 package com.createnestedfactory.create_nested_factory;
 
-import net.neoforged.bus.api.IEventBus;
-import net.neoforged.fml.ModList;
+import net.minecraftforge.eventbus.api.IEventBus;
+import net.minecraftforge.fml.ModList;
 import org.slf4j.Logger;
 
 import java.lang.reflect.InvocationTargetException;
@@ -23,13 +23,12 @@ public final class OptionalCompatBootstrap {
 
     enum CompatInitializer {
         MEKANISM,
-        PIPEZ,
-        SIMULATED
+        PIPEZ
     }
 
     public static void register(IEventBus modEventBus) {
         for (CompatInitializer initializer : initializersFor(
-                isLoaded("mekanism"), isLoaded("pipez"), isLoaded("simulated"), isLoaded("sable"))) {
+                isLoaded("mekanism"), isLoaded("pipez"))) {
             switch (initializer) {
                 case MEKANISM -> invoke(
                         "com.createnestedfactory.create_nested_factory_logistics.MekanismLogisticsCompat",
@@ -37,19 +36,14 @@ public final class OptionalCompatBootstrap {
                 case PIPEZ -> invoke(
                         "com.createnestedfactory.create_nested_factory_logistics.PipezLogisticsCompat",
                         "initialize");
-                case SIMULATED -> invoke(
-                        "com.createnestedfactory.create_nested_factory_simulated.CreateNestedFactorySimulated",
-                        "initialize");
             }
         }
     }
 
-    static EnumSet<CompatInitializer> initializersFor(boolean mekanismLoaded, boolean pipezLoaded,
-                                                        boolean simulatedLoaded, boolean sableLoaded) {
+    static EnumSet<CompatInitializer> initializersFor(boolean mekanismLoaded, boolean pipezLoaded) {
         EnumSet<CompatInitializer> initializers = EnumSet.noneOf(CompatInitializer.class);
         if (mekanismLoaded) initializers.add(CompatInitializer.MEKANISM);
         if (pipezLoaded) initializers.add(CompatInitializer.PIPEZ);
-        if (simulatedLoaded && sableLoaded) initializers.add(CompatInitializer.SIMULATED);
         return initializers;
     }
 

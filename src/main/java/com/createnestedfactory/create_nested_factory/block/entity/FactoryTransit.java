@@ -5,8 +5,8 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.world.item.ItemStack;
-import net.neoforged.neoforge.fluids.FluidStack;
-import net.neoforged.neoforge.fluids.capability.IFluidHandler;
+import net.minecraftforge.fluids.FluidStack;
+import net.minecraftforge.fluids.capability.IFluidHandler;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -287,7 +287,7 @@ public final class FactoryTransit {
             if (resource == null || resource.isEmpty()) return 0;
             long available = Math.max(0L, outputFluidCapacity - outputFluids.totalAmount());
             int accepted = (int) Math.min(resource.getAmount(), Math.min(available, Integer.MAX_VALUE));
-            return accepted <= 0 ? 0 : outputFluids.fill(resource.copyWithAmount(accepted), action);
+            return accepted <= 0 ? 0 : outputFluids.fill(com.createnestedfactory.create_nested_factory.compat.NbtIdentity.withAmount(resource, accepted), action);
         }
 
         /** Replaces fixed simulated escrow credits with recipe-sized storage, never a per-tick quota. */
@@ -519,7 +519,7 @@ public final class FactoryTransit {
                 participant.read(extensions.getCompound(key), registries);
                 participants.put(key, participant);
             }
-            inputItemCredits = Math.clamp(tag.getLong("InputItemCredits"), 0L, INITIAL_ITEM_PRIME_CREDITS);
+            inputItemCredits = com.createnestedfactory.create_nested_factory.compat.LegacyMath.clamp(tag.getLong("InputItemCredits"), 0L, INITIAL_ITEM_PRIME_CREDITS);
             outputItemCapacity = tag.contains("OutputItemCapacity")
                     ? Math.max(0L, tag.getLong("OutputItemCapacity")) : INITIAL_ITEM_PRIME_CREDITS;
             outputFluidCapacity = tag.contains("OutputFluidCapacity")
@@ -773,7 +773,7 @@ public final class FactoryTransit {
                 return 0;
             }
             if (entry == null) {
-                entry = new FluidEntry(resource.copyWithAmount(1));
+                entry = new FluidEntry(com.createnestedfactory.create_nested_factory.compat.NbtIdentity.withAmount(resource, 1));
                 if (action.execute()) {
                     entries.add(entry);
                 }
@@ -847,7 +847,7 @@ public final class FactoryTransit {
             if (source == this || source.entries.isEmpty()) return;
             for (FluidEntry entry : List.copyOf(source.entries)) {
                 FluidEntry target = find(entry.prototype);
-                if (target == null) entries.add(new FluidEntry(entry.prototype.copyWithAmount(1), entry.amount));
+                if (target == null) entries.add(new FluidEntry(com.createnestedfactory.create_nested_factory.compat.NbtIdentity.withAmount(entry.prototype, 1), entry.amount));
                 else target.amount = safeAdd(target.amount, entry.amount);
             }
             source.entries.clear();
@@ -860,7 +860,7 @@ public final class FactoryTransit {
 
         private FluidEntry find(FluidStack stack) {
             for (FluidEntry entry : entries) {
-                if (FluidStack.isSameFluidSameComponents(entry.prototype, stack)) {
+                if (entry.prototype.isFluidEqual(stack)) {
                     return entry;
                 }
             }
@@ -869,7 +869,7 @@ public final class FactoryTransit {
 
         private FluidStack drainEntry(FluidEntry entry, int requested, IFluidHandler.FluidAction action) {
             int drained = (int) Math.min(entry.amount, Math.max(0, requested));
-            FluidStack result = entry.prototype.copyWithAmount(drained);
+            FluidStack result = com.createnestedfactory.create_nested_factory.compat.NbtIdentity.withAmount(entry.prototype, drained);
             if (action.execute() && drained > 0) {
                 entry.amount -= drained;
                 if (entry.amount == 0) {
@@ -886,7 +886,7 @@ public final class FactoryTransit {
                     continue;
                 }
                 CompoundTag value = new CompoundTag();
-                value.put("Stack", entry.prototype.copyWithAmount(1).saveOptional(registries));
+                value.put("Stack", com.createnestedfactory.create_nested_factory.compat.NbtIdentity.withAmount(entry.prototype, 1).writeToNBT(new CompoundTag()));
                 value.putLong("Amount", entry.amount);
                 list.add(value);
             }
@@ -898,10 +898,10 @@ public final class FactoryTransit {
             entries.clear();
             for (Tag raw : tag.getList("Entries", Tag.TAG_COMPOUND)) {
                 CompoundTag value = (CompoundTag) raw;
-                FluidStack prototype = FluidStack.parseOptional(registries, value.getCompound("Stack"));
+                FluidStack prototype = FluidStack.loadFluidStackFromNBT(value.getCompound("Stack"));
                 long amount = value.getLong("Amount");
                 if (!prototype.isEmpty() && amount > 0) {
-                    entries.add(new FluidEntry(prototype.copyWithAmount(1), amount));
+                    entries.add(new FluidEntry(com.createnestedfactory.create_nested_factory.compat.NbtIdentity.withAmount(prototype, 1), amount));
                 }
             }
         }
@@ -920,7 +920,7 @@ public final class FactoryTransit {
             }
 
             private FluidStack snapshot() {
-                return prototype.copyWithAmount((int) Math.min(amount, Integer.MAX_VALUE));
+                return com.createnestedfactory.create_nested_factory.compat.NbtIdentity.withAmount(prototype, (int) Math.min(amount, Integer.MAX_VALUE));
             }
         }
     }

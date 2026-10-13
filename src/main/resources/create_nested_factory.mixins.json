@@ -2,7 +2,7 @@
   "required": true,
   "minVersion": "0.8",
   "package": "com.createnestedfactory.create_nested_factory.mixin",
-  "compatibilityLevel": "JAVA_21",
+  "compatibilityLevel": "JAVA_17",
   "mixins": [
     "accessor.LevelTicksAccessor",
     "accessor.ServerLevelBlockEventsAccessor",
@@ -12,9 +12,15 @@
     "ServerLevelRandomTickFreezeMixin",
     "LevelChunkLearningMixin",
     "DrillBlockEntityLearningMixin",
-    "DrillMovementBehaviourLearningMixin"
+    "DrillMovementBehaviourLearningMixin",
+    "ServerLevelWeatherFreezeMixin",
+    "SchematicItemMixin"
+  ],
+  "client": [
+    "client.SchematicHandlerMixin"
   ],
   "injectors": {
     "defaultRequire": 1
-  }
+  },
+  "refmap": "create_nested_factory.refmap.json"
 }

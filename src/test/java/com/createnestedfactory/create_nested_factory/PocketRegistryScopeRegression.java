@@ -8,6 +8,8 @@ public final class PocketRegistryScopeRegression {
     }
 
     public static void main(String[] args) {
+        net.minecraft.SharedConstants.tryDetectVersion();
+        net.minecraft.server.Bootstrap.bootStrap();
         Object firstServer = new Object();
         Object secondServer = new Object();
         PocketRegistry.ServerStates<Object> states = new PocketRegistry.ServerStates<>();

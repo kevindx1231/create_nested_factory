@@ -1,13 +1,14 @@
 package com.createnestedfactory.create_nested_factory.block.entity;
 
+import com.createnestedfactory.create_nested_factory.compat.LegacyCapabilities;
 import com.simibubi.create.content.fluids.FluidPropagator;
 import com.simibubi.create.content.fluids.FluidTransportBehaviour;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.Level;
-import net.neoforged.neoforge.capabilities.Capabilities;
-import net.neoforged.neoforge.fluids.FluidStack;
-import net.neoforged.neoforge.fluids.capability.IFluidHandler;
+import net.minecraftforge.common.capabilities.ForgeCapabilities;
+import net.minecraftforge.fluids.FluidStack;
+import net.minecraftforge.fluids.capability.IFluidHandler;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -107,7 +108,7 @@ public final class FluidNetworkEndpointResolver {
         Set<IFluidHandler> seen = Collections.newSetFromMap(new IdentityHashMap<>());
         List<IFluidHandler> result = new ArrayList<>();
         BlockPos firstPos = sourcePos.relative(startSide);
-        IFluidHandler direct = level.getCapability(Capabilities.FluidHandler.BLOCK,
+        IFluidHandler direct = LegacyCapabilities.get(level, ForgeCapabilities.FLUID_HANDLER,
                 firstPos, startSide.getOpposite());
         if (isUsable(direct, request, maxDrain, operation) && seen.add(direct)) {
             result.add(direct);
@@ -160,7 +161,7 @@ public final class FluidNetworkEndpointResolver {
                     }
                     continue;
                 }
-                IFluidHandler handler = level.getCapability(Capabilities.FluidHandler.BLOCK,
+                IFluidHandler handler = LegacyCapabilities.get(level, ForgeCapabilities.FLUID_HANDLER,
                         connectedPos, face.getOpposite());
                 if (isUsable(handler, request, maxDrain, operation) && seen.add(handler)) {
                     result.add(handler);

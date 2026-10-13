@@ -5,13 +5,11 @@ import org.spongepowered.asm.mixin.extensibility.IMixinConfigPlugin;
 import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
 
 import java.util.List;
-import net.neoforged.fml.loading.LoadingModList;
+import net.minecraftforge.fml.loading.LoadingModList;
 import java.util.Set;
 
 /** Filters bundled compatibility Mixins according to the mods available at runtime. */
 public final class OptionalCompatMixinPlugin implements IMixinConfigPlugin {
-    private static final String SIMULATED_MIXIN_PACKAGE =
-            "com.createnestedfactory.create_nested_factory_simulated.mixin.";
     private static final String LOGISTICS_MIXIN_PACKAGE =
             "com.createnestedfactory.create_nested_factory_logistics.mixin.";
 
@@ -27,11 +25,7 @@ public final class OptionalCompatMixinPlugin implements IMixinConfigPlugin {
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
         try {
-            if (mixinClassName.startsWith(SIMULATED_MIXIN_PACKAGE)) {
-                // Mixin configuration is prepared before ModList has finished constructing
-                // runtime containers. LoadingModList is already populated during this phase.
-                return isModAvailable("simulated") && isModAvailable("sable");
-            }
+
             if (mixinClassName.startsWith(LOGISTICS_MIXIN_PACKAGE)) {
                 return isModAvailable("pipez");
             }

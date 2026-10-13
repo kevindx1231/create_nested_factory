@@ -5,18 +5,18 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.world.level.material.Fluid;
-import net.neoforged.neoforge.fluids.FluidStack;
+import net.minecraftforge.fluids.FluidStack;
 
-/** Immutable fluid identity: registry fluid plus the complete Data Component state. */
+/** Immutable fluid identity: registry fluid plus the complete NBT state. */
 public final class FluidVariant implements Comparable<FluidVariant> {
     private final FluidStack prototype;
     private final String canonicalKey;
     private final int hashCode;
 
     private FluidVariant(FluidStack stack) {
-        prototype = stack.copyWithAmount(1);
-        canonicalKey = BuiltInRegistries.FLUID.getKey(prototype.getFluid()) + "|" + prototype.getComponentsPatch();
-        hashCode = FluidStack.hashFluidAndComponents(prototype);
+        prototype = com.createnestedfactory.create_nested_factory.compat.NbtIdentity.withAmount(stack, 1);
+        canonicalKey = BuiltInRegistries.FLUID.getKey(prototype.getFluid()) + "|" + com.createnestedfactory.create_nested_factory.compat.NbtIdentity.canonical(prototype.getTag());
+        hashCode = java.util.Objects.hash(prototype.getFluid(), prototype.getTag());
     }
 
     public static FluidVariant of(FluidStack stack) {
@@ -25,12 +25,12 @@ public final class FluidVariant implements Comparable<FluidVariant> {
     }
 
     public static FluidVariant read(HolderLookup.Provider registries, CompoundTag tag) {
-        FluidStack stack = FluidStack.parseOptional(registries, tag);
+        FluidStack stack = FluidStack.loadFluidStackFromNBT(tag);
         return stack.isEmpty() ? null : of(stack);
     }
 
     public CompoundTag write(HolderLookup.Provider registries) {
-        Tag saved = prototype.saveOptional(registries);
+        Tag saved = prototype.writeToNBT(new CompoundTag());
         return saved instanceof CompoundTag tag ? tag : new CompoundTag();
     }
 
@@ -43,11 +43,11 @@ public final class FluidVariant implements Comparable<FluidVariant> {
     }
 
     public FluidStack createStack(int amount) {
-        return prototype.copyWithAmount(amount);
+        return com.createnestedfactory.create_nested_factory.compat.NbtIdentity.withAmount(prototype, amount);
     }
 
     public boolean matches(FluidStack stack) {
-        return stack != null && !stack.isEmpty() && FluidStack.isSameFluidSameComponents(prototype, stack);
+        return stack != null && !stack.isEmpty() && prototype.isFluidEqual(stack);
     }
 
     public String canonicalKey() {
@@ -62,7 +62,7 @@ public final class FluidVariant implements Comparable<FluidVariant> {
     @Override
     public boolean equals(Object object) {
         return object instanceof FluidVariant other
-                && FluidStack.isSameFluidSameComponents(prototype, other.prototype);
+                && prototype.isFluidEqual(other.prototype);
     }
 
     @Override

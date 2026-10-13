@@ -13,7 +13,6 @@ import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryB
 import com.createnestedfactory.create_nested_factory.registry.ModBlockEntities;
 import com.createnestedfactory.create_nested_factory.registry.ModItems;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
@@ -81,7 +80,7 @@ public final class FactoryCommandService {
         ItemStack stack = new ItemStack(ModItems.NESTED_FACTORY.get());
         BlockItem.setBlockEntityData(stack, ModBlockEntities.NESTED_FACTORY.get(), data);
         if (!data.getString("CustomName").isBlank()) {
-            stack.set(DataComponents.CUSTOM_NAME, Component.literal(data.getString("CustomName")));
+            stack.setHoverName( Component.literal(data.getString("CustomName")));
         }
         return stack;
     }
@@ -112,9 +111,9 @@ public final class FactoryCommandService {
         if (current != null) {
             current.putBoolean(COPY_KEY, data.getBoolean(COPY_KEY));
             BlockItem.setBlockEntityData(stack, ModBlockEntities.NESTED_FACTORY.get(), current);
-            stack.remove(DataComponents.CUSTOM_NAME);
+            stack.resetHoverName();
             if (!current.getString("CustomName").isBlank()) {
-                stack.set(DataComponents.CUSTOM_NAME, Component.literal(current.getString("CustomName")));
+                stack.setHoverName( Component.literal(current.getString("CustomName")));
             }
         }
         return true;

@@ -5,7 +5,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
-import net.neoforged.neoforge.fluids.FluidStack;
+import net.minecraftforge.fluids.FluidStack;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -109,7 +109,7 @@ public final class FactoryLearningSession {
     public FactoryPlan.SourceKind sourceKind() {
         List<Proof> supported = supportedProofs();
         if (supported.isEmpty()) return FactoryPlan.SourceKind.NONE;
-        FactoryPlan.SourceKind first = supported.getFirst().evidence().sourceKind();
+        FactoryPlan.SourceKind first = supported.get(0).evidence().sourceKind();
         return supported.stream().allMatch(proof -> proof.evidence().sourceKind() == first)
                 ? first : FactoryPlan.SourceKind.COMPOSITE;
     }
@@ -157,7 +157,7 @@ public final class FactoryLearningSession {
                     proof.evidence().claimedOutputAmount(stack, observed - Math.min(observed, claimed), hasMaterialInputs));
             if (claimed >= observed) return observed;
         }
-        return Math.clamp(claimed, 0, observed);
+        return com.createnestedfactory.create_nested_factory.compat.LegacyMath.clamp(claimed, 0, observed);
     }
 
     public long claimedAmount(FluidVariant variant, long observed, boolean hasMaterialInputs) {
@@ -169,7 +169,7 @@ public final class FactoryLearningSession {
                     proof.evidence().claimedOutputAmount(stack, observed - Math.min(observed, claimed), hasMaterialInputs));
             if (claimed >= observed) return observed;
         }
-        return Math.clamp(claimed, 0, observed);
+        return com.createnestedfactory.create_nested_factory.compat.LegacyMath.clamp(claimed, 0, observed);
     }
 
     public boolean isPotentialRegenerativeOutput(ItemVariant variant) {

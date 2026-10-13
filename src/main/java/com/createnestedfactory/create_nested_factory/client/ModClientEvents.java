@@ -7,10 +7,10 @@ import com.createnestedfactory.create_nested_factory.registry.ModMenus;
 import com.simibubi.create.AllPartialModels;
 import com.simibubi.create.content.kinetics.base.SingleAxisRotatingVisual;
 import dev.engine_room.flywheel.lib.visualization.SimpleBlockEntityVisualizer;
-import net.neoforged.bus.api.IEventBus;
-import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
-import net.neoforged.neoforge.client.event.EntityRenderersEvent;
-import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
+import net.minecraftforge.eventbus.api.IEventBus;
+import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
+import net.minecraftforge.client.event.EntityRenderersEvent;
+import net.minecraft.client.gui.screens.MenuScreens;
 import net.minecraft.client.renderer.ItemBlockRenderTypes;
 import net.minecraft.client.renderer.RenderType;
 import com.createnestedfactory.create_nested_factory.registry.ModBlocks;
@@ -26,8 +26,8 @@ public final class ModClientEvents {
         modEventBus.addListener(ModClientEvents::registerRenderLayers);
     }
 
-    public static void registerScreens(RegisterMenuScreensEvent event) {
-        event.register(ModMenus.FACTORY.get(), FactoryScreen::new);
+    public static void registerScreens(FMLClientSetupEvent event) {
+        event.enqueueWork(() -> MenuScreens.register(ModMenus.FACTORY.get(), FactoryScreen::new));
     }
 
     public static void registerBlockEntityRenderers(EntityRenderersEvent.RegisterRenderers event) {
@@ -36,10 +36,10 @@ public final class ModClientEvents {
     }
 
     public static void registerStressPortVisual(FMLClientSetupEvent event) {
-        SimpleBlockEntityVisualizer.builder(ModBlockEntities.NESTED_STRESS_PORT.get())
+        event.enqueueWork(() -> SimpleBlockEntityVisualizer.builder(ModBlockEntities.NESTED_STRESS_PORT.get())
                 .factory(SingleAxisRotatingVisual.of(AllPartialModels.SHAFT))
                 .skipVanillaRender(blockEntity -> true)
-                .apply();
+                .apply());
     }
 
     @SuppressWarnings("deprecation")

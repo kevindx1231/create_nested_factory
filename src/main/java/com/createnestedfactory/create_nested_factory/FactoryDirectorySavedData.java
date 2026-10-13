@@ -56,7 +56,7 @@ public final class FactoryDirectorySavedData extends SavedData {
 
     public static FactoryDirectorySavedData get(MinecraftServer server) {
         return server.overworld().getDataStorage().computeIfAbsent(
-                new SavedData.Factory<>(FactoryDirectorySavedData::new, FactoryDirectorySavedData::load), DATA_NAME);
+                tag -> FactoryDirectorySavedData.load(tag, null), FactoryDirectorySavedData::new, DATA_NAME);
     }
 
     public synchronized void observe(Entry entry) {
@@ -182,7 +182,8 @@ public final class FactoryDirectorySavedData extends SavedData {
     }
 
     @Override
-    public synchronized CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
+    public synchronized CompoundTag save(CompoundTag tag) {
+        HolderLookup.Provider registries = null;
         ListTag factories = new ListTag();
         for (String id : entries.keySet().stream().sorted().toList()) {
             Entry entry = entries.get(id);
@@ -212,4 +213,5 @@ public final class FactoryDirectorySavedData extends SavedData {
         tag.put("RetiredIds", retired);
         return tag;
     }
+    public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) { return save(tag); }
 }

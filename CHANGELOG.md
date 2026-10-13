@@ -1,88 +1,26 @@
-# Changelog
+# Changelog - Minecraft 1.20.1
 
-本项目从 v1.5.0 起在 GitHub Releases 发布正式构建。
+# v1.5.21 - Minecraft 1.20.1
 
-## v1.5.2 — 2026-10-12
+Requires Minecraft 1.20.1, Java 17, and Create 6.0.8–6.0.x. Development loader: NeoForge 47.1.106. Optional compatibility targets: Mekanism 10.4.16.80 and Pipez 1.20.1.
 
-### 工厂目录与指令
+## Fixes and improvements
 
-- 新增持久化工厂目录，以及 `/cnf info`、`list root`、`list nested`、`mode` 和 `nested` 查询，支持 UUID 补全和可点击 ID。
-- 新增 OP 2 级的 `/cnf copy` 与 `/cnf delete`：复制品引用原空间，恢复时使用最新状态；删除检查全部后代、玩家和房间任务，分批清理并支持重启后继续。
-- 清理完成后回收根空间、嵌套空间及旧存档根空间槽位；删除的 UUID 永久失效，并从冻结快照中移除。
+- Corrected GUI textures for face modes, pressed buttons, and the overclock slider.
+- Fixed flight and night-vision synchronization, Shift-return while flying, previous effect restoration, cancelled teleports, and flight restoration after game-mode changes.
+- Prevented factory-blueprint crashes and accidental entry into Create's schematic editor; corrected capability refresh after applying a blueprint and removed duplicate Shift hints.
+- Fixed Mekanism pipe disconnections during capability invalidation and automatic reconnection after mode changes, preparation, thawing, and late port loading.
+- Fixed Pipez fluid/universal-pipe endpoint detection for the 1.20.1 API.
+- Prevented wrong-type and mixed-type extraction from losing gas, infusion, pigment, or slurry resources.
+- Reused capability handlers, extension delegates, and heat endpoint lookups; reduced redundant port refreshes, blueprint parsing, and session NBT work.
+- Corrected the 1.20.1 Pocket dimension light-provider format.
 
-### 移动通道与交互
+## Validation
 
-- 工厂通道支持 Simulated/Sable 移动结构，按当前载体姿态和速度处理进入、返回与传送确认，保留暂时不可达时的会话。
-- 抵达位置同时检查世界与载体碰撞，优先选择门前或门后安全支撑位置；重新登录可等待载体加载，防重入保护按实际离开通道解除。
-- 通道上下两格必须一起组装或拆解；移动保留身份与放置顺序，旧端点移除回调不会注销替代端点。
-- 主手持物点击标记区设置标记，空手点击清除；标记区交互不消耗物品，也不切换门的开关。
-- 更新中英文命令、通道提示和双语 README；重复抵达失败诊断按每 40 tick 限流。
+Full build and all 20 JVM regression groups passed. Release metadata, Java 17 bytecode, resources, and Mixin/refmap packaging were checked. These fixes have not yet received a complete in-game retest or client/dedicated-server validation on both loaders.
 
-### 模型
+Aeronautics, Simulated, and Sable moving-structure integration is not included in this 1.20.1 port. Minecraft 1.21.1 worlds are not converted to 1.20.1.
 
-- 删除工厂模型 `[9,4,3]` 处重复且 UV 越界的元素，同步调整分组索引，修复青蓝色贴图异常。
+Install `create_nested_factory-1.20.1-1.5.21.jar`; the sources JAR is not a game mod.
 
-### 验证
-
-- 通过完整 Gradle `check build`，包括新增工厂指令、复制/删除/槽位复用、移动通道交互及现有回归任务。
-- 核对发布 JAR 版本元数据、兼容类与模型，以及双语语言键和 README 引用。
-- 本次未执行游戏内手动验收。
-
-英文发布说明见 [v1.5.2 release notes](docs/releases/v1.5.2.md)，完整文件汇总见 [v1.5.2 changed files](docs/releases/v1.5.2-files.md)。本版本包含 v1.5.11 后完成的改动。
-
-## v1.5.11 — 2026-09-30
-
-### 配方
-
-- 为工厂通道新增有序合成配方，一次制作两个通道，便于直接搭建一对端点。
-- 配方使用四块黄铜板、两根电子管、两块本模组坚固合金板和一扇 Create 边框玻璃门。
-- 将工厂通道加入黄铜阶段的配方书解锁列表。
-
-### 验证
-
-- 通过 JSON 解析、Gradle 资源处理、完整 `check` 和发布 JAR 构建。
-
-## v1.5.1 — 2026-09-27
-
-### 兼容性
-
-- 修复与 Lithium 0.15.4 同时修改服务端方块及流体随机刻调用时产生的 Mixin 冲突，避免客户端在初始化阶段崩溃。
-- 使用可组合的条件包装保留冻结房间跳过随机刻的既有机制，同时继续执行 Lithium 的不可变方块坐标优化。
-- 未安装 Lithium 时沿用同一随机刻冻结路径，不需要单独的兼容配置。
-
-### 验证
-
-- 通过全部 Gradle verification tasks、完整 `check` 和发布 JAR 构建。
-- 使用 Lithium 0.15.4、Minecraft 1.21.1 和 NeoForge 21.1.248 完成开发客户端启动验证。
-
-## v1.5.0 — 2026-09-26
-
-### 核心功能
-
-- 完成可嵌套 Pocket 工厂、房间扩缩、身份迁移和持久化恢复。
-- 完成普通物品/流体/包裹端口、应力端口、端口分组及扩展接口。
-- 完成准备、三窗口学习、计划编译、黑盒运行、蓝图和超频流程。
-- 完成启动资本、工具租约、输入预付、在制事务、输出托管、堵塞和退款处理。
-- 完成工厂通道的配对、方向切换、循环保护及移动结构返回锚点。
-- 完成根工厂租约、嵌套树冻结、物理事件捕获和安全解冻。
-
-### 兼容性
-
-- 支持 Simulated 与 Sable 移动结构兼容。
-- 支持 Mekanism Chemical/Heat capability。
-- 支持 Pipez-only、Mekanism-only 及两者共存组合。
-
-### 稳定性与性能
-
-- 修复通道目标歧义时仍允许从外侧进入的问题。
-- 使用端点索引替代通道全表扫描，避免加载无关候选区块。
-- 默认关闭高频黑盒诊断日志，并把资源级事件降为按需 DEBUG。
-- 统一工厂面、扩展接口、Pocket 端口和兼容模组使用的逻辑端口 Interface。
-- 使用显式生命周期转换表校验模式转换与加载恢复。
-- 缓存解冻树快照、chunk 集合和票据请求，减少 THAWING 阶段的每 tick 分配。
-
-### 验证
-
-- 通过全部 Gradle verification tasks。
-- 通过完整 `check` 和 `build`。
-- 发布构建面向 Minecraft 1.21.1、NeoForge 21.1.248、Create 6.0.10-280 和 Java 21。
+Historical 1.21.1 releases: [1.21.1 changelog](https://github.com/kevindx1231/create_nested_factory/blob/mc1.21.1/CHANGELOG.md).

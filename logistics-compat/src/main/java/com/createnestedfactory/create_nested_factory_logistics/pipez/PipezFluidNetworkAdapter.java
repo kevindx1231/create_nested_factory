@@ -4,8 +4,9 @@ import com.createnestedfactory.create_nested_factory.block.entity.FluidNetworkEn
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.block.Block;
-import net.neoforged.fml.ModList;
+import net.minecraftforge.fml.ModList;
 
 import java.lang.reflect.Method;
 import java.util.List;
@@ -23,7 +24,6 @@ public final class PipezFluidNetworkAdapter implements FluidNetworkEndpointResol
     private static final String UNIVERSAL_PIPE_CLASS = "de.maxhenkel.pipez.blocks.UniversalPipeBlock";
 
     private volatile Boolean available;
-    private volatile Class<?> pipeBlockClass;
     private volatile Class<?> fluidPipeClass;
     private volatile Class<?> universalPipeClass;
     private volatile Method isConnected;
@@ -32,18 +32,12 @@ public final class PipezFluidNetworkAdapter implements FluidNetworkEndpointResol
     }
 
     @Override
-    public List<net.neoforged.neoforge.fluids.capability.IFluidHandler> find(
+    public List<net.minecraftforge.fluids.capability.IFluidHandler> find(
             Level level, BlockPos sourcePos, Direction startSide,
-            net.neoforged.neoforge.fluids.FluidStack request,
+            net.minecraftforge.fluids.FluidStack request,
             FluidNetworkEndpointResolver.Operation operation) {
         // Pipez must keep ownership of its network transfer. The core bridge uses hasEndpoint()
         // to permit its shared handoff ledger instead of directly injecting into Pipez.
-        return List.of();
-    }
-
-    @Override
-    public List<net.neoforged.neoforge.fluids.capability.IFluidHandler> findDrain(
-            Level level, BlockPos sourcePos, Direction startSide, int maxDrain) {
         return List.of();
     }
 
@@ -54,8 +48,7 @@ public final class PipezFluidNetworkAdapter implements FluidNetworkEndpointResol
         }
         BlockPos pipePos = boundaryPos.relative(side);
         Block block = level.getBlockState(pipePos).getBlock();
-        if (!pipeBlockClass.isInstance(block)
-                || (!fluidPipeClass.isInstance(block) && !universalPipeClass.isInstance(block))) {
+        if (!fluidPipeClass.isInstance(block) && !universalPipeClass.isInstance(block)) {
             return false;
         }
         try {
@@ -79,11 +72,11 @@ public final class PipezFluidNetworkAdapter implements FluidNetworkEndpointResol
                 return false;
             }
             try {
-                pipeBlockClass = Class.forName(PIPE_BLOCK_CLASS);
+                Class<?> pipeBlockClass = Class.forName(PIPE_BLOCK_CLASS);
                 fluidPipeClass = Class.forName(FLUID_PIPE_CLASS);
                 universalPipeClass = Class.forName(UNIVERSAL_PIPE_CLASS);
                 isConnected = pipeBlockClass.getMethod(
-                        "isConnected", Level.class, BlockPos.class, Direction.class);
+                        "isConnected", LevelAccessor.class, BlockPos.class, Direction.class);
                 available = true;
             } catch (ReflectiveOperationException | LinkageError error) {
                 available = false;

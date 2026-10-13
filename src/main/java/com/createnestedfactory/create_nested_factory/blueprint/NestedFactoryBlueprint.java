@@ -7,10 +7,9 @@ import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryB
 import com.simibubi.create.AllItems;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.component.CustomData;
 
 import java.util.Locale;
 
@@ -70,10 +69,17 @@ public final class NestedFactoryBlueprint {
         portIds[selected] = portId;
     }
 
+    /** Identifies our carrier even when its payload is invalid, without parsing the production plan. */
+    public static boolean hasFactoryBlueprintMarker(ItemStack stack) {
+        CompoundTag root = stack.getTag();
+        return root != null && root.contains(ITEM_KEY) && stack.is(AllItems.SCHEMATIC.get());
+    }
+
     public static NestedFactoryBlueprint fromItem(ItemStack stack, HolderLookup.Provider registries) {
-        if (!stack.is(AllItems.SCHEMATIC.get())) return null;
-        CompoundTag root = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag();
-        return root == null || !root.contains(ITEM_KEY) ? null : fromTag(root.getCompound(ITEM_KEY), registries);
+        CompoundTag root = stack.getTag();
+        if (root == null || !root.contains(ITEM_KEY, Tag.TAG_COMPOUND)
+                || !stack.is(AllItems.SCHEMATIC.get())) return null;
+        return fromTag(root.getCompound(ITEM_KEY), registries);
     }
 
     public static NestedFactoryBlueprint fromTag(CompoundTag tag, HolderLookup.Provider registries) {
@@ -86,7 +92,7 @@ public final class NestedFactoryBlueprint {
     public void writeToItem(ItemStack stack, HolderLookup.Provider registries) {
         CompoundTag data = new CompoundTag();
         write(data, registries);
-        CustomData.update(DataComponents.CUSTOM_DATA, stack, root -> root.put(ITEM_KEY, data));
+        stack.getOrCreateTag().put(ITEM_KEY, data);
     }
 
     public CompoundTag write(CompoundTag tag, HolderLookup.Provider registries) {

@@ -3,8 +3,8 @@ package com.createnestedfactory.create_nested_factory.block.entity;
 import com.createnestedfactory.create_nested_factory.block.PortMode;
 import net.minecraft.core.Direction;
 import net.minecraft.world.item.ItemStack;
-import net.neoforged.neoforge.fluids.capability.IFluidHandler;
-import net.neoforged.neoforge.items.IItemHandler;
+import net.minecraftforge.fluids.capability.IFluidHandler;
+import net.minecraftforge.items.IItemHandler;
 
 import java.util.List;
 import java.util.Objects;

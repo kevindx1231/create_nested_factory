@@ -198,7 +198,7 @@ public class FactoryMenu extends AbstractContainerMenu {
             if (Float.isFinite(rate) && rate > 0f) {
                 rates.add(new ResourceRate(1, BuiltInRegistries.ITEM.getId(entry.getKey().item()), rate,
                         BuiltInRegistries.ITEM.getKey(entry.getKey().item()).toString()
-                                + "|" + entry.getKey().prototype().getComponentsPatch()));
+                                + "|" + entry.getKey().prototype().getTag()));
             }
         }
         for (Map.Entry<Fluid, Float> entry : fluidRates.entrySet()) {

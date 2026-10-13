@@ -1,42 +1,16 @@
-# Gradle
-/.gradle/
-/.gradle-user-home/
-/build/
-/bin/
-**/build/
-
-# IDE
-/.idea/
-/.vscode/
+.gradle/
+.gradle-user-home/
+build/
+run/
+run-data/
+.idea/
 *.iml
+compatible-mod-sources/*/
+Create-mc1.20.1-dev/
 
-# Minecraft runtime files
-/run/
-/logs/
-/out/
-**/run/
-/error/
-
-# Local release artifacts (GitHub Releases owns distributed JARs)
-/*.jar
-
-# Local configuration and personal notes
-/.claude/
-/note/
-/代码分析/
-/兼容模组源码/
-/模组依赖与环境版本信息.md
-/docs/release-audit/
-/Github push.txt
-/8.30问题汇总.md
-/问题汇总.md
-/多层嵌套实现.md
-/添加蓝图模式.md
-/加载模式归纳.md
-/添加蓝图和多层嵌套.patch
-/\#*.md
-/*.patch
-
-# System files
-.DS_Store
-Thumbs.db
+# Local diagnostics, migration snapshots, and publishing workspace
+.publish/
+logs/
+debug/
+migration/
+*.class

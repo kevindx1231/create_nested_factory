@@ -1,8 +1,10 @@
 package com.createnestedfactory.create_nested_factory.block.entity;
 
+import com.createnestedfactory.create_nested_factory.compat.LegacyCapabilities;
 import com.createnestedfactory.create_nested_factory.network.PlayerMessagePayload;
 
 import com.createnestedfactory.create_nested_factory.PocketRegistry;
+import com.createnestedfactory.create_nested_factory.PocketFreezeHooks;
 import com.createnestedfactory.create_nested_factory.block.NestedFactoryBlock;
 import com.createnestedfactory.create_nested_factory.block.PortMode;
 import com.createnestedfactory.create_nested_factory.registry.ModBlockEntities;
@@ -23,9 +25,9 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
-import net.neoforged.neoforge.capabilities.Capabilities;
-import net.neoforged.neoforge.fluids.capability.IFluidHandler;
-import net.neoforged.neoforge.items.IItemHandler;
+import net.minecraftforge.common.capabilities.ForgeCapabilities;
+import net.minecraftforge.fluids.capability.IFluidHandler;
+import net.minecraftforge.items.IItemHandler;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -44,6 +46,26 @@ import java.util.Set;
  * into this port.
  */
 public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGoggleInformation {
+    private final com.createnestedfactory.create_nested_factory.compat.LegacyCapabilities.Cache portCapabilities =
+            new com.createnestedfactory.create_nested_factory.compat.LegacyCapabilities.Cache();
+
+    @Override
+    public <T> net.minecraftforge.common.util.LazyOptional<T> getCapability(
+            net.minecraftforge.common.capabilities.Capability<T> capability, net.minecraft.core.Direction side) {
+        var endpoint = portCapabilities.get(this, capability, side);
+        return endpoint.isPresent() ? endpoint : super.getCapability(capability, side);
+    }
+
+    public void invalidatePortCapabilities() {
+        portCapabilities.invalidate();
+    }
+
+    @Override
+    public void invalidateCaps() {
+        super.invalidateCaps();
+        invalidatePortCapabilities();
+    }
+
     private static final float PRESSURE_EPSILON = 0.001f;
 
     private int targetPortId = 1;
@@ -62,10 +84,11 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
     /** Cached local precondition for entering the cross-dimension fluid bridge. */
     private boolean roomSideFluidBridge = false;
     private boolean roomSideFluidBridgeDirty = true;
+    /** Runtime-only: coalesces availability announcements until this port can tick live again. */
+    private boolean logisticsConnectionRefreshRequested;
     private String boundFactoryId = "";
     private BlockPos boundRoomOrigin;
     private BlockPos registeredRoomOrigin;
-    private boolean simulatedMoveInProgress;
 
     /** Runtime-only room-side consumers that have queried INPUT capabilities on this port. */
     private final Block[] itemInputConsumers = new Block[Direction.values().length];
@@ -110,7 +133,7 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
             if (roomOrigin != null) {
                 PocketRegistry.unregisterPort(level.getServer(), roomOrigin, old, worldPosition);
             }
-            level.invalidateCapabilities(worldPosition);
+            LegacyCapabilities.invalidate(level, worldPosition);
             registerPort();
         }
     }
@@ -191,7 +214,7 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
     public void onNeighborChanged(BlockPos neighborPos) {
         boolean changed = false;
         if (level != null && !level.isClientSide()) {
-            level.invalidateCapabilities(worldPosition);
+            LegacyCapabilities.invalidate(level, worldPosition);
             for (Direction side : Direction.values()) {
                 if (!worldPosition.relative(side).equals(neighborPos)) {
                     continue;
@@ -242,12 +265,13 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
     }
 
     public static void serverTick(Level level, BlockPos pos, BlockState state, NestedPortBlockEntity be) {
+        be.refreshLogisticsConnectionsIfRequested();
         if (level.getGameTime() % 20 == 0) {
             PortMode before = be.mappedFaceMode;
             be.refreshMappedMode();
             if (be.mappedFaceMode != before) {
                 be.requestFluidPressureRefresh();
-                level.invalidateCapabilities(pos);
+                LegacyCapabilities.invalidate(level, pos);
                 be.sendData();
             }
         }
@@ -264,6 +288,32 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
         }
         be.updateMirroredFluidPressure();
         be.updateOutwardFluidPressure();
+    }
+
+    public void requestLogisticsConnectionRefresh() {
+        logisticsConnectionRefreshRequested = true;
+    }
+
+    private void refreshLogisticsConnectionsIfRequested() {
+        if (!logisticsConnectionRefreshRequested || level == null || level.isClientSide()
+                || PocketFreezeHooks.isFrozen(level, worldPosition)) return;
+        NestedFactoryBlockEntity factory = findFactory();
+        if (factory == null || !factory.isLiveResourceTransferMode()) return;
+
+        // Neighbor callbacks may query this port synchronously. Publish its final state first.
+        logisticsConnectionRefreshRequested = false;
+        PortMode previousMode = mappedFaceMode;
+        refreshMappedMode();
+        if (mappedFaceMode != previousMode) sendData();
+        invalidatePortCapabilities();
+        Block portBlock = getBlockState().getBlock();
+        for (Direction side : Direction.values()) {
+            BlockPos neighbor = worldPosition.relative(side);
+            if (level.hasChunkAt(neighbor)) {
+                // An absent LazyOptional has no invalidation listeners; announce restored availability.
+                level.neighborChanged(neighbor, portBlock, worldPosition);
+            }
+        }
     }
 
     /**
@@ -647,31 +697,7 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
                 sendData();
             }
             requestFluidPressureRefresh();
-        }
-    }
-
-    public void prepareForSimulatedMove() {
-        simulatedMoveInProgress = true;
-        if (level != null && !level.isClientSide()) {
-            if (registeredRoomOrigin == null) {
-                registeredRoomOrigin = boundRoomOrigin != null
-                        ? boundRoomOrigin
-                        : NestedFactoryBlock.findRoomOrigin((ServerLevel) level, worldPosition);
-            }
-            if (registeredRoomOrigin != null) {
-                PocketRegistry.unregisterPort(level.getServer(), registeredRoomOrigin, targetPortId, worldPosition);
-            }
-            registeredRoomOrigin = null;
-            clearMirroredPressure();
-        }
-    }
-
-    public void finishSimulatedMove() {
-        try {
-            registerPort();
-            requestFluidPressureRefresh();
-        } finally {
-            simulatedMoveInProgress = false;
+            requestLogisticsConnectionRefresh();
         }
     }
 
@@ -695,7 +721,7 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
             // During server shutdown this method runs for every loaded port. Do not invoke
             // Create's pipe propagator unless this port actually injected mirrored pressure.
             clearMirroredPressure();
-            if (!simulatedMoveInProgress) {
+            {
                 BlockPos roomOrigin = registeredRoomOrigin != null
                         ? registeredRoomOrigin
                         : NestedFactoryBlock.findRoomOrigin((ServerLevel) level, worldPosition);
@@ -725,7 +751,7 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
             registeredRoomOrigin = roomOrigin;
             // Pipez caches endpoint capabilities. Rebuild the cache immediately after a port
             // loads so an extracting Pipez side cannot retain an earlier null result.
-            level.invalidateCapabilities(worldPosition);
+            LegacyCapabilities.invalidate(level, worldPosition);
             if (factory != null) {
                 factory.onRoomPortLogisticsConnectionChanged();
             }
@@ -733,8 +759,9 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
     }
 
     @Override
-    protected void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
-        super.saveAdditional(tag, registries);
+    protected void saveAdditional(CompoundTag tag) {
+        HolderLookup.Provider registries = level == null ? null : level.registryAccess();
+        super.saveAdditional(tag);
         tag.putInt("TargetPortId", targetPortId);
         tag.putString("MappedFaceMode", mappedFaceMode.getSerializedName());
         if (!boundFactoryId.isBlank()) {
@@ -746,8 +773,9 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
     }
 
     @Override
-    protected void loadAdditional(CompoundTag tag, HolderLookup.Provider registries) {
-        super.loadAdditional(tag, registries);
+    public void load(CompoundTag tag) {
+        HolderLookup.Provider registries = level == null ? null : level.registryAccess();
+        super.load(tag);
         targetPortId = tag.getInt("TargetPortId");
         if (targetPortId < 1 || targetPortId > 6) {
             targetPortId = 1;

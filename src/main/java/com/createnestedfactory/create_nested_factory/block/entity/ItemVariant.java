@@ -1,14 +1,13 @@
 package com.createnestedfactory.create_nested_factory.block.entity;
 
 import net.minecraft.core.HolderLookup;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 
-/** Immutable item identity: registry item plus the complete Data Component state. */
+/** Immutable item identity: registry item plus the complete NBT and capability state. */
 public final class ItemVariant implements Comparable<ItemVariant> {
     private final ItemStack prototype;
     private final String canonicalKey;
@@ -16,8 +15,14 @@ public final class ItemVariant implements Comparable<ItemVariant> {
 
     private ItemVariant(ItemStack stack) {
         prototype = stack.copyWithCount(1);
-        canonicalKey = BuiltInRegistries.ITEM.getKey(prototype.getItem()) + "|" + prototype.getComponentsPatch();
-        hashCode = ItemStack.hashItemAndComponents(prototype);
+        canonicalKey = BuiltInRegistries.ITEM.getKey(prototype.getItem()) + "|" + com.createnestedfactory.create_nested_factory.compat.NbtIdentity.canonical(identityTag(prototype));
+        hashCode = java.util.Objects.hash(prototype.getItem(), prototype.getTag());
+    }
+
+    private static CompoundTag identityTag(ItemStack stack) {
+        CompoundTag data = stack.save(new CompoundTag());
+        data.remove("Count");
+        return data;
     }
 
     public static ItemVariant of(ItemStack stack) {
@@ -33,17 +38,17 @@ public final class ItemVariant implements Comparable<ItemVariant> {
             throw new IllegalArgumentException("A tool signature requires a damageable item");
         }
         ItemStack signature = stack.copyWithCount(1);
-        signature.remove(DataComponents.DAMAGE);
+        if (signature.getTag() != null) signature.getTag().remove("Damage");
         return new ItemVariant(signature);
     }
 
     public static ItemVariant read(HolderLookup.Provider registries, CompoundTag tag) {
-        ItemStack stack = ItemStack.parseOptional(registries, tag);
+        ItemStack stack = ItemStack.of(tag);
         return stack.isEmpty() ? null : of(stack);
     }
 
     public CompoundTag write(HolderLookup.Provider registries) {
-        Tag saved = prototype.saveOptional(registries);
+        Tag saved = prototype.save(new CompoundTag());
         return saved instanceof CompoundTag tag ? tag : new CompoundTag();
     }
 
@@ -64,7 +69,7 @@ public final class ItemVariant implements Comparable<ItemVariant> {
     }
 
     public boolean matches(ItemStack stack) {
-        return !stack.isEmpty() && ItemStack.isSameItemSameComponents(prototype, stack);
+        return !stack.isEmpty() && ItemStack.isSameItemSameTags(prototype, stack);
     }
 
     public boolean matchesTool(ItemStack stack) {
@@ -79,7 +84,7 @@ public final class ItemVariant implements Comparable<ItemVariant> {
     @Override
     public boolean equals(Object object) {
         return object instanceof ItemVariant other
-                && ItemStack.isSameItemSameComponents(prototype, other.prototype);
+                && ItemStack.isSameItemSameTags(prototype, other.prototype);
     }
 
     @Override

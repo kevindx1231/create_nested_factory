@@ -1,0 +1,92 @@
+{
+  "type": "create:sequenced_assembly",
+  "ingredient": {
+    "item": "create_nested_factory:soaked_sturdy_alloy_ingot"
+  },
+  "results": [
+    {
+      "item": "create_nested_factory:sturdy_casing"
+    }
+  ],
+  "sequence": [
+    {
+      "type": "create:filling",
+      "ingredients": [
+        {
+          "item": "create_nested_factory:incomplete_sturdy_casing"
+        },
+        {
+          "fluid": "minecraft:lava",
+          "amount": 250
+        }
+      ],
+      "results": [
+        {
+          "item": "create_nested_factory:incomplete_sturdy_casing"
+        }
+      ]
+    },
+    {
+      "type": "create:pressing",
+      "ingredients": [
+        {
+          "item": "create_nested_factory:incomplete_sturdy_casing"
+        }
+      ],
+      "results": [
+        {
+          "item": "create_nested_factory:incomplete_sturdy_casing"
+        }
+      ]
+    },
+    {
+      "type": "create:pressing",
+      "ingredients": [
+        {
+          "item": "create_nested_factory:incomplete_sturdy_casing"
+        }
+      ],
+      "results": [
+        {
+          "item": "create_nested_factory:incomplete_sturdy_casing"
+        }
+      ]
+    },
+    {
+      "type": "create:filling",
+      "ingredients": [
+        {
+          "item": "create_nested_factory:incomplete_sturdy_casing"
+        },
+        {
+          "fluid": "minecraft:water",
+          "amount": 500
+        }
+      ],
+      "results": [
+        {
+          "item": "create_nested_factory:incomplete_sturdy_casing"
+        }
+      ]
+    },
+    {
+      "type": "create:deploying",
+      "ingredients": [
+        {
+          "item": "create_nested_factory:incomplete_sturdy_casing"
+        },
+        {
+          "item": "create:brass_sheet"
+        }
+      ],
+      "results": [
+        {
+          "item": "create_nested_factory:incomplete_sturdy_casing"
+        }
+      ]
+    }
+  ],
+  "transitional_item": {
+    "item": "create_nested_factory:incomplete_sturdy_casing"
+  }
+}

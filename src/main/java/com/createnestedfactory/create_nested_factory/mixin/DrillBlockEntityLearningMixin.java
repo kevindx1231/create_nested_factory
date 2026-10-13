@@ -20,12 +20,12 @@ abstract class DrillBlockEntityLearningMixin {
     @Unique
     private boolean createNestedFactory$optimizedThisCycle;
 
-    @Inject(method = "onBlockBroken", at = @At("HEAD"))
+    @Inject(method = "onBlockBroken", at = @At("HEAD"), remap = false)
     private void createNestedFactory$beginDrillCycle(BlockState state, CallbackInfo callback) {
         createNestedFactory$optimizedThisCycle = false;
     }
 
-    @Inject(method = "optimiseCobbleGen", at = @At("RETURN"))
+    @Inject(method = "optimiseCobbleGen", at = @At("RETURN"), remap = false)
     private void createNestedFactory$observeOptimizedGenerator(BlockState state,
                                                                CallbackInfoReturnable<Boolean> callback) {
         if (!callback.getReturnValueZ()) return;
@@ -33,7 +33,7 @@ abstract class DrillBlockEntityLearningMixin {
         createNestedFactory$publish(state, DrillProductionEvent.Path.CREATE_OPTIMIZED_GENERATOR, false);
     }
 
-    @Inject(method = "onBlockBroken", at = @At("RETURN"))
+    @Inject(method = "onBlockBroken", at = @At("RETURN"), remap = false)
     private void createNestedFactory$observeOrdinaryDrill(BlockState state, CallbackInfo callback) {
         if (!createNestedFactory$optimizedThisCycle) {
             createNestedFactory$publish(state, DrillProductionEvent.Path.STATIONARY, true);

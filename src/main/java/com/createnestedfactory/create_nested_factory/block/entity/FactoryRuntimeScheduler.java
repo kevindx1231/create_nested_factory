@@ -11,7 +11,7 @@ import java.util.Map;
 import java.util.ArrayList;
 import java.util.TreeSet;
 import net.minecraft.world.item.ItemStack;
-import net.neoforged.neoforge.fluids.FluidStack;
+import net.minecraftforge.fluids.FluidStack;
 
 /** Owns simulated production transactions by stable route id. */
 public final class FactoryRuntimeScheduler {
@@ -134,7 +134,7 @@ public final class FactoryRuntimeScheduler {
         int accepted = 0;
         for (ScheduledRoute route : scheduledRoutes(plan)) {
             if (remaining <= 0) break;
-            FluidStack offered = stack.copyWithAmount(remaining);
+            FluidStack offered = com.createnestedfactory.create_nested_factory.compat.NbtIdentity.withAmount(stack, remaining);
             int moved = route.runtime().acceptFluidInput(route.plan(), offered, simulate);
             accepted = Math.addExact(accepted, moved);
             remaining -= moved;

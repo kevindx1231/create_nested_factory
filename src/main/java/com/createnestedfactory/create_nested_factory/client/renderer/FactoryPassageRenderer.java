@@ -31,8 +31,4 @@ public final class FactoryPassageRenderer extends SafeBlockEntityRenderer<Factor
         poseStack.popPose();
     }
 
-    @Override
-    public @NotNull AABB getRenderBoundingBox(@NotNull FactoryPassageBlockEntity passage) {
-        return new AABB(passage.getBlockPos()).expandTowards(0, 1, 0).inflate(.125);
-    }
 }

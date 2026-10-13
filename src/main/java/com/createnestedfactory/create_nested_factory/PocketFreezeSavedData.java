@@ -139,7 +139,7 @@ public final class PocketFreezeSavedData extends SavedData {
     public static PocketFreezeSavedData get(MinecraftServer server) {
         ServerLevel overworld = server.overworld();
         return overworld.getDataStorage().computeIfAbsent(
-                new SavedData.Factory<>(PocketFreezeSavedData::new, PocketFreezeSavedData::load), DATA_NAME);
+                tag -> PocketFreezeSavedData.load(tag, null), PocketFreezeSavedData::new, DATA_NAME);
     }
 
     public boolean isFrozen(BlockPos pos) {
@@ -342,7 +342,8 @@ public final class PocketFreezeSavedData extends SavedData {
     }
 
     @Override
-    public synchronized CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
+    public synchronized CompoundTag save(CompoundTag tag) {
+        HolderLookup.Provider registries = null;
         tag.putInt("Format", DATA_FORMAT);
         ListTag trees = new ListTag();
         for (MutableTree tree : treesByRoot.values()) {
@@ -393,4 +394,5 @@ public final class PocketFreezeSavedData extends SavedData {
         tag.put("Trees", trees);
         return tag;
     }
+    public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) { return save(tag); }
 }

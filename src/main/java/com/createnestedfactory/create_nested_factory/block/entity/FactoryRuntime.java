@@ -5,8 +5,8 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.world.item.ItemStack;
-import net.neoforged.neoforge.fluids.FluidStack;
-import net.neoforged.neoforge.fluids.capability.IFluidHandler;
+import net.minecraftforge.fluids.FluidStack;
+import net.minecraftforge.fluids.capability.IFluidHandler;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -748,7 +748,7 @@ public final class FactoryRuntime {
     private static int rescaleProgress(int progress, int oldCycleTicks, int newCycleTicks) {
         long numerator = Math.multiplyExact((long) progress, newCycleTicks);
         long rounded = Math.addExact(numerator, oldCycleTicks / 2L) / oldCycleTicks;
-        return (int) Math.clamp(rounded, 1L, newCycleTicks - 1L);
+        return (int) com.createnestedfactory.create_nested_factory.compat.LegacyMath.clamp(rounded, 1L, newCycleTicks - 1L);
     }
 
     private static void appendSplitStacks(List<ItemStack> output, ItemVariant variant, long count) {
@@ -803,7 +803,7 @@ public final class FactoryRuntime {
             if (entry.getValue().isEmpty()) return;
             CompoundTag value = new CompoundTag();
             value.put("Signature", entry.getKey().write(registries));
-            Tag tool = entry.getValue().saveOptional(registries);
+            Tag tool = entry.getValue().save(new CompoundTag());
             if (tool instanceof CompoundTag toolTag) {
                 value.put("Tool", toolTag);
                 values.add(value);
@@ -816,7 +816,7 @@ public final class FactoryRuntime {
         for (Tag raw : root.getList("LeasedTools", Tag.TAG_COMPOUND)) {
             CompoundTag entry = (CompoundTag) raw;
             ItemVariant signature = ItemVariant.read(registries, entry.getCompound("Signature"));
-            ItemStack tool = ItemStack.parseOptional(registries, entry.getCompound("Tool"));
+            ItemStack tool = ItemStack.of(entry.getCompound("Tool"));
             if (signature != null && !tool.isEmpty() && signature.matchesTool(tool)
                     && !leasedTools.containsKey(signature)) {
                 leasedTools.put(signature, tool.copyWithCount(1));

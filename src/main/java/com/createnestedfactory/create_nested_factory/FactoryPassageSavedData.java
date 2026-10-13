@@ -27,7 +27,7 @@ public final class FactoryPassageSavedData extends SavedData {
     private static final String DATA_NAME = "create_nested_factory_passages";
     private static final int DATA_FORMAT = 3;
     private static final ResourceKey<Level> POCKET_DIMENSION = ResourceKey.create(Registries.DIMENSION,
-            ResourceLocation.fromNamespaceAndPath(Create_nested_factory.MODID, "nested_factory"));
+            new ResourceLocation(Create_nested_factory.MODID, "nested_factory"));
 
     public record Endpoint(ResourceKey<Level> dimension, BlockPos pos, String passageId, String targetFactoryId,
                            String targetRootFactoryId,
@@ -65,7 +65,7 @@ public final class FactoryPassageSavedData extends SavedData {
     public static FactoryPassageSavedData get(MinecraftServer server) {
         ServerLevel overworld = server.overworld();
         return overworld.getDataStorage().computeIfAbsent(
-                new SavedData.Factory<>(FactoryPassageSavedData::new, FactoryPassageSavedData::load),
+                tag -> FactoryPassageSavedData.load(tag, null), FactoryPassageSavedData::new,
                 DATA_NAME);
     }
 
@@ -248,7 +248,8 @@ public final class FactoryPassageSavedData extends SavedData {
     }
 
     @Override
-    public synchronized CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
+    public synchronized CompoundTag save(CompoundTag tag) {
+        HolderLookup.Provider registries = null;
         tag.putInt("Format", DATA_FORMAT);
         tag.putLong("NextPlacementSequence", nextPlacementSequence);
         ListTag list = new ListTag();
@@ -275,4 +276,5 @@ public final class FactoryPassageSavedData extends SavedData {
         tag.put("Endpoints", list);
         return tag;
     }
+    public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) { return save(tag); }
 }

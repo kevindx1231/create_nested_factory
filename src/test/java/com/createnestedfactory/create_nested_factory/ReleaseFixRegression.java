@@ -19,6 +19,8 @@ public final class ReleaseFixRegression {
     }
 
     public static void main(String[] args) throws Exception {
+        net.minecraft.SharedConstants.tryDetectVersion();
+        net.minecraft.server.Bootstrap.bootStrap();
         StringBuilder failures = new StringBuilder();
         check(failures, "pipez-only initializer", ReleaseFixRegression::pipezInitializesWithoutMekanism);
         check(failures, "passage routing", ReleaseFixRegression::passageUsesPrimaryInnerOrDefaultEntry);
@@ -40,25 +42,20 @@ public final class ReleaseFixRegression {
     }
 
     private static void pipezInitializesWithoutMekanism() {
-        var pipezOnly = OptionalCompatBootstrap.initializersFor(false, true, false, false);
+        var pipezOnly = OptionalCompatBootstrap.initializersFor(false, true);
         require(pipezOnly.contains(OptionalCompatBootstrap.CompatInitializer.PIPEZ),
                 "Pipez-only installation does not schedule its network adapter initializer");
         require(!pipezOnly.contains(OptionalCompatBootstrap.CompatInitializer.MEKANISM),
                 "Pipez-only installation unexpectedly schedules Mekanism initialization");
-        var mekanismOnly = OptionalCompatBootstrap.initializersFor(true, false, false, false);
+        var mekanismOnly = OptionalCompatBootstrap.initializersFor(true, false);
         require(mekanismOnly.contains(OptionalCompatBootstrap.CompatInitializer.MEKANISM)
                         && !mekanismOnly.contains(OptionalCompatBootstrap.CompatInitializer.PIPEZ),
                 "Mekanism-only installation did not remain isolated from Pipez");
-        var bothLogistics = OptionalCompatBootstrap.initializersFor(true, true, false, false);
+        var bothLogistics = OptionalCompatBootstrap.initializersFor(true, true);
         require(bothLogistics.contains(OptionalCompatBootstrap.CompatInitializer.MEKANISM)
                         && bothLogistics.contains(OptionalCompatBootstrap.CompatInitializer.PIPEZ),
                 "combined logistics installation did not schedule both independent initializers");
-        require(!OptionalCompatBootstrap.initializersFor(false, false, true, false)
-                        .contains(OptionalCompatBootstrap.CompatInitializer.SIMULATED),
-                "Simulated initialized without Sable");
-        require(OptionalCompatBootstrap.initializersFor(false, false, true, true)
-                        .contains(OptionalCompatBootstrap.CompatInitializer.SIMULATED),
-                "Simulated and Sable together did not initialize their integration");
+
     }
 
     private static void passageUsesPrimaryInnerOrDefaultEntry() {
@@ -103,7 +100,7 @@ public final class ReleaseFixRegression {
     private static void passageIndexesRemainSelective() {
         FactoryPassageSavedData data = new FactoryPassageSavedData();
         ResourceKey<Level> pocket = ResourceKey.create(Registries.DIMENSION,
-                ResourceLocation.fromNamespaceAndPath(Create_nested_factory.MODID, "nested_factory"));
+                new ResourceLocation(Create_nested_factory.MODID, "nested_factory"));
         for (int i = 0; i < 10_000; i++) {
             data.register(Level.OVERWORLD, new BlockPos(i, 64, 0), "other-" + i);
             data.register(pocket, new BlockPos(i * 16, 128, 32), "");
@@ -114,12 +111,12 @@ public final class ReleaseFixRegression {
         data.register(pocket, targetInner, "");
 
         var bound = data.boundTo("target");
-        require(bound.size() == 1 && bound.getFirst().pos().equals(targetOuter),
+        require(bound.size() == 1 && bound.get(0).pos().equals(targetOuter),
                 "factory-id index returned unrelated bound passages");
         require(data.findByPassageId("passage-stable-id").pos().equals(targetOuter),
                 "stable passage id did not resolve its endpoint");
         var unbound = data.unboundInPocket(new BlockPos(0, 120, 0), new BlockPos(15, 140, 15));
-        require(unbound.size() == 1 && unbound.getFirst().pos().equals(targetInner),
+        require(unbound.size() == 1 && unbound.get(0).pos().equals(targetInner),
                 "Pocket chunk index returned passages outside the requested room");
 
         BlockPos movedOuter = targetOuter.offset(32, 0, 0);
@@ -136,7 +133,7 @@ public final class ReleaseFixRegression {
         BlockPos laterInner = new BlockPos(9, 130, 8);
         data.register(pocket, laterInner, "");
         var ordered = data.unboundInPocket(new BlockPos(0, 120, 0), new BlockPos(15, 140, 15));
-        require(ordered.size() == 2 && ordered.getFirst().pos().equals(targetInner)
+        require(ordered.size() == 2 && ordered.get(0).pos().equals(targetInner)
                         && ordered.get(1).pos().equals(laterInner),
                 "inner passages were not returned in persistent placement order");
         FactoryPassageSavedData loaded = FactoryPassageSavedData.load(
@@ -146,7 +143,7 @@ public final class ReleaseFixRegression {
         require(loaded.findByPassageId("passage-stable-id").pos().equals(movedOuter),
                 "stable passage-id index was not rebuilt after SavedData reload");
         var reloadedInners = loaded.unboundInPocket(new BlockPos(0, 120, 0), new BlockPos(15, 140, 15));
-        require(reloadedInners.size() == 2 && reloadedInners.getFirst().pos().equals(targetInner)
+        require(reloadedInners.size() == 2 && reloadedInners.get(0).pos().equals(targetInner)
                         && reloadedInners.get(1).pos().equals(laterInner),
                 "Pocket chunk index was not rebuilt after SavedData reload");
 
@@ -158,7 +155,7 @@ public final class ReleaseFixRegression {
         legacy.put("Endpoints", legacyEntries);
         var migrated = FactoryPassageSavedData.load(legacy, null)
                 .unboundInPocket(new BlockPos(0, 120, 0), new BlockPos(15, 140, 15));
-        require(migrated.size() == 2 && migrated.getFirst().pos().equals(new BlockPos(1, 130, 8)),
+        require(migrated.size() == 2 && migrated.get(0).pos().equals(new BlockPos(1, 130, 8)),
                 "format-1 passages did not receive deterministic initial placement order");
     }
 

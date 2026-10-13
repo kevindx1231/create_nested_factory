@@ -15,11 +15,12 @@ import net.minecraft.network.chat.Style;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.material.Fluid;
-import net.neoforged.neoforge.fluids.FluidStack;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.event.entity.player.ItemTooltipEvent;
+import net.minecraftforge.fluids.FluidStack;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.eventbus.api.EventPriority;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
+import net.minecraftforge.event.entity.player.ItemTooltipEvent;
 
 import java.util.List;
 import java.util.Locale;
@@ -32,7 +33,7 @@ public final class BlueprintTooltipEvents {
     private BlueprintTooltipEvents() {
     }
 
-    @SubscribeEvent
+    @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onItemTooltip(ItemTooltipEvent event) {
         ItemStack stack = event.getItemStack();
         if (Minecraft.getInstance().level == null) {
@@ -46,8 +47,7 @@ public final class BlueprintTooltipEvents {
             return;
         }
 
-        NestedFactoryBlueprint blueprint = NestedFactoryBlueprint.fromItem(stack, Minecraft.getInstance().level.registryAccess());
-        if (blueprint == null) {
+        if (!NestedFactoryBlueprint.hasFactoryBlueprintMarker(stack)) {
             return;
         }
 
@@ -58,6 +58,13 @@ public final class BlueprintTooltipEvents {
             tooltip.add(CreateLang.translateDirect("tooltip.holdForDescription",
                             CreateLang.translateDirect("tooltip.keyShift").withStyle(ChatFormatting.GRAY))
                     .withStyle(ChatFormatting.DARK_GRAY));
+            return;
+        }
+
+        NestedFactoryBlueprint blueprint = NestedFactoryBlueprint.fromItem(stack, Minecraft.getInstance().level.registryAccess());
+        if (blueprint == null) {
+            tooltip.add(Component.translatable("message.create_nested_factory.blueprint.apply.invalid_data")
+                    .withStyle(ChatFormatting.RED));
             return;
         }
 
@@ -144,7 +151,7 @@ public final class BlueprintTooltipEvents {
                 .sorted(Map.Entry.comparingByKey((left, right) ->
                         BuiltInRegistries.FLUID.getKey(left).toString()
                                 .compareTo(BuiltInRegistries.FLUID.getKey(right).toString())))
-                .forEach(entry -> tooltip.add(rateLine(new FluidStack(entry.getKey(), 1).getHoverName(),
+                .forEach(entry -> tooltip.add(rateLine(new FluidStack(entry.getKey(), 1).getDisplayName(),
                         NestedFactoryBlockEntity.formatRate(entry.getValue()), "mB/s")));
     }
 

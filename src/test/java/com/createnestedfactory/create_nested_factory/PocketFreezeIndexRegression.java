@@ -62,7 +62,7 @@ public final class PocketFreezeIndexRegression {
         PocketFreezeSavedData.FrozenTree restored = loaded.removeTree("root");
         assertEquals(PocketFreezeSavedData.Phase.THAWING, restored.phase(), "persisted phase");
         assertEquals(1, restored.scheduledTicks().size(), "persisted scheduled ticks");
-        assertEquals(17L, restored.scheduledTicks().getFirst().remainingDelay(), "remaining delay");
+        assertEquals(17L, restored.scheduledTicks().get(0).remainingDelay(), "remaining delay");
         assertEquals(1, restored.blockEvents().size(), "persisted block events");
     }
 
@@ -75,16 +75,16 @@ public final class PocketFreezeIndexRegression {
         List<PocketFreezeSavedData.FrozenTree> first = data.thawingTrees();
         List<PocketFreezeSavedData.FrozenTree> second = data.thawingTrees();
         assertSame(first, second, "unchanged thawing tree list must be reused between ticks");
-        assertSame(first.getFirst(), second.getFirst(),
+        assertSame(first.get(0), second.get(0),
                 "unchanged thawing tree snapshot must be reused between ticks");
 
         assertTrue(data.captureBlockEvent(pos, "minecraft:piston", 2, 3),
                 "event inside thawing room must remain captured");
         List<PocketFreezeSavedData.FrozenTree> changed = data.thawingTrees();
         assertNotSame(first, changed, "manifest mutation must invalidate the thawing list snapshot");
-        assertNotSame(first.getFirst(), changed.getFirst(),
+        assertNotSame(first.get(0), changed.get(0),
                 "manifest mutation must invalidate the tree snapshot");
-        assertEquals(1, changed.getFirst().blockEvents().size(),
+        assertEquals(1, changed.get(0).blockEvents().size(),
                 "rebuilt thaw snapshot must contain the captured event");
     }
 
@@ -97,7 +97,7 @@ public final class PocketFreezeIndexRegression {
         PocketFreezeSavedData loaded = PocketFreezeSavedData.load(saved, null);
         assertTrue(loaded.hasTree("terminal"), "roomless terminal manifest was lost on reload");
         assertTrue(loaded.beginThaw("terminal"), "roomless terminal manifest could not begin thawing");
-        assertEquals(0, loaded.thawingTrees().getFirst().rooms().size(),
+        assertEquals(0, loaded.thawingTrees().get(0).rooms().size(),
                 "roomless terminal manifest unexpectedly acquired a physical room");
     }
 

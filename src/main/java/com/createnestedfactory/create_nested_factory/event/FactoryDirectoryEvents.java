@@ -5,18 +5,19 @@ import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryB
 import com.createnestedfactory.create_nested_factory.registry.ModItems;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.item.ItemEntity;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.bus.api.EventPriority;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
-import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.eventbus.api.EventPriority;
+import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
+import net.minecraftforge.event.entity.EntityJoinLevelEvent;
+import net.minecraftforge.event.TickEvent;
 
 @EventBusSubscriber(modid = Create_nested_factory.MODID)
 public final class FactoryDirectoryEvents {
     private FactoryDirectoryEvents() {}
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
-    public static void onServerTick(ServerTickEvent.Post event) {
+    public static void onServerTick(TickEvent.ServerTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) return;
         if (event.getServer().getTickCount() % 20 == 0) {
             com.createnestedfactory.create_nested_factory.command.FactoryCommandService.resumeDeletions(event.getServer());
         }

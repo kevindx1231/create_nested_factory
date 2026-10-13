@@ -18,7 +18,7 @@ import net.minecraft.world.level.block.SaplingBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.IntegerProperty;
 import net.minecraft.world.level.block.state.properties.Property;
-import net.neoforged.neoforge.fluids.FluidStack;
+import net.minecraftforge.fluids.FluidStack;
 
 import java.util.BitSet;
 import java.util.Collection;
@@ -84,7 +84,7 @@ public final class RegenerativeSourceAdapters {
     }
 
     private static int configured(int value) {
-        return Math.clamp(value <= 0 ? 3 : value, 3, 5);
+        return com.createnestedfactory.create_nested_factory.compat.LegacyMath.clamp(value <= 0 ? 3 : value, 3, 5);
     }
 
     private static final class GeneratorAdapter implements RegenerativeSourceAdapter {

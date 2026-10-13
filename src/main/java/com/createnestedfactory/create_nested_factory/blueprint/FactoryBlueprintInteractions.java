@@ -2,7 +2,6 @@ package com.createnestedfactory.create_nested_factory.blueprint;
 
 import com.createnestedfactory.create_nested_factory.network.PlayerMessagePayload;
 
-import com.createnestedfactory.create_nested_factory.block.NestedFactoryBlock;
 import com.createnestedfactory.create_nested_factory.block.OperationMode;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity;
 import com.simibubi.create.AllItems;
@@ -13,10 +12,6 @@ import net.minecraft.world.item.ItemStack;
 
 public final class FactoryBlueprintInteractions {
     private FactoryBlueprintInteractions() {
-    }
-
-    public static boolean isBlueprint(ItemStack stack, net.minecraft.core.HolderLookup.Provider registries) {
-        return NestedFactoryBlueprint.fromItem(stack, registries) != null;
     }
 
     public static boolean tryCopy(ServerPlayer player, NestedFactoryBlockEntity factory, InteractionHand hand) {
@@ -37,9 +32,9 @@ public final class FactoryBlueprintInteractions {
             return true;
         }
 
-        NestedFactoryBlueprint blueprint = NestedFactoryBlueprint.fromFactory(factory, player.registryAccess());
+        NestedFactoryBlueprint blueprint = NestedFactoryBlueprint.fromFactory(factory, player.level().registryAccess());
         ItemStack result = AllItems.SCHEMATIC.asStack();
-        blueprint.writeToItem(result, player.registryAccess());
+        blueprint.writeToItem(result, player.level().registryAccess());
         player.setItemInHand(hand, result);
         sendSuccess(player, Component.translatable("message.create_nested_factory.blueprint.copy.success"));
         return true;
@@ -47,9 +42,11 @@ public final class FactoryBlueprintInteractions {
 
     public static boolean tryApply(ServerPlayer player, NestedFactoryBlockEntity factory, InteractionHand hand) {
         ItemStack held = player.getItemInHand(hand);
-        NestedFactoryBlueprint blueprint = NestedFactoryBlueprint.fromItem(held, player.registryAccess());
+        NestedFactoryBlueprint blueprint = NestedFactoryBlueprint.fromItem(held, player.level().registryAccess());
         if (blueprint == null) {
-            return false;
+            if (!NestedFactoryBlueprint.hasFactoryBlueprintMarker(held)) return false;
+            sendFailure(player, Component.translatable("message.create_nested_factory.blueprint.apply.invalid_data"));
+            return true;
         }
         Component failure = factory.applyBlueprint(blueprint, player);
         if (failure == null) {
@@ -58,13 +55,6 @@ public final class FactoryBlueprintInteractions {
             sendFailure(player, failure);
         }
         return true;
-    }
-
-    public static boolean isTarget(ServerPlayer player, ItemStack stack, NestedFactoryBlockEntity factory) {
-        if (stack.is(AllItems.EMPTY_SCHEMATIC.get())) {
-            return factory.isRoot() || factory.isEnterable() || factory.isInvalidNested();
-        }
-        return isBlueprint(stack, player.registryAccess());
     }
 
     private static void sendSuccess(ServerPlayer player, Component message) {

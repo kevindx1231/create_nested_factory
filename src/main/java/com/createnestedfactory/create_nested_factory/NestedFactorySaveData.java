@@ -49,7 +49,7 @@ public final class NestedFactorySaveData extends SavedData {
     public static NestedFactorySaveData get(MinecraftServer server) {
         ServerLevel overworld = server.overworld();
         return overworld.getDataStorage().computeIfAbsent(
-                new SavedData.Factory<>(NestedFactorySaveData::new, NestedFactorySaveData::load),
+                tag -> NestedFactorySaveData.load(tag, null), NestedFactorySaveData::new,
                 DATA_NAME);
     }
 
@@ -246,7 +246,8 @@ public final class NestedFactorySaveData extends SavedData {
     }
 
     @Override
-    public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
+    public CompoundTag save(CompoundTag tag) {
+        HolderLookup.Provider registries = null;
         tag.putInt("Format", DATA_FORMAT);
         tag.putInt("NextSlotId", nextSlotId);
         tag.putInt("NextRootSlotId", nextRootSlotId);
@@ -279,4 +280,5 @@ public final class NestedFactorySaveData extends SavedData {
         tag.put("FactoryParents", parents);
         return tag;
     }
+    public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) { return save(tag); }
 }

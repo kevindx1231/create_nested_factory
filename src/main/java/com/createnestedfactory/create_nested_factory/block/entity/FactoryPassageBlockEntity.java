@@ -2,7 +2,6 @@ package com.createnestedfactory.create_nested_factory.block.entity;
 
 import com.createnestedfactory.create_nested_factory.FactoryPassageSavedData;
 import com.createnestedfactory.create_nested_factory.FactoryPassageNavigation;
-import com.createnestedfactory.create_nested_factory.FactoryPassageMovement;
 import com.createnestedfactory.create_nested_factory.block.FactoryPassageBlock;
 import com.createnestedfactory.create_nested_factory.block.NestedFactoryBlock;
 import com.createnestedfactory.create_nested_factory.block.OperationMode;
@@ -131,10 +130,7 @@ public final class FactoryPassageBlockEntity extends SyncedBlockEntity {
         if (level == null || level.isClientSide() || !(level instanceof ServerLevel serverLevel)) {
             return;
         }
-        if (!FactoryPassageNavigation.space(level, worldPosition).ready()) {
-            notifyFailure(player, "message.create_nested_factory.passage.loading");
-            return;
-        }
+
         long tick = level.getGameTime();
         if (lastTravelTick != tick) {
             travellingPlayers.clear();
@@ -171,7 +167,7 @@ public final class FactoryPassageBlockEntity extends SyncedBlockEntity {
         }
         Vec3 destination = null;
         float yRot = player.getYRot();
-        ModAttachments.PassageTravelGuard previousGuard = player.getData(ModAttachments.PASSAGE_TRAVEL_GUARD);
+        ModAttachments.PassageTravelGuard previousGuard = ModAttachments.get(player, ModAttachments.PASSAGE_TRAVEL_GUARD);
         if (pairing == FactoryPassagePairing.IntoStatus.PRIMARY_INNER) {
             FactoryPassageSavedData.Endpoint endpoint = primaryInner.endpoint();
             var arrival = FactoryPassageNavigation.arrival(player, endpoint);
@@ -185,7 +181,7 @@ public final class FactoryPassageBlockEntity extends SyncedBlockEntity {
         }
         boolean travelled = NestedFactoryBlock.enterFactoryViaPassage(player, target, destination, yRot, passageId);
         if (!travelled) {
-            player.setData(ModAttachments.PASSAGE_TRAVEL_GUARD, previousGuard);
+            ModAttachments.set(player, ModAttachments.PASSAGE_TRAVEL_GUARD, previousGuard);
         }
     }
 
@@ -210,7 +206,7 @@ public final class FactoryPassageBlockEntity extends SyncedBlockEntity {
             return;
         }
 
-        ModAttachments.FactorySession session = player.getData(ModAttachments.FACTORY_SESSION);
+        ModAttachments.FactorySession session = ModAttachments.get(player, ModAttachments.FACTORY_SESSION);
         ModAttachments.ReturnFrame frame = session.stack().isEmpty()
                 ? null : session.stack().get(session.stack().size() - 1);
         if (frame != null && frame.passage() && owner.getFactoryId().equals(frame.targetFactoryId())) {
@@ -318,25 +314,27 @@ public final class FactoryPassageBlockEntity extends SyncedBlockEntity {
     }
 
     public void onDestroyed() {
-        if (level != null && !level.isClientSide() && level.getServer() != null
-                && !FactoryPassageMovement.isMoving(level, worldPosition)) {
+        if (level != null && !level.isClientSide() && level.getServer() != null) {
             FactoryPassageSavedData.get(level.getServer()).unregister(level.dimension(), worldPosition, passageId);
-            FactoryPassageNavigation.destroyed(this);
         }
     }
 
     public void registerEndpoint() {
-        if (level != null && !level.isClientSide() && level.getServer() != null
-                && !FactoryPassageMovement.isMoving(level, worldPosition)) {
+        if (level != null && !level.isClientSide() && level.getServer() != null) {
             FactoryPassageSavedData.get(level.getServer())
                     .register(level.dimension(), worldPosition, passageId, targetFactoryId, targetRootFactoryId);
-            FactoryPassageNavigation.registered(this);
         }
     }
 
     @Override
-    protected void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
-        super.saveAdditional(tag, registries);
+    public net.minecraft.world.phys.AABB getRenderBoundingBox() {
+        return new net.minecraft.world.phys.AABB(getBlockPos()).expandTowards(0, 1, 0).inflate(.125);
+    }
+
+    @Override
+    protected void saveAdditional(CompoundTag tag) {
+        HolderLookup.Provider registries = level == null ? null : level.registryAccess();
+        super.saveAdditional(tag);
         tag.putString("PassageId", passageId);
         if (isBound()) {
             tag.putString("TargetDimension", targetDimension.location().toString());
@@ -345,13 +343,14 @@ public final class FactoryPassageBlockEntity extends SyncedBlockEntity {
             tag.putString("TargetRootFactoryId", targetRootFactoryId);
         }
         if (!marker.isEmpty()) {
-            tag.put("Marker", marker.saveOptional(registries));
+            tag.put("Marker", marker.save(new CompoundTag()));
         }
     }
 
     @Override
-    protected void loadAdditional(CompoundTag tag, HolderLookup.Provider registries) {
-        super.loadAdditional(tag, registries);
+    public void load(CompoundTag tag) {
+        HolderLookup.Provider registries = level == null ? null : level.registryAccess();
+        super.load(tag);
         if (tag.contains("PassageId") && !tag.getString("PassageId").isBlank()) {
             passageId = tag.getString("PassageId");
         }
@@ -360,6 +359,6 @@ public final class FactoryPassageBlockEntity extends SyncedBlockEntity {
         targetPos = tag.contains("TargetPos") ? BlockPos.of(tag.getLong("TargetPos")) : null;
         targetFactoryId = tag.getString("TargetFactoryId");
         targetRootFactoryId = tag.getString("TargetRootFactoryId");
-        marker = ItemStack.parseOptional(registries, tag.getCompound("Marker"));
+        marker = ItemStack.of(tag.getCompound("Marker"));
     }
 }

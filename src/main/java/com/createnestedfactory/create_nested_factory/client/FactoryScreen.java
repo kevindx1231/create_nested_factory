@@ -22,7 +22,6 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.material.Fluid;
-import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.Locale;
@@ -56,11 +55,12 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
 
     // 界面背景图纹理。
     private static final ResourceLocation GUI_TEXTURE =
-            ResourceLocation.parse(Create_nested_factory.MODID + ":textures/gui/nested_factory.png");
+            new ResourceLocation(Create_nested_factory.MODID + ":textures/gui/nested_factory.png");
 
     // 纹理实际尺寸，右侧区域存放端口、按下态和改名图标素材。
-    private static final int TEXTURE_WIDTH = 360;
-    private static final int TEXTURE_HEIGHT = 219;
+    // 避免与 1.20.1 AbstractButton 的同名纹理尺寸常量冲突。
+    private static final int GUI_TEXTURE_WIDTH = 360;
+    private static final int GUI_TEXTURE_HEIGHT = 219;
     // 顶部主体保持 342x152，窗口向下扩展以容纳玩家背包。
     private static final int BG_WIDTH = 342;
     private static final int BG_HEIGHT = 219;
@@ -156,7 +156,7 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
 
     private void sendRename() {
         if (minecraft != null && addressBox != null) {
-            PacketDistributor.sendToServer(new RenameFactoryPayload(menu.containerId, addressBox.getValue()));
+            com.createnestedfactory.create_nested_factory.network.ModNetwork.CHANNEL.sendToServer(new RenameFactoryPayload(menu.containerId, addressBox.getValue()));
         }
     }
 
@@ -167,10 +167,10 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
 
         // 顶部主体整块绘制；底部只补中间背包面板，避开右侧和底部的滑块素材。
         graphics.blit(GUI_TEXTURE, x, y, 0, 0, BG_WIDTH, TOP_PANEL_HEIGHT,
-                TEXTURE_WIDTH, TEXTURE_HEIGHT);
+                GUI_TEXTURE_WIDTH, GUI_TEXTURE_HEIGHT);
         graphics.blit(GUI_TEXTURE, x + INVENTORY_PANEL_X, y + TOP_PANEL_HEIGHT,
                 INVENTORY_PANEL_X, TOP_PANEL_HEIGHT, INVENTORY_PANEL_WIDTH,
-                BG_HEIGHT - TOP_PANEL_HEIGHT, TEXTURE_WIDTH, TEXTURE_HEIGHT);
+                BG_HEIGHT - TOP_PANEL_HEIGHT, GUI_TEXTURE_WIDTH, GUI_TEXTURE_HEIGHT);
 
         // —— 顶部改名栏的占位文字 + 铅笔图标 ——
         // 未聚焦时显示：空则画默认名，铅笔画在名称右侧 7px。
@@ -184,7 +184,7 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
             // 铅笔素材位于纹理 351,98，编辑聚焦时隐藏。
             int nameX = nameBoxX(text, addressBox);
             graphics.blit(GUI_TEXTURE, nameX + font.width(text) + 7, y + HEADER_Y,
-                    351, 98, 9, 9, TEXTURE_WIDTH, TEXTURE_HEIGHT);
+                    351, 98, 9, 9, GUI_TEXTURE_WIDTH, GUI_TEXTURE_HEIGHT);
         }
 
         // —— 运行模式标签：向右、向下各移动 1 像素 ——
@@ -316,7 +316,7 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
                 graphics.setColor(0.65f, 0.78f, 1.0f, 1.0f); // 按下变淡蓝
             }
             if (v >= 0) {
-                graphics.blit(GUI_TEXTURE, getX(), getY(), 342, v, 18, 18, TEXTURE_WIDTH, TEXTURE_HEIGHT);
+                graphics.blit(GUI_TEXTURE, getX(), getY(), 342, v, 18, 18, GUI_TEXTURE_WIDTH, GUI_TEXTURE_HEIGHT);
             }
             graphics.setColor(1.0f, 1.0f, 1.0f, 1.0f);
         }
@@ -374,7 +374,7 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
             if (pressed) {
                 graphics.setColor(0.65f, 0.78f, 1.0f, 1.0f);
                 graphics.blit(GUI_TEXTURE, getX(), getY(), 234, 105, 18, 18,
-                        TEXTURE_WIDTH, TEXTURE_HEIGHT);
+                        GUI_TEXTURE_WIDTH, GUI_TEXTURE_HEIGHT);
                 graphics.setColor(1.0f, 1.0f, 1.0f, 1.0f);
             }
         }
@@ -431,7 +431,7 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
             if (pressed) {
                 graphics.setColor(0.65f, 0.78f, 1.0f, 1.0f);
                 graphics.blit(GUI_TEXTURE, getX(), getY(), 90, 105, 18, 18,
-                        TEXTURE_WIDTH, TEXTURE_HEIGHT);
+                        GUI_TEXTURE_WIDTH, GUI_TEXTURE_HEIGHT);
                 graphics.setColor(1.0f, 1.0f, 1.0f, 1.0f);
             }
         }
@@ -596,11 +596,11 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
             if (enabled && knobOffset > 0) {
                 graphics.blit(GUI_TEXTURE, getX(), getY() + 2, 261, 160,
                         knobOffset == KNOB_QUINTUPLE_X ? TRACK_WIDTH : knobOffset, 5,
-                        TEXTURE_WIDTH, TEXTURE_HEIGHT);
+                        GUI_TEXTURE_WIDTH, GUI_TEXTURE_HEIGHT);
             }
             graphics.blit(GUI_TEXTURE, getX() + knobOffset, getY(),
                     dragging ? 345 : enabled ? 355 : 350, 151, KNOB_WIDTH, KNOB_HEIGHT,
-                    TEXTURE_WIDTH, TEXTURE_HEIGHT);
+                    GUI_TEXTURE_WIDTH, GUI_TEXTURE_HEIGHT);
         }
 
         @Override
@@ -653,7 +653,7 @@ public class FactoryScreen extends AbstractSimiContainerScreen<FactoryMenu> {
         @Override
         protected void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
             if (pressed) {
-                graphics.blit(GUI_TEXTURE, getX(), getY(), 352, 90, 7, 8, TEXTURE_WIDTH, TEXTURE_HEIGHT);
+                graphics.blit(GUI_TEXTURE, getX(), getY(), 352, 90, 7, 8, GUI_TEXTURE_WIDTH, GUI_TEXTURE_HEIGHT);
             }
         }
 

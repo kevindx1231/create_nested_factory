@@ -1,65 +1,59 @@
 package com.createnestedfactory.create_nested_factory_logistics;
-
-import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity;
-import com.createnestedfactory.create_nested_factory.block.entity.NestedExtensionInterfaceBlockEntity;
-import com.createnestedfactory.create_nested_factory.block.entity.NestedPortBlockEntity;
-import com.createnestedfactory.create_nested_factory.block.entity.FactoryTransit;
-import com.createnestedfactory.create_nested_factory_logistics.chemical.ChemicalLedger;
-import com.createnestedfactory.create_nested_factory_logistics.chemical.MekanismChemicalHandler;
-import com.createnestedfactory.create_nested_factory_logistics.chemical.MekanismExtensionChemicalHandler;
-import com.createnestedfactory.create_nested_factory_logistics.heat.MekanismHeatHandler;
-import com.createnestedfactory.create_nested_factory_logistics.heat.MekanismExtensionHeatHandler;
-import mekanism.api.chemical.IChemicalHandler;
+import com.createnestedfactory.create_nested_factory.compat.LegacyCapabilities;
+import com.createnestedfactory.create_nested_factory.block.entity.*;
+import com.createnestedfactory.create_nested_factory_logistics.chemical.*;
+import com.createnestedfactory.create_nested_factory_logistics.heat.*;
 import mekanism.api.heat.IHeatHandler;
-import net.minecraft.core.Direction;
-import net.minecraft.resources.ResourceLocation;
-import net.neoforged.bus.api.IEventBus;
-import net.neoforged.neoforge.capabilities.BlockCapability;
-import net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent;
-import com.createnestedfactory.create_nested_factory.registry.ModBlockEntities;
+import net.minecraftforge.common.capabilities.*;
+import net.minecraftforge.eventbus.api.IEventBus;
+import mekanism.api.chemical.gas.IGasHandler;
+import mekanism.api.chemical.infuse.IInfusionHandler;
+import mekanism.api.chemical.pigment.IPigmentHandler;
+import mekanism.api.chemical.slurry.ISlurryHandler;
 
+/** Registers all four Mekanism 10.4 chemical capabilities separately, plus heat. */
 public final class MekanismLogisticsCompat {
     public static final String MOD_ID = "create_nested_factory_logistics";
-    public static final String CHEMICAL_NAMESPACE = "mekanism";
-    public static final String CHEMICAL_PATH = "chemical_handler";
-    public static final String HEAT_PATH = "heat_handler";
-
-    /** The registry-canonical capabilities used by Mekanism and Pipez. */
-    public static final BlockCapability<IChemicalHandler, Direction> CHEMICAL =
-            BlockCapability.createSided(
-                    ResourceLocation.fromNamespaceAndPath(CHEMICAL_NAMESPACE, CHEMICAL_PATH),
-                    IChemicalHandler.class);
-    public static final BlockCapability<IHeatHandler, Direction> HEAT =
-            BlockCapability.createSided(
-                    ResourceLocation.fromNamespaceAndPath(CHEMICAL_NAMESPACE, HEAT_PATH),
-                    IHeatHandler.class);
-
+    public static final Capability<IGasHandler> GAS = CapabilityManager.get(new CapabilityToken<>() {});
+    public static final Capability<IInfusionHandler> INFUSION = CapabilityManager.get(new CapabilityToken<>() {});
+    public static final Capability<IPigmentHandler> PIGMENT = CapabilityManager.get(new CapabilityToken<>() {});
+    public static final Capability<ISlurryHandler> SLURRY = CapabilityManager.get(new CapabilityToken<>() {});
+    public static final Capability<IHeatHandler> HEAT = CapabilityManager.get(new CapabilityToken<>() {});
+    private MekanismLogisticsCompat() {}
     public static void initialize(IEventBus modEventBus) {
-        FactoryTransit.registerParticipant(ChemicalLedger.PARTICIPANT_ID, ChemicalLedger::new);
-        modEventBus.addListener(MekanismLogisticsCompat::registerCapabilities);
-    }
-
-    private static void registerCapabilities(RegisterCapabilitiesEvent event) {
-        event.registerBlockEntity(CHEMICAL, ModBlockEntities.NESTED_FACTORY.get(),
-                (be, side) -> be instanceof NestedFactoryBlockEntity factory
-                        ? MekanismChemicalHandler.forFactory(factory, side) : null);
-        event.registerBlockEntity(CHEMICAL, ModBlockEntities.NESTED_PORT.get(),
-                (be, side) -> be instanceof NestedPortBlockEntity port
-                        ? MekanismChemicalHandler.forPort(port, side) : null);
-        event.registerBlockEntity(CHEMICAL, ModBlockEntities.NESTED_EXTENSION_INTERFACE.get(),
-                (be, side) -> be instanceof NestedExtensionInterfaceBlockEntity extension
-                        ? MekanismExtensionChemicalHandler.create(extension, side) : null);
-        event.registerBlockEntity(HEAT, ModBlockEntities.NESTED_FACTORY.get(),
-                (be, side) -> be instanceof NestedFactoryBlockEntity factory
-                        ? MekanismHeatHandler.forFactory(factory, side) : null);
-        event.registerBlockEntity(HEAT, ModBlockEntities.NESTED_PORT.get(),
-                (be, side) -> be instanceof NestedPortBlockEntity port
-                        ? MekanismHeatHandler.forPort(port, side) : null);
-        event.registerBlockEntity(HEAT, ModBlockEntities.NESTED_EXTENSION_INTERFACE.get(),
-                (be, side) -> be instanceof NestedExtensionInterfaceBlockEntity extension
-                        ? MekanismExtensionHeatHandler.create(extension, side) : null);
+        FactoryTransit.registerParticipant(GasLedger.PARTICIPANT_ID, GasLedger::new);
+        LegacyCapabilities.register(GAS, (be, side) -> {
+            if (be instanceof NestedFactoryBlockEntity factory) return MekanismGasHandler.forFactory(factory, side);
+            if (be instanceof NestedPortBlockEntity port) return MekanismGasHandler.forPort(port, side);
+            if (be instanceof NestedExtensionInterfaceBlockEntity extension) return MekanismExtensionGasHandler.create(extension, side);
+            return null;
+        }, endpoint -> endpoint instanceof LiveMekanismEndpoint live && live.isAvailable());
+        FactoryTransit.registerParticipant(InfusionLedger.PARTICIPANT_ID, InfusionLedger::new);
+        LegacyCapabilities.register(INFUSION, (be, side) -> {
+            if (be instanceof NestedFactoryBlockEntity factory) return MekanismInfusionHandler.forFactory(factory, side);
+            if (be instanceof NestedPortBlockEntity port) return MekanismInfusionHandler.forPort(port, side);
+            if (be instanceof NestedExtensionInterfaceBlockEntity extension) return MekanismExtensionInfusionHandler.create(extension, side);
+            return null;
+        }, endpoint -> endpoint instanceof LiveMekanismEndpoint live && live.isAvailable());
+        FactoryTransit.registerParticipant(PigmentLedger.PARTICIPANT_ID, PigmentLedger::new);
+        LegacyCapabilities.register(PIGMENT, (be, side) -> {
+            if (be instanceof NestedFactoryBlockEntity factory) return MekanismPigmentHandler.forFactory(factory, side);
+            if (be instanceof NestedPortBlockEntity port) return MekanismPigmentHandler.forPort(port, side);
+            if (be instanceof NestedExtensionInterfaceBlockEntity extension) return MekanismExtensionPigmentHandler.create(extension, side);
+            return null;
+        }, endpoint -> endpoint instanceof LiveMekanismEndpoint live && live.isAvailable());
+        FactoryTransit.registerParticipant(SlurryLedger.PARTICIPANT_ID, SlurryLedger::new);
+        LegacyCapabilities.register(SLURRY, (be, side) -> {
+            if (be instanceof NestedFactoryBlockEntity factory) return MekanismSlurryHandler.forFactory(factory, side);
+            if (be instanceof NestedPortBlockEntity port) return MekanismSlurryHandler.forPort(port, side);
+            if (be instanceof NestedExtensionInterfaceBlockEntity extension) return MekanismExtensionSlurryHandler.create(extension, side);
+            return null;
+        }, endpoint -> endpoint instanceof LiveMekanismEndpoint live && live.isAvailable());
+        LegacyCapabilities.register(HEAT, (be, side) -> {
+            if (be instanceof NestedFactoryBlockEntity factory) return MekanismHeatHandler.forFactory(factory, side);
+            if (be instanceof NestedPortBlockEntity port) return MekanismHeatHandler.forPort(port, side);
+            if (be instanceof NestedExtensionInterfaceBlockEntity extension) return MekanismExtensionHeatHandler.create(extension, side);
+            return null;
+        }, endpoint -> endpoint instanceof LiveMekanismEndpoint live && live.isAvailable());
     }
 }
-
-
-

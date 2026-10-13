@@ -5,12 +5,10 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
-import net.neoforged.neoforge.attachment.AttachmentType;
-import net.neoforged.neoforge.registries.DeferredRegister;
-import net.neoforged.neoforge.registries.NeoForgeRegistries;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -18,24 +16,33 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 public class ModAttachments {
-    public static final DeferredRegister<AttachmentType<?>> ATTACHMENT_TYPES = DeferredRegister.create(NeoForgeRegistries.ATTACHMENT_TYPES, Create_nested_factory.MODID);
+    public record Key<T>(String name, Supplier<T> defaults, Codec<T> codec) {}
+    public static final Key<FactorySession> FACTORY_SESSION = new Key<>("factory_session", FactorySession::defaults, FactorySession.CODEC);
+    public static final Key<PassageSelection> PASSAGE_SELECTION = new Key<>("passage_selection", PassageSelection::empty, null);
+    public static final Key<PassageTravelGuard> PASSAGE_TRAVEL_GUARD = new Key<>("passage_travel_guard", PassageTravelGuard::empty, null);
+    public static final Key<Boolean> PASSAGE_RESUME_PENDING = new Key<>("passage_resume_pending", () -> false, null);
+    public static final Key<String> EXPLORATION_FLIGHT_MODE = new Key<>("exploration_flight_mode", () -> "", null);
+    private static final java.util.Map<net.minecraft.world.entity.player.Player, java.util.Map<Key<?>, Object>> TRANSIENT = new java.util.WeakHashMap<>();
 
-    public static final Supplier<AttachmentType<FactorySession>> FACTORY_SESSION = ATTACHMENT_TYPES.register("factory_session",
-            () -> AttachmentType.builder(FactorySession::defaults)
-                    .serialize(FactorySession.CODEC)
-                    .build());
+    public static synchronized <T> T get(net.minecraft.world.entity.player.Player player, Key<T> key) {
+        if (key.codec() != null) {
+            net.minecraft.nbt.Tag tag = player.getPersistentData().get(Create_nested_factory.MODID + ":" + key.name());
+            if (tag != null) return key.codec().parse(net.minecraft.nbt.NbtOps.INSTANCE, tag).result().orElseGet(key.defaults());
+            return key.defaults().get();
+        }
+        Object value = TRANSIENT.computeIfAbsent(player, ignored -> new java.util.HashMap<>())
+                .computeIfAbsent(key, ignored -> key.defaults().get());
+        @SuppressWarnings("unchecked") T result = (T) value;
+        return result;
+    }
 
-    /** The passage item selection is deliberately transient and never follows an ItemStack. */
-    public static final Supplier<AttachmentType<PassageSelection>> PASSAGE_SELECTION = ATTACHMENT_TYPES.register("passage_selection",
-            () -> AttachmentType.builder(PassageSelection::empty).build());
-
-    /** Prevents an arrival inside an open passage from immediately sending the player back. */
-    public static final Supplier<AttachmentType<PassageTravelGuard>> PASSAGE_TRAVEL_GUARD = ATTACHMENT_TYPES.register("passage_travel_guard",
-            () -> AttachmentType.builder(PassageTravelGuard::empty).build());
-
-    /** A login waits for its physical factory without consuming the persistent return stack. */
-    public static final Supplier<AttachmentType<Boolean>> PASSAGE_RESUME_PENDING = ATTACHMENT_TYPES.register("passage_resume_pending",
-            () -> AttachmentType.builder(() -> false).build());
+    public static synchronized <T> void set(net.minecraft.world.entity.player.Player player, Key<T> key, T value) {
+        if (key.codec() != null) {
+            net.minecraft.nbt.Tag tag = key.codec().encodeStart(net.minecraft.nbt.NbtOps.INSTANCE, value).result()
+                    .orElseThrow(() -> new IllegalArgumentException("Cannot persist factory session"));
+            player.getPersistentData().put(Create_nested_factory.MODID + ":" + key.name(), tag);
+        } else TRANSIENT.computeIfAbsent(player, ignored -> new java.util.HashMap<>()).put(key, value);
+    }
 
     /** A persistent, directly loadable reference to one specific factory block entity. */
     public record FactoryReference(ResourceKey<Level> dimension, BlockPos pos, String factoryId, String rootFactoryId) {
@@ -88,9 +95,9 @@ public class ModAttachments {
             return isActive() && passageId.equals(candidatePassageId);
         }
 
-        /** Null contact means the moving endpoint is temporarily unavailable, not that it was left. */
+        /** Null contact means the endpoint is temporarily unavailable, not that it was left. */
         public PassageTravelGuard afterTick(ResourceKey<Level> playerDimension, Boolean inside,
-                                             boolean moving, BlockPos currentPos) {
+                                             BlockPos currentPos) {
             if (!isActive()) return this;
             if (!dimension.equals(playerDimension)) return arrived ? empty() : this;
             if (inside == null) {
@@ -98,8 +105,8 @@ public class ModAttachments {
             }
             int remaining = Math.max(0, settlingTicks - 1);
             if (inside) return new PassageTravelGuard(passageId, dimension, currentPos, remaining, 0, true, true);
-            // Static passages retain their existing quick exit; moving arrivals have a settling grace period.
-            if ((moving || !contactObserved) && remaining > 0) {
+            // Once contact is observed, leaving a static passage releases the guard after two ticks.
+            if (!contactObserved && remaining > 0) {
                 return new PassageTravelGuard(passageId, dimension, currentPos, remaining, 0, true, contactObserved);
             }
             int outside = outsideTicks + 1;
@@ -108,46 +115,17 @@ public class ModAttachments {
         }
     }
 
-    /** Optional data interpreted by a compatibility adapter to follow a moving physical carrier. */
-    public record DynamicReturnAnchor(String resolverId, int version, String factoryId, String carrierId,
-                                      Vec3 localOffset, Vec3 localLookDirection,
-                                      // Retained for decoding legacy dynamic-passage sessions; new anchors leave it null.
-                                      BlockPos returnGuardPos) {
-        public static final Codec<DynamicReturnAnchor> CODEC = RecordCodecBuilder.create(instance -> instance.group(
-                Codec.STRING.fieldOf("resolverId").forGetter(DynamicReturnAnchor::resolverId),
-                Codec.INT.fieldOf("version").forGetter(DynamicReturnAnchor::version),
-                Codec.STRING.fieldOf("factoryId").forGetter(DynamicReturnAnchor::factoryId),
-                Codec.STRING.fieldOf("carrierId").forGetter(DynamicReturnAnchor::carrierId),
-                Vec3.CODEC.fieldOf("localOffset").forGetter(DynamicReturnAnchor::localOffset),
-                Vec3.CODEC.fieldOf("localLookDirection").forGetter(DynamicReturnAnchor::localLookDirection),
-                BlockPos.CODEC.optionalFieldOf("returnGuardPos")
-                        .forGetter(anchor -> Optional.ofNullable(anchor.returnGuardPos))
-        ).apply(instance, (resolverId, version, factoryId, carrierId, localOffset, localLookDirection,
-                           returnGuardPos) -> new DynamicReturnAnchor(resolverId, version, factoryId, carrierId,
-                localOffset, localLookDirection, returnGuardPos.orElse(null))));
-    }
-
     public record ReturnFrame(ResourceKey<Level> dimension, Vec3 pos, float yRot, float xRot,
                               String sourceFactoryId, String targetFactoryId,
-                              FactoryReference sourceFactory, boolean passage, String returnPassageId,
-                              DynamicReturnAnchor dynamicAnchor) {
+                              FactoryReference sourceFactory, boolean passage, String returnPassageId) {
         public static ReturnFrame external(ResourceKey<Level> dimension, Vec3 pos, float yRot, float xRot,
                                            String targetFactoryId) {
-            return external(dimension, pos, yRot, xRot, targetFactoryId, null);
+            return new ReturnFrame(dimension, pos, yRot, xRot, "", targetFactoryId, null, false, "");
         }
-
-        public static ReturnFrame external(ResourceKey<Level> dimension, Vec3 pos, float yRot, float xRot,
-                                           String targetFactoryId, DynamicReturnAnchor dynamicAnchor) {
-            return new ReturnFrame(dimension, pos, yRot, xRot, "", targetFactoryId, null, false, "",
-                    dynamicAnchor);
-        }
-
         public static ReturnFrame externalPassage(ResourceKey<Level> dimension, Vec3 pos, float yRot, float xRot,
-                                                   String targetFactoryId, String returnPassageId) {
-            return new ReturnFrame(dimension, pos, yRot, xRot, "", targetFactoryId, null, true,
-                    returnPassageId, null);
+                                                  String targetFactoryId, String returnPassageId) {
+            return new ReturnFrame(dimension, pos, yRot, xRot, "", targetFactoryId, null, true, returnPassageId);
         }
-
         public static final Codec<ReturnFrame> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 ResourceKey.codec(Registries.DIMENSION).fieldOf("dimension").forGetter(ReturnFrame::dimension),
                 Vec3.CODEC.fieldOf("pos").forGetter(ReturnFrame::pos),
@@ -158,20 +136,44 @@ public class ModAttachments {
                 FactoryReference.CODEC.optionalFieldOf("sourceFactory")
                         .forGetter(frame -> Optional.ofNullable(frame.sourceFactory)),
                 Codec.BOOL.optionalFieldOf("passage", false).forGetter(ReturnFrame::passage),
-                Codec.STRING.optionalFieldOf("returnPassageId", "").forGetter(ReturnFrame::returnPassageId),
-                DynamicReturnAnchor.CODEC.optionalFieldOf("dynamicAnchor")
-                        .forGetter(frame -> Optional.ofNullable(frame.dynamicAnchor))
-        ).apply(instance, (dimension, pos, yRot, xRot, sourceFactoryId, targetFactoryId, sourceFactory, passage,
-                           returnPassageId, dynamicAnchor) ->
+                Codec.STRING.optionalFieldOf("returnPassageId", "").forGetter(ReturnFrame::returnPassageId)
+        ).apply(instance, (dimension, pos, yRot, xRot, sourceFactoryId, targetFactoryId, sourceFactory, passage, returnPassageId) ->
                 new ReturnFrame(dimension, pos, yRot, xRot, sourceFactoryId, targetFactoryId,
-                        sourceFactory.orElse(null), passage, returnPassageId, dynamicAnchor.orElse(null))));
+                        sourceFactory.orElse(null), passage, returnPassageId)));
     }
 
     public record FactorySession(String rootFactoryId, String currentFactoryId,
                                  FactoryReference currentFactory,
                                  boolean grantedFlight, boolean originalMayFly, boolean originalFlying,
                                  boolean nightVisionGranted, boolean originalNightVision,
-                                 List<ReturnFrame> stack) {
+                                  List<ReturnFrame> stack, Optional<CompoundTag> originalNightVisionEffect,
+                                  long explorationStartedAt, String flightGameMode) {
+        public FactorySession(String rootFactoryId, String currentFactoryId, FactoryReference currentFactory,
+                              boolean grantedFlight, boolean originalMayFly, boolean originalFlying,
+                              boolean nightVisionGranted, boolean originalNightVision, List<ReturnFrame> stack,
+                              Optional<CompoundTag> originalNightVisionEffect, long explorationStartedAt) {
+            this(rootFactoryId, currentFactoryId, currentFactory, grantedFlight, originalMayFly, originalFlying,
+                    nightVisionGranted, originalNightVision, stack, originalNightVisionEffect, explorationStartedAt, "");
+        }
+        // Older saves and callers have no full effect snapshot; retain their legacy restoration policy.
+        public FactorySession(String rootFactoryId, String currentFactoryId, FactoryReference currentFactory,
+                              boolean grantedFlight, boolean originalMayFly, boolean originalFlying,
+                              boolean nightVisionGranted, boolean originalNightVision, List<ReturnFrame> stack) {
+            this(rootFactoryId, currentFactoryId, currentFactory, grantedFlight, originalMayFly, originalFlying,
+                    nightVisionGranted, originalNightVision, stack, Optional.empty(), -1L);
+        }
+
+        public FactorySession withCurrentFactory(String rootId, String currentId, FactoryReference reference,
+                                                 List<ReturnFrame> frames) {
+            return new FactorySession(rootId, currentId, reference, grantedFlight, originalMayFly, originalFlying,
+                    nightVisionGranted, originalNightVision, frames, originalNightVisionEffect, explorationStartedAt,
+                    flightGameMode);
+        }
+
+        public FactorySession withFlightSnapshot(String mode, boolean mayFly, boolean flying) {
+            return new FactorySession(rootFactoryId, currentFactoryId, currentFactory, grantedFlight, mayFly, flying,
+                    nightVisionGranted, originalNightVision, stack, originalNightVisionEffect, explorationStartedAt, mode);
+        }
         public static FactorySession defaults() {
             return new FactorySession("", "", null, false, false, false, false, false, new ArrayList<>());
         }
@@ -194,10 +196,15 @@ public class ModAttachments {
                 Codec.BOOL.fieldOf("originalFlying").forGetter(FactorySession::originalFlying),
                 Codec.BOOL.fieldOf("nightVisionGranted").forGetter(FactorySession::nightVisionGranted),
                 Codec.BOOL.fieldOf("originalNightVision").forGetter(FactorySession::originalNightVision),
-                Codec.list(ReturnFrame.CODEC).fieldOf("stack").forGetter(FactorySession::stack)
+                Codec.list(ReturnFrame.CODEC).fieldOf("stack").forGetter(FactorySession::stack),
+                CompoundTag.CODEC.optionalFieldOf("originalNightVisionEffect").forGetter(FactorySession::originalNightVisionEffect),
+                Codec.LONG.optionalFieldOf("explorationStartedAt", -1L).forGetter(FactorySession::explorationStartedAt),
+                Codec.STRING.optionalFieldOf("flightGameMode", "").forGetter(FactorySession::flightGameMode)
         ).apply(instance, (rootFactoryId, currentFactoryId, currentFactory, grantedFlight, originalMayFly,
-                            originalFlying, nightVisionGranted, originalNightVision, stack) ->
+                            originalFlying, nightVisionGranted, originalNightVision, stack, originalNightVisionEffect, explorationStartedAt,
+                            flightGameMode) ->
                 new FactorySession(rootFactoryId, currentFactoryId, currentFactory.orElse(null), grantedFlight,
-                        originalMayFly, originalFlying, nightVisionGranted, originalNightVision, stack)));
+                        originalMayFly, originalFlying, nightVisionGranted, originalNightVision, stack,
+                        originalNightVisionEffect, explorationStartedAt, flightGameMode)));
     }
 }

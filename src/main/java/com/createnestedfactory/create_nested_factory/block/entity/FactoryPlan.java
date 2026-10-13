@@ -279,7 +279,6 @@ public final class FactoryPlan {
     }
 
     public boolean hasCompleteRecipe() {
-        if (hasIndependentRoutes()) return hasProcessingRoute() || hasRegenerativeRoute();
         return hasProcessingRoute() || hasRegenerativeRoute();
     }
 
@@ -548,7 +547,7 @@ public final class FactoryPlan {
         copyPositive(plan.processingToolDamageCosts, processingToolDamageCosts);
         copyPositive(plan.regenerativeToolDamageCosts, regenerativeToolDamageCosts);
         plan.cycleTicks = Math.max(0, cycleTicks);
-        plan.naturalWaitTicks = Math.clamp(naturalWaitTicks, 0, plan.cycleTicks);
+        plan.naturalWaitTicks = com.createnestedfactory.create_nested_factory.compat.LegacyMath.clamp(naturalWaitTicks, 0, plan.cycleTicks);
         plan.sourceKind = sourceKind == null ? SourceKind.NONE : sourceKind;
         plan.verifiedCycles = Math.max(0, verifiedCycles);
         plan.statisticalOutput = statisticalOutput;
@@ -713,7 +712,7 @@ public final class FactoryPlan {
         readVariantLongMap(tag, "RegenerativeToolDamageCosts", regenerativeToolDamageCosts, registries);
         readVariantLongMap(tag, "StartupCapitalItems", startupCapitalItems, registries);
         cycleTicks = Math.max(0, tag.getInt("CycleTicks"));
-        naturalWaitTicks = Math.clamp(tag.getInt("NaturalWaitTicks"), 0, cycleTicks);
+        naturalWaitTicks = com.createnestedfactory.create_nested_factory.compat.LegacyMath.clamp(tag.getInt("NaturalWaitTicks"), 0, cycleTicks);
         try {
             sourceKind = SourceKind.valueOf(tag.getString("SourceKind"));
         } catch (IllegalArgumentException ignored) {

@@ -11,36 +11,38 @@ import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.material.MapColor;
 import net.minecraft.world.level.material.PushReaction;
-import net.neoforged.neoforge.registries.DeferredBlock;
-import net.neoforged.neoforge.registries.DeferredRegister;
+import net.minecraftforge.registries.RegistryObject;
+import net.minecraft.world.level.block.Block;
+import net.minecraftforge.registries.ForgeRegistries;
+import net.minecraftforge.registries.DeferredRegister;
 
 public class ModBlocks {
-    public static final DeferredRegister.Blocks BLOCKS = DeferredRegister.createBlocks(Create_nested_factory.MODID);
+    public static final DeferredRegister<Block> BLOCKS = DeferredRegister.create(ForgeRegistries.BLOCKS, Create_nested_factory.MODID);
 
-    public static final DeferredBlock<NestedFactoryBlock> NESTED_FACTORY = BLOCKS.register("nested_factory",
+    public static final RegistryObject<NestedFactoryBlock> NESTED_FACTORY = BLOCKS.register("nested_factory",
             () -> new NestedFactoryBlock(BlockBehaviour.Properties.of()
                     .mapColor(MapColor.METAL)
                     .strength(5.0F, 6.0F)
                     .noOcclusion()));
 
-    public static final DeferredBlock<NestedPortBlock> NESTED_PORT = BLOCKS.register("nested_port",
+    public static final RegistryObject<NestedPortBlock> NESTED_PORT = BLOCKS.register("nested_port",
             () -> new NestedPortBlock(BlockBehaviour.Properties.of()
                     .mapColor(MapColor.METAL)
                     .strength(2.0F, 3.0F)));
 
-    public static final DeferredBlock<NestedExtensionInterfaceBlock> NESTED_EXTENSION_INTERFACE =
+    public static final RegistryObject<NestedExtensionInterfaceBlock> NESTED_EXTENSION_INTERFACE =
             BLOCKS.register("nested_extension_interface",
                     () -> new NestedExtensionInterfaceBlock(BlockBehaviour.Properties.of()
                             .mapColor(MapColor.METAL)
                             .strength(2.0F, 3.0F)));
 
-    public static final DeferredBlock<NestedStressPortBlock> NESTED_STRESS_PORT = BLOCKS.register("nested_stress_port",
+    public static final RegistryObject<NestedStressPortBlock> NESTED_STRESS_PORT = BLOCKS.register("nested_stress_port",
             () -> new NestedStressPortBlock(BlockBehaviour.Properties.of()
                     .mapColor(MapColor.METAL)
                     .strength(2.0F, 3.0F)
                     .noOcclusion()));
 
-    public static final DeferredBlock<FactoryPassageBlock> FACTORY_PASSAGE = BLOCKS.register("factory_passage",
+    public static final RegistryObject<FactoryPassageBlock> FACTORY_PASSAGE = BLOCKS.register("factory_passage",
             () -> new FactoryPassageBlock(BlockBehaviour.Properties.of()
                     .mapColor(MapColor.METAL)
                     .strength(3.0F, 6.0F)
@@ -49,14 +51,14 @@ public class ModBlocks {
                     .noLootTable()
                     .noOcclusion()));
 
-    public static final DeferredBlock<NestedWallBlock> SNOW_WALL = BLOCKS.register("snow_wall",
+    public static final RegistryObject<NestedWallBlock> SNOW_WALL = BLOCKS.register("snow_wall",
             () -> new NestedWallBlock(BlockBehaviour.Properties.of()
                     .mapColor(MapColor.SNOW)
                     .strength(-1.0F, 3600000.0F)
                     .noLootTable()
                     .sound(SoundType.SNOW)));
 
-    public static final DeferredBlock<NestedWallBlock> WHITE_CONCRETE_WALL = BLOCKS.register("white_concrete_wall",
+    public static final RegistryObject<NestedWallBlock> WHITE_CONCRETE_WALL = BLOCKS.register("white_concrete_wall",
             () -> new NestedWallBlock(BlockBehaviour.Properties.of()
                     .mapColor(MapColor.SNOW)
                     .strength(-1.0F, 3600000.0F)

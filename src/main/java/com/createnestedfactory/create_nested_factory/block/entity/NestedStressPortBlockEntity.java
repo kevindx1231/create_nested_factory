@@ -41,7 +41,6 @@ public class NestedStressPortBlockEntity extends GeneratingKineticBlockEntity {
     private boolean sourceSatisfied = false;
     private BlockPos boundRoomOrigin;
     private BlockPos registeredRoomOrigin;
-    private boolean simulatedMoveInProgress;
 
     public NestedStressPortBlockEntity(BlockPos pos, BlockState state) {
         super(ModBlockEntities.NESTED_STRESS_PORT.get(), pos, state);
@@ -167,7 +166,8 @@ public class NestedStressPortBlockEntity extends GeneratingKineticBlockEntity {
     }
 
     @Override
-    protected void write(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
+    protected void write(CompoundTag tag, boolean clientPacket) {
+        HolderLookup.Provider registries = level == null ? null : level.registryAccess();
         // Preserve only the last local RPM on disk. Capacity and reservation are intentionally
         // not restored: the owning factory must validate and reserve stress again after loading.
         tag.putFloat("IncomingSpeed", Float.isFinite(incomingSpeed) ? incomingSpeed : 0f);
@@ -180,11 +180,12 @@ public class NestedStressPortBlockEntity extends GeneratingKineticBlockEntity {
         if (boundRoomOrigin != null) {
             tag.putLong("BoundRoomOrigin", boundRoomOrigin.asLong());
         }
-        super.write(tag, registries, clientPacket);
+        super.write(tag, clientPacket);
     }
 
     @Override
-    protected void read(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
+    protected void read(CompoundTag tag, boolean clientPacket) {
+        HolderLookup.Provider registries = level == null ? null : level.registryAccess();
         float restoredSpeed = tag.getFloat("IncomingSpeed");
         incomingSpeed = Float.isFinite(restoredSpeed) ? restoredSpeed : 0f;
         if (clientPacket) {
@@ -203,7 +204,7 @@ public class NestedStressPortBlockEntity extends GeneratingKineticBlockEntity {
             lastStressApplied = 0f;
         }
         boundRoomOrigin = tag.contains("BoundRoomOrigin") ? BlockPos.of(tag.getLong("BoundRoomOrigin")) : null;
-        super.read(tag, registries, clientPacket);
+        super.read(tag, clientPacket);
     }
 
     @Override
@@ -228,32 +229,10 @@ public class NestedStressPortBlockEntity extends GeneratingKineticBlockEntity {
         }
     }
 
-    public void prepareForSimulatedMove() {
-        simulatedMoveInProgress = true;
-        if (level != null && !level.isClientSide()) {
-            if (registeredRoomOrigin == null) {
-                registeredRoomOrigin = boundRoomOrigin != null ? boundRoomOrigin : roomOrigin();
-            }
-            if (registeredRoomOrigin != null) {
-                PocketRegistry.unregisterStressPort(level.getServer(), registeredRoomOrigin, worldPosition);
-            }
-            registeredRoomOrigin = null;
-            clearStressAllocation();
-        }
-    }
-
-    public void finishSimulatedMove() {
-        try {
-            registerStressPort();
-        } finally {
-            simulatedMoveInProgress = false;
-        }
-    }
-
     @Override
     public void remove() {
         super.remove();
-        if (!simulatedMoveInProgress && level != null && !level.isClientSide()) {
+        if (level != null && !level.isClientSide()) {
             BlockPos roomOrigin = registeredRoomOrigin != null ? registeredRoomOrigin : roomOrigin();
             if (roomOrigin != null) {
                 PocketRegistry.unregisterStressPort(level.getServer(), roomOrigin, worldPosition);

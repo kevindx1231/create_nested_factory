@@ -107,7 +107,7 @@ public final class RoomMutationTaskManager extends SavedData {
 
     public static RoomMutationTaskManager get(MinecraftServer server) {
         return server.overworld().getDataStorage().computeIfAbsent(
-                new SavedData.Factory<>(RoomMutationTaskManager::new, RoomMutationTaskManager::load), DATA_NAME);
+                tag -> RoomMutationTaskManager.load(tag, null), RoomMutationTaskManager::new, DATA_NAME);
     }
 
     public synchronized boolean isRoomLocked(ResourceKey<Level> pocketDimension, BlockPos origin) {
@@ -513,7 +513,7 @@ public final class RoomMutationTaskManager extends SavedData {
             try {
                 Type type = Type.valueOf(entry.getString("Type"));
                 ResourceKey<Level> dimension = ResourceKey.create(Registries.DIMENSION,
-                        ResourceLocation.parse(entry.getString("Dimension")));
+                        new ResourceLocation(entry.getString("Dimension")));
                 BlockPos origin = BlockPos.of(entry.getLong("Origin"));
                 int[] shell = entry.contains("Shell") ? entry.getIntArray("Shell") : null;
                 int[] clear = entry.contains("Clear") ? entry.getIntArray("Clear") : null;
@@ -523,7 +523,7 @@ public final class RoomMutationTaskManager extends SavedData {
                 if (entry.contains("Factory")) {
                     CompoundTag factoryTag = entry.getCompound("Factory");
                     factory = new FactoryRef(ResourceKey.create(Registries.DIMENSION,
-                            ResourceLocation.parse(factoryTag.getString("Dimension"))),
+                            new ResourceLocation(factoryTag.getString("Dimension"))),
                             BlockPos.of(factoryTag.getLong("Pos")), factoryTag.getString("FactoryId"),
                             factoryTag.getString("RootFactoryId"));
                 }
@@ -546,7 +546,8 @@ public final class RoomMutationTaskManager extends SavedData {
     }
 
     @Override
-    public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
+    public CompoundTag save(CompoundTag tag) {
+        HolderLookup.Provider registries = null;
         tag.putInt("Format", TASK_FORMAT);
         ListTag values = new ListTag();
         for (Task task : tasks) {

@@ -1,5 +1,6 @@
 package com.createnestedfactory.create_nested_factory_logistics.heat;
 
+import com.createnestedfactory.create_nested_factory_logistics.LiveMekanismEndpoint;
 import com.createnestedfactory.create_nested_factory.PocketRegistry;
 import com.createnestedfactory.create_nested_factory.block.PortMode;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity;
@@ -11,6 +12,9 @@ import mekanism.api.heat.IHeatHandler;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraftforge.common.util.LazyOptional;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -19,12 +23,19 @@ import java.util.List;
 import java.util.Set;
 
 /** Live, synchronous Mekanism thermal bridge. It intentionally has no cross-tick heat buffer. */
-public final class MekanismHeatHandler implements IHeatHandler {
+public final class MekanismHeatHandler implements IHeatHandler, LiveMekanismEndpoint {
     private final NestedFactoryBlockEntity factory;
     private final int portId;
     private final boolean externalSide;
     private final Direction externalFace;
     private final boolean extensionAccess;
+    private NestedPortBlockEntity roomPort;
+    private long cachedTick = Long.MIN_VALUE;
+    private long cachedRevision = Long.MIN_VALUE;
+    private List<Target> cachedTargets;
+    private List<Connection> cachedConnections = List.of();
+    private Set<BlockPos> cachedRoomPorts = Set.of();
+    private VirtualHeatCapacitor cachedCapacitor;
 
     private MekanismHeatHandler(NestedFactoryBlockEntity factory, int portId, boolean externalSide,
                                 Direction externalFace, boolean extensionAccess) {
@@ -43,14 +54,14 @@ public final class MekanismHeatHandler implements IHeatHandler {
         return createExternal(factory.resolveLogicalPort(side), false);
     }
 
-    public static IHeatHandler forExtension(FactoryLogicalPortEndpoint endpoint) {
+    public static MekanismHeatHandler forExtension(FactoryLogicalPortEndpoint endpoint) {
         if (endpoint == null || !endpoint.factory().isLiveResourceTransferMode()) {
             return null;
         }
         return createExternal(endpoint, true);
     }
 
-    private static IHeatHandler createExternal(FactoryLogicalPortEndpoint endpoint,
+    private static MekanismHeatHandler createExternal(FactoryLogicalPortEndpoint endpoint,
                                                boolean extensionAccess) {
         if (endpoint == null || !endpoint.isConfigured()) return null;
         MekanismHeatHandler handler = new MekanismHeatHandler(endpoint.factory(), endpoint.portId(), true,
@@ -70,14 +81,21 @@ public final class MekanismHeatHandler implements IHeatHandler {
         if (endpoint == null || !endpoint.isConfigured()) return null;
         MekanismHeatHandler handler = new MekanismHeatHandler(factory, endpoint.portId(), false,
                 null, false);
+        handler.roomPort = port;
         return handler.hasEndpoints() ? handler : null;
     }
 
     private boolean active() {
-        if (!factory.isLiveResourceTransferMode()) {
+        if (factory.isRemoved() || !factory.isLiveResourceTransferMode()) {
             return false;
         }
-        return !externalSide || externalFace == null
+        if (!externalSide) {
+            if (roomPort != null && (roomPort.isRemoved() || roomPort.getFactory() != factory
+                    || roomPort.getTargetPortId() != portId)) return false;
+            FactoryLogicalPortEndpoint endpoint = factory.resolveLogicalPort(portId);
+            return endpoint != null && endpoint.isConfigured();
+        }
+        return externalFace == null
                 || (factory.getFaceMode(externalFace) != PortMode.NONE
                 && factory.getPortId(externalFace) == portId
                 && (extensionAccess || !factory.isFaceTakenOver(externalFace)));
@@ -113,15 +131,47 @@ public final class MekanismHeatHandler implements IHeatHandler {
         }
     }
 
-    private boolean hasEndpoints() {
+    @Override
+    public boolean isAvailable() {
         return active() && !resolveTargets().isEmpty();
     }
 
+    private boolean hasEndpoints() {
+        return isAvailable();
+    }
+
     private VirtualHeatCapacitor virtualCapacitor() {
-        return new VirtualHeatCapacitor(resolveTargets(), factory);
+        List<Target> targets = resolveTargets();
+        if (cachedCapacitor == null || cachedCapacitor.targets != targets) {
+            cachedCapacitor = new VirtualHeatCapacitor(targets, factory);
+        }
+        return cachedCapacitor;
     }
 
     private List<Target> resolveTargets() {
+        var level = factory.getLevel();
+        if (level == null || !active()) {
+            cachedTargets = null;
+            return List.of();
+        }
+        ServerLevel pocket = factory.getPocketLevel();
+        Set<BlockPos> roomPorts = externalSide && pocket != null
+                ? PocketRegistry.getPorts(pocket.getServer(), factory.roomOrigin(), portId) : Set.of();
+        long tick = level.getGameTime();
+        long revision = factory.getLogisticsRevision();
+        if (cachedTargets != null && cachedTick == tick && cachedRevision == revision
+                && cachedRoomPorts.equals(roomPorts) && cachedConnections.stream().allMatch(Connection::valid)) {
+            return cachedTargets;
+        }
+        cachedConnections = new ArrayList<>();
+        cachedTargets = scanTargets();
+        cachedRoomPorts = roomPorts;
+        cachedTick = tick;
+        cachedRevision = revision;
+        return cachedTargets;
+    }
+
+    private List<Target> scanTargets() {
         List<Target> targets = new ArrayList<>();
         Set<IHeatHandler> seenHandlers = Collections.newSetFromMap(new IdentityHashMap<>());
         List<IHeatHandler> handlers = externalSide ? roomHandlers() : externalHandlers();
@@ -131,7 +181,8 @@ public final class MekanismHeatHandler implements IHeatHandler {
                 continue;
             }
             try {
-                for (int index = 0; index < handler.getHeatCapacitorCount(); index++) {
+                int capacitors = handler.getHeatCapacitorCount();
+                for (int index = 0; index < capacitors; index++) {
                     targets.add(new Target(handler, index));
                 }
             } catch (RuntimeException ignored) {
@@ -150,8 +201,7 @@ public final class MekanismHeatHandler implements IHeatHandler {
         for (Direction face : factory.getFacesForPortId(portId)) {
             for (NestedFactoryBlockEntity.ExternalAccessPoint access : factory.getExternalAccessPoints(face)) {
                 BlockPos pos = access.origin().relative(access.face());
-                IHeatHandler handler = factory.getLevel().getCapability(
-                        MekanismLogisticsCompat.HEAT, pos, access.face().getOpposite());
+                IHeatHandler handler = connectedHandler(factory.getLevel(), pos, access.face().getOpposite());
                 if (handler != null && seen.add(handler)) {
                     handlers.add(handler);
                 }
@@ -174,14 +224,33 @@ public final class MekanismHeatHandler implements IHeatHandler {
             }
             for (Direction side : Direction.values()) {
                 BlockPos pos = portPos.relative(side);
-                IHeatHandler handler = pocket.getCapability(
-                        MekanismLogisticsCompat.HEAT, pos, side.getOpposite());
+                IHeatHandler handler = connectedHandler(pocket, pos, side.getOpposite());
                 if (handler != null && seen.add(handler)) {
                     handlers.add(handler);
                 }
             }
         }
         return handlers;
+    }
+
+    private IHeatHandler connectedHandler(Level level, BlockPos pos, Direction side) {
+        if (!level.hasChunkAt(pos)) return null;
+        var blockEntity = level.getBlockEntity(pos);
+        var capability = blockEntity == null || blockEntity.isRemoved()
+                ? LazyOptional.<IHeatHandler>empty()
+                : blockEntity.getCapability(MekanismLogisticsCompat.HEAT, side);
+        IHeatHandler handler = capability.orElse(null);
+        cachedConnections.add(new Connection(level, pos, blockEntity, capability, handler != null));
+        return handler;
+    }
+
+    private record Connection(Level level, BlockPos pos,
+                              BlockEntity blockEntity,
+                              LazyOptional<IHeatHandler> capability, boolean present) {
+        boolean valid() {
+            return level.hasChunkAt(pos) && level.getBlockEntity(pos) == blockEntity
+                    && (blockEntity == null || !blockEntity.isRemoved()) && capability.isPresent() == present;
+        }
     }
 
     private record Target(IHeatHandler handler, int index) {
@@ -197,18 +266,14 @@ public final class MekanismHeatHandler implements IHeatHandler {
         }
 
         private double getTemperature() {
-            double totalCapacity = getHeatCapacity();
-            if (totalCapacity <= 0) return HeatAPI.AMBIENT_TEMP;
+            double totalCapacity = 0;
             double weighted = 0;
             for (Target target : targets) {
                 double capacity = capacity(target);
+                totalCapacity += capacity;
                 weighted += target.handler().getTemperature(target.index()) * capacity;
             }
-            return weighted / totalCapacity;
-        }
-
-        private double getInverseConduction() {
-            return weightedAverage(true);
+            return weighted / Math.max(1, totalCapacity);
         }
 
         private double getHeatCapacity() {
@@ -217,14 +282,6 @@ public final class MekanismHeatHandler implements IHeatHandler {
                 result += capacity(target);
             }
             return Math.max(1, result);
-        }
-
-        private double getHeat() {
-            double result = 0;
-            for (Target target : targets) {
-                result += target.handler().getTemperature(target.index()) * capacity(target);
-            }
-            return result;
         }
 
         private void handleHeat(double transfer) {
@@ -240,17 +297,15 @@ public final class MekanismHeatHandler implements IHeatHandler {
             return Math.max(1, target.handler().getHeatCapacity(target.index()));
         }
 
-        private double weightedAverage(boolean conduction) {
-            double totalCapacity = getHeatCapacity();
-            if (totalCapacity <= 0) return HeatAPI.DEFAULT_INVERSE_CONDUCTION;
-            double result = 0;
+        private double getInverseConduction() {
+            double totalCapacity = 0;
+            double weighted = 0;
             for (Target target : targets) {
-                double value = conduction
-                        ? target.handler().getInverseConduction(target.index())
-                        : HeatAPI.DEFAULT_INVERSE_INSULATION;
-                result += value * capacity(target) / totalCapacity;
+                double capacity = capacity(target);
+                totalCapacity += capacity;
+                weighted += target.handler().getInverseConduction(target.index()) * capacity;
             }
-            return Math.max(1, result);
+            return Math.max(1, weighted / Math.max(1, totalCapacity));
         }
     }
 }

@@ -1,0 +1,60 @@
+{
+  "type": "create:sequenced_assembly",
+  "ingredient": {
+    "item": "create_nested_factory:battery_casing"
+  },
+  "results": [
+    {
+      "count": 1,
+      "item": "create_nested_factory:inactive_blaze_battery"
+    }
+  ],
+  "sequence": [
+    {
+      "type": "create:cutting",
+      "processing_time": 100,
+      "ingredients": [
+        {
+          "item": "create_nested_factory:incomplete_blaze_battery"
+        }
+      ],
+      "results": [
+        {
+          "item": "create_nested_factory:incomplete_blaze_battery"
+        }
+      ]
+    },
+    {
+      "type": "create:deploying",
+      "ingredients": [
+        {
+          "item": "create_nested_factory:incomplete_blaze_battery"
+        },
+        {
+          "item": "create:blaze_cake"
+        }
+      ],
+      "results": [
+        {
+          "item": "create_nested_factory:incomplete_blaze_battery"
+        }
+      ]
+    },
+    {
+      "type": "create:pressing",
+      "ingredients": [
+        {
+          "item": "create_nested_factory:incomplete_blaze_battery"
+        }
+      ],
+      "results": [
+        {
+          "item": "create_nested_factory:inactive_blaze_battery"
+        }
+      ]
+    }
+  ],
+  "transitional_item": {
+    "item": "create_nested_factory:incomplete_blaze_battery"
+  }
+}

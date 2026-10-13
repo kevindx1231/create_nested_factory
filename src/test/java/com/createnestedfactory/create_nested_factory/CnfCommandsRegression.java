@@ -18,7 +18,6 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.MappedRegistry;
 import net.minecraft.core.Registry;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
@@ -69,7 +68,7 @@ public final class CnfCommandsRegression {
 
     public static void main(String[] args) throws Exception {
         SharedConstants.tryDetectVersion();
-        try (var flags = mockStatic(net.neoforged.neoforge.common.util.flag.FeatureFlagLoader.class)) {
+        {
             Bootstrap.bootStrap();
             registerFactoryTypes();
         }
@@ -94,6 +93,13 @@ public final class CnfCommandsRegression {
     }
 
     private static void reopen(Object registry) throws Exception {
+        LegacyRegistryFixture.reopenWrapper(registry);
+        if (registry == BuiltInRegistries.BLOCK)
+            ((net.minecraftforge.registries.ForgeRegistry<?>) net.minecraftforge.registries.ForgeRegistries.BLOCKS).unfreeze();
+        if (registry == BuiltInRegistries.ITEM)
+            ((net.minecraftforge.registries.ForgeRegistry<?>) net.minecraftforge.registries.ForgeRegistries.ITEMS).unfreeze();
+        if (registry == BuiltInRegistries.BLOCK_ENTITY_TYPE)
+            ((net.minecraftforge.registries.ForgeRegistry<?>) net.minecraftforge.registries.ForgeRegistries.BLOCK_ENTITY_TYPES).unfreeze();
         Field frozen = MappedRegistry.class.getDeclaredField("frozen");
         frozen.setAccessible(true);
         frozen.set(registry, false);
@@ -103,7 +109,7 @@ public final class CnfCommandsRegression {
     }
 
     private static void registerFactoryTypes() throws Exception {
-        ResourceLocation id = ResourceLocation.fromNamespaceAndPath("create_nested_factory", "nested_factory");
+        ResourceLocation id = new ResourceLocation("create_nested_factory", "nested_factory");
         reopen(BuiltInRegistries.BLOCK);
         NestedFactoryBlock block = Registry.register(BuiltInRegistries.BLOCK, id,
                 new NestedFactoryBlock(BlockBehaviour.Properties.of()));
@@ -228,7 +234,7 @@ public final class CnfCommandsRegression {
         when(f.source.hasPermission(2)).thenReturn(false);
         when(player.serverLevel()).thenReturn(f.overworld);
         when(player.level()).thenReturn(f.overworld);
-        when(player.blockInteractionRange()).thenReturn(4.5);
+        when(player.getBlockReach()).thenReturn(4.5);
         when(player.getEyePosition(1.0F)).thenReturn(new Vec3(0.5, 64.5, 0.5));
         when(player.getViewVector(1.0F)).thenReturn(new Vec3(0, 0, 1));
         when(player.getMainHandItem()).thenReturn(ItemStack.EMPTY);
@@ -317,11 +323,11 @@ public final class CnfCommandsRegression {
         try (Fixture f = new Fixture()) {
             ServerPlayer player = mock(ServerPlayer.class);
             NestedFactoryBlockEntity factory = aim(f, player, target);
-            when(player.blockInteractionRange()).thenReturn(1.0);
+            when(player.getBlockReach()).thenReturn(1.0);
             require(f.commands.execute("cnf info", f.source) == 0 && message(f, "info_no_target") != null,
                     "the command must respect the player's actual interaction range");
             f.messages.clear();
-            when(player.blockInteractionRange()).thenReturn(4.5);
+            when(player.getBlockReach()).thenReturn(4.5);
             BlockPos obstruction = new BlockPos(0, 64, 1);
             when(f.overworld.getBlockState(obstruction)).thenReturn(Blocks.STONE.defaultBlockState());
             require(f.commands.execute("cnf info", f.source) == 0 && message(f, "info_wrong_target") != null
@@ -371,7 +377,7 @@ public final class CnfCommandsRegression {
                 return true;
             });
             require(f.commands.execute("cnf copy root", f.source) == 1, "copy should give the player one bound factory");
-            ItemStack copy = given.getFirst();
+            ItemStack copy = given.get(0);
             CompoundTag copiedData = NestedFactoryBlockEntity.getFactoryItemData(copy);
             require(copiedData.getString("FactoryId").equals("root") && copiedData.getBoolean(FactoryCommandService.COPY_KEY), "copy must keep the existing ID and identify its non-owning binding");
             require(f.directory.find("root").isItem(), "copy must not alter the original binding");
@@ -383,7 +389,7 @@ public final class CnfCommandsRegression {
             require(!FactoryCommandService.preparePlacement(context), "an unloaded placed binding must still block duplicate placement");
             NestedFactoryBlockEntity live = mock(NestedFactoryBlockEntity.class);
             when(live.getFactoryId()).thenReturn("root");
-            when(live.saveWithFullMetadata(any())).thenAnswer(call -> f.data.copy());
+            when(live.saveWithFullMetadata()).thenAnswer(call -> f.data.copy());
             when(live.exportCommandBindingData(any())).thenCallRealMethod();
             when(f.overworld.getBlockEntity(new BlockPos(9, 64, 9))).thenReturn(live);
             doReturn(false).when(inventory).add(any());
@@ -400,7 +406,7 @@ public final class CnfCommandsRegression {
             require(FactoryCommandService.preparePlacement(context), "copy should become placeable after the original binding is released");
             CompoundTag refreshed = NestedFactoryBlockEntity.getFactoryItemData(copy);
             require(refreshed.getString("RuntimeProof").equals("latest-state")
-                    && copy.get(DataComponents.CUSTOM_NAME).getString().equals("Latest name"), "placing an old copy must use the latest authoritative state");
+                    && copy.getHoverName().getString().equals("Latest name"), "placing an old copy must use the latest authoritative state");
             when(context.getClickedPos()).thenReturn(new BlockPos(9, 64, 9));
             require(f.directory.find("root").isItem(), "placement validation alone must not claim a binding");
             FactoryCommandService.recordPlacement(context);
@@ -467,11 +473,11 @@ public final class CnfCommandsRegression {
             require(f.directory.isDeleting("root") && f.directory.find("root") != null, "scheduled cleanup must retain its metadata until completion");
             var allocatedWhileDeleting = f.slots.claimRootAllocation("while-deleting", -1, null);
             require(!allocatedWhileDeleting.roomOrigin().equals(f.origin), "a pending deletion must not release its slot");
-            CompoundTag savedTasks = f.tasks.save(new CompoundTag(), null);
+            CompoundTag savedTasks = f.tasks.save(new CompoundTag());
             f.tasks = RoomMutationTaskManager.load(savedTasks, null);
             f.directory = FactoryDirectorySavedData.load(f.directory.save(new CompoundTag(), null), null);
             FactoryCommandService.resumeDeletions(f.server);
-            require(f.tasks.save(new CompoundTag(), null).getList("Tasks", Tag.TAG_COMPOUND).size() == 1, "restart recovery must not duplicate a persisted room task");
+            require(f.tasks.save(new CompoundTag()).getList("Tasks", Tag.TAG_COMPOUND).size() == 1, "restart recovery must not duplicate a persisted room task");
             f.tasks.tick(f.server);
             require(f.directory.isRetired("root") && f.directory.find("root") == null, "actual cleanup completion must retire the ID and remove the directory entry");
             require(f.slots.claimRootAllocation("replacement", -1, null).roomOrigin().equals(f.origin), "completed cleanup must make its exact slot available to a new factory");

@@ -4,8 +4,6 @@ import com.createnestedfactory.create_nested_factory.PocketFreezeHooks;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.util.profiling.ProfilerFiller;
-import net.minecraft.world.TickRateManager;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.block.Block;
 import org.spongepowered.asm.mixin.Mixin;
@@ -24,18 +22,18 @@ abstract class ServerLevelFreezeMixin {
         }
     }
 
-    @Inject(method = "tickPrecipitation", at = @At("HEAD"), cancellable = true)
-    private void createNestedFactory$freezePrecipitation(BlockPos pos, CallbackInfo callback) {
-        if (PocketFreezeHooks.isFrozen((ServerLevel) (Object) this, pos)) {
+    @Inject(method = "tickNonPassenger", at = @At("HEAD"), cancellable = true)
+    private void createNestedFactory$freezeEntity(Entity entity, CallbackInfo callback) {
+        if (!(entity instanceof ServerPlayer)
+                && PocketFreezeHooks.intersectsFrozenRoom((ServerLevel) (Object) this, entity.getBoundingBox())) {
             callback.cancel();
         }
     }
 
-    @Inject(method = "lambda$tick$2", at = @At("HEAD"), cancellable = true)
-    private void createNestedFactory$freezeEntity(TickRateManager tickRateManager, ProfilerFiller profiler,
-                                                   Entity entity, CallbackInfo callback) {
-        if (!(entity instanceof ServerPlayer)
-                && PocketFreezeHooks.intersectsFrozenRoom((ServerLevel) (Object) this, entity.getBoundingBox())) {
+    @Inject(method = "tickPassenger", at = @At("HEAD"), cancellable = true)
+    private void createNestedFactory$freezePassenger(Entity vehicle, Entity passenger, CallbackInfo callback) {
+        if (!(passenger instanceof ServerPlayer)
+                && PocketFreezeHooks.intersectsFrozenRoom((ServerLevel) (Object) this, passenger.getBoundingBox())) {
             callback.cancel();
         }
     }

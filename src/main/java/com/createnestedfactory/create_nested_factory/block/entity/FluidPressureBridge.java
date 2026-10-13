@@ -1,5 +1,6 @@
 package com.createnestedfactory.create_nested_factory.block.entity;
 
+import com.createnestedfactory.create_nested_factory.compat.LegacyCapabilities;
 import com.simibubi.create.content.fluids.FluidPropagator;
 import com.simibubi.create.content.fluids.FluidTransportBehaviour;
 import com.simibubi.create.content.fluids.PipeConnection;
@@ -11,8 +12,8 @@ import net.minecraft.core.Direction;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
-import net.neoforged.neoforge.capabilities.Capabilities;
-import net.neoforged.neoforge.fluids.capability.IFluidHandler;
+import net.minecraftforge.common.capabilities.ForgeCapabilities;
+import net.minecraftforge.fluids.capability.IFluidHandler;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -150,7 +151,7 @@ public final class FluidPressureBridge {
         }
 
         if (blockEntity != null) {
-            IFluidHandler capability = world.getCapability(Capabilities.FluidHandler.BLOCK, connectedPos,
+            IFluidHandler capability = LegacyCapabilities.get(world, ForgeCapabilities.FLUID_HANDLER, connectedPos,
                     face.getOpposite());
             if (capability != null) {
                 return true;

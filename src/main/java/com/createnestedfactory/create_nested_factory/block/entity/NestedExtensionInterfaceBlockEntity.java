@@ -1,5 +1,6 @@
 package com.createnestedfactory.create_nested_factory.block.entity;
 
+import com.createnestedfactory.create_nested_factory.compat.LegacyCapabilities;
 import com.createnestedfactory.create_nested_factory.block.NestedExtensionInterfaceBlock;
 import com.createnestedfactory.create_nested_factory.block.PortMode;
 import com.createnestedfactory.create_nested_factory.network.PlayerMessagePayload;
@@ -23,15 +24,35 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
-import net.neoforged.neoforge.fluids.FluidStack;
-import net.neoforged.neoforge.fluids.capability.IFluidHandler;
-import net.neoforged.neoforge.items.IItemHandler;
+import net.minecraftforge.fluids.FluidStack;
+import net.minecraftforge.fluids.capability.IFluidHandler;
+import net.minecraftforge.items.IItemHandler;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /** Identity-bound, bufferless proxy for one exterior face of a nested factory. */
 public class NestedExtensionInterfaceBlockEntity extends SyncedBlockEntity implements IHaveGoggleInformation {
+    private final com.createnestedfactory.create_nested_factory.compat.LegacyCapabilities.Cache portCapabilities =
+            new com.createnestedfactory.create_nested_factory.compat.LegacyCapabilities.Cache();
+
+    @Override
+    public <T> net.minecraftforge.common.util.LazyOptional<T> getCapability(
+            net.minecraftforge.common.capabilities.Capability<T> capability, net.minecraft.core.Direction side) {
+        var endpoint = portCapabilities.get(this, capability, side);
+        return endpoint.isPresent() ? endpoint : super.getCapability(capability, side);
+    }
+
+    public void invalidatePortCapabilities() {
+        portCapabilities.invalidate();
+    }
+
+    @Override
+    public void invalidateCaps() {
+        super.invalidateCaps();
+        invalidatePortCapabilities();
+    }
+
     private String boundFactoryId = "";
 
     private boolean lastBound;
@@ -249,7 +270,7 @@ public class NestedExtensionInterfaceBlockEntity extends SyncedBlockEntity imple
         if (level == null || level.isClientSide()) {
             return;
         }
-        level.invalidateCapabilities(worldPosition);
+        LegacyCapabilities.invalidate(level, worldPosition);
         NestedFactoryBlockEntity factory = getHostFactory();
         if (factory != null) {
             refreshBoundary(factory);
@@ -264,7 +285,7 @@ public class NestedExtensionInterfaceBlockEntity extends SyncedBlockEntity imple
         if (level == null || level.isClientSide()) {
             return;
         }
-        level.invalidateCapabilities(worldPosition);
+        LegacyCapabilities.invalidate(level, worldPosition);
         sendData();
         rememberState();
     }
@@ -289,26 +310,9 @@ public class NestedExtensionInterfaceBlockEntity extends SyncedBlockEntity imple
         }
     }
 
-    public void prepareForSimulatedMove() {
-        onRemovedFromWorld();
-    }
-
-    public void finishSimulatedMove() {
-        if (level == null || level.isClientSide()) {
-            return;
-        }
-        level.invalidateCapabilities(worldPosition);
-        rememberState();
-        sendData();
-        NestedFactoryBlockEntity factory = getHostFactory();
-        if (factory != null) {
-            refreshBoundary(factory);
-        }
-    }
-
     private void refreshBoundary(NestedFactoryBlockEntity factory) {
         if (level != null && !level.isClientSide()) {
-            level.invalidateCapabilities(worldPosition);
+            LegacyCapabilities.invalidate(level, worldPosition);
             factory.onExternalNeighborChanged(worldPosition);
         }
     }
@@ -328,7 +332,7 @@ public class NestedExtensionInterfaceBlockEntity extends SyncedBlockEntity imple
         boolean powered = extension.isPowered();
         PortMode mode = bound ? endpoint.mode() : PortMode.NONE;
         if (bound != extension.lastBound || powered != extension.lastPowered || mode != extension.lastMode) {
-            level.invalidateCapabilities(pos);
+            LegacyCapabilities.invalidate(level, pos);
             extension.sendData();
             if (endpoint != null) {
                 extension.refreshBoundary(endpoint.factory());
@@ -389,16 +393,18 @@ public class NestedExtensionInterfaceBlockEntity extends SyncedBlockEntity imple
     }
 
     @Override
-    protected void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
-        super.saveAdditional(tag, registries);
+    protected void saveAdditional(CompoundTag tag) {
+        HolderLookup.Provider registries = level == null ? null : level.registryAccess();
+        super.saveAdditional(tag);
         if (!boundFactoryId.isBlank()) {
             tag.putString("BoundFactoryId", boundFactoryId);
         }
     }
 
     @Override
-    protected void loadAdditional(CompoundTag tag, HolderLookup.Provider registries) {
-        super.loadAdditional(tag, registries);
+    public void load(CompoundTag tag) {
+        HolderLookup.Provider registries = level == null ? null : level.registryAccess();
+        super.load(tag);
         boundFactoryId = tag.getString("BoundFactoryId");
     }
 
@@ -406,7 +412,7 @@ public class NestedExtensionInterfaceBlockEntity extends SyncedBlockEntity imple
     public void onLoad() {
         super.onLoad();
         if (level != null && !level.isClientSide()) {
-            level.invalidateCapabilities(worldPosition);
+            LegacyCapabilities.invalidate(level, worldPosition);
             rememberState();
             NestedFactoryBlockEntity factory = getHostFactory();
             if (factory != null) {

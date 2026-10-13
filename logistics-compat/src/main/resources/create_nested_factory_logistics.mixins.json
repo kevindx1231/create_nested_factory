@@ -9,6 +9,6 @@
   ],
   "injectors": {
     "defaultRequire": 1
-  }
+  },
+  "refmap": "create_nested_factory.refmap.json"
 }
-

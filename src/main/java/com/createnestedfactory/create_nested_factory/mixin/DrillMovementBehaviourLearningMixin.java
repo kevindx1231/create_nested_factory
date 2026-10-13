@@ -21,7 +21,7 @@ abstract class DrillMovementBehaviourLearningMixin {
     @Unique
     private BlockState createNestedFactory$capturedState = Blocks.AIR.defaultBlockState();
 
-    @Inject(method = "destroyBlock", at = @At("HEAD"))
+    @Inject(method = "destroyBlock", at = @At("HEAD"), remap = false)
     private void createNestedFactory$captureMovingDrillTarget(MovementContext context, BlockPos pos,
                                                               CallbackInfo callback) {
         createNestedFactory$capturedState = (Object) this instanceof DrillMovementBehaviour
@@ -29,7 +29,7 @@ abstract class DrillMovementBehaviourLearningMixin {
                 : Blocks.AIR.defaultBlockState();
     }
 
-    @Inject(method = "destroyBlock", at = @At("RETURN"))
+    @Inject(method = "destroyBlock", at = @At("RETURN"), remap = false)
     private void createNestedFactory$observeMovingDrill(MovementContext context, BlockPos pos,
                                                         CallbackInfo callback) {
         BlockState brokenState = createNestedFactory$capturedState;

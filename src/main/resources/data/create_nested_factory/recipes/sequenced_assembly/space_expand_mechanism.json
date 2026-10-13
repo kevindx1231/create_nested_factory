@@ -1,0 +1,65 @@
+{
+  "type": "create:sequenced_assembly",
+  "ingredient": {
+    "item": "create_nested_factory:sturdy_casing"
+  },
+  "results": [
+    {
+      "item": "create_nested_factory:space_expand_mechanism"
+    }
+  ],
+  "sequence": [
+    {
+      "type": "create:filling",
+      "ingredients": [
+        {
+          "item": "create_nested_factory:incomplete_space_expand_mechanism"
+        },
+        {
+          "fluid": "minecraft:water",
+          "amount": 250
+        }
+      ],
+      "results": [
+        {
+          "item": "create_nested_factory:incomplete_space_expand_mechanism"
+        }
+      ]
+    },
+    {
+      "type": "create:deploying",
+      "ingredients": [
+        {
+          "item": "create_nested_factory:incomplete_space_expand_mechanism"
+        },
+        {
+          "item": "minecraft:lime_dye"
+        }
+      ],
+      "results": [
+        {
+          "item": "create_nested_factory:incomplete_space_expand_mechanism"
+        }
+      ]
+    },
+    {
+      "type": "create:deploying",
+      "ingredients": [
+        {
+          "item": "create_nested_factory:incomplete_space_expand_mechanism"
+        },
+        {
+          "item": "minecraft:lime_dye"
+        }
+      ],
+      "results": [
+        {
+          "item": "create_nested_factory:incomplete_space_expand_mechanism"
+        }
+      ]
+    }
+  ],
+  "transitional_item": {
+    "item": "create_nested_factory:incomplete_space_expand_mechanism"
+  }
+}

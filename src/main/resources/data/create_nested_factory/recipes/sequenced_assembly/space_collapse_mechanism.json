@@ -1,0 +1,65 @@
+{
+  "type": "create:sequenced_assembly",
+  "ingredient": {
+    "item": "create_nested_factory:sturdy_casing"
+  },
+  "results": [
+    {
+      "item": "create_nested_factory:space_collapse_mechanism"
+    }
+  ],
+  "sequence": [
+    {
+      "type": "create:filling",
+      "ingredients": [
+        {
+          "item": "create_nested_factory:incomplete_space_collapse_mechanism"
+        },
+        {
+          "fluid": "minecraft:lava",
+          "amount": 250
+        }
+      ],
+      "results": [
+        {
+          "item": "create_nested_factory:incomplete_space_collapse_mechanism"
+        }
+      ]
+    },
+    {
+      "type": "create:deploying",
+      "ingredients": [
+        {
+          "item": "create_nested_factory:incomplete_space_collapse_mechanism"
+        },
+        {
+          "item": "minecraft:red_dye"
+        }
+      ],
+      "results": [
+        {
+          "item": "create_nested_factory:incomplete_space_collapse_mechanism"
+        }
+      ]
+    },
+    {
+      "type": "create:deploying",
+      "ingredients": [
+        {
+          "item": "create_nested_factory:incomplete_space_collapse_mechanism"
+        },
+        {
+          "item": "minecraft:red_dye"
+        }
+      ],
+      "results": [
+        {
+          "item": "create_nested_factory:incomplete_space_collapse_mechanism"
+        }
+      ]
+    }
+  ],
+  "transitional_item": {
+    "item": "create_nested_factory:incomplete_space_collapse_mechanism"
+  }
+}

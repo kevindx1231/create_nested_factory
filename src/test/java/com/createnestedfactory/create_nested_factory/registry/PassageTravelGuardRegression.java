@@ -16,49 +16,33 @@ public final class PassageTravelGuardRegression {
     }
 
     public static void main(String[] args) {
+        net.minecraft.SharedConstants.tryDetectVersion();
+        net.minecraft.server.Bootstrap.bootStrap();
         ResourceKey<Level> pocket = ResourceKey.create(Registries.DIMENSION,
-                ResourceLocation.fromNamespaceAndPath("create_nested_factory", "nested_factory"));
+                new ResourceLocation("create_nested_factory", "nested_factory"));
         String passageId = "moving-passage";
         BlockPos originalPlotPos = BlockPos.ZERO;
         BlockPos reindexedPlotPos = new BlockPos(20_481_030, 129, 20_481_032);
         ModAttachments.PassageTravelGuard guard = ModAttachments.PassageTravelGuard.arrival(
                 passageId, Level.OVERWORLD, originalPlotPos);
-
-        require(guard.blocks(passageId), "arrival guard lost its passage identity");
-        require(!guard.blocks("different-passage"), "arrival guard blocked another passage");
-        for (int i = 0; i < ModAttachments.PassageTravelGuard.ARRIVAL_SETTLING_TICKS + 25; i++) {
-            guard = guard.afterTick(Level.OVERWORLD, true, true, reindexedPlotPos);
-            require(guard.isActive(), "guard expired while the player remained inside the passage");
-        }
-        require(guard.pos().equals(reindexedPlotPos), "guard did not follow the passage's new Plot position");
-        guard = guard.afterTick(Level.OVERWORLD, false, true, reindexedPlotPos);
-        guard = guard.afterTick(Level.OVERWORLD, null, true, reindexedPlotPos);
-        guard = guard.afterTick(Level.OVERWORLD, false, true, reindexedPlotPos);
-        require(guard.isActive(), "loading interruption was counted as confirmed departure");
-        guard = guard.afterTick(Level.OVERWORLD, false, true, reindexedPlotPos);
-        require(!guard.isActive(), "guard did not release after two confirmed outside ticks");
-
+        for (int i = 0; i < 80; i++) guard = guard.afterTick(pocket, false, originalPlotPos);
+        require(guard.isActive(), "guard expired before arriving in the destination dimension");
+        for (int i = 0; i < 80; i++) guard = guard.afterTick(Level.OVERWORLD, true, originalPlotPos);
+        require(guard.isActive(), "guard expired while still inside the passage");
+        guard = guard.afterTick(Level.OVERWORLD, false, originalPlotPos);
+        require(guard.isActive(), "one outside tick released the guard");
+        guard = guard.afterTick(Level.OVERWORLD, null, originalPlotPos);
+        guard = guard.afterTick(Level.OVERWORLD, false, originalPlotPos);
+        require(guard.isActive(), "unavailable endpoint counted as confirmed departure");
+        guard = guard.afterTick(Level.OVERWORLD, false, originalPlotPos);
+        require(!guard.isActive(), "two outside ticks did not release the guard");
         guard = ModAttachments.PassageTravelGuard.arrival(passageId, Level.OVERWORLD, originalPlotPos);
-        for (int i = 0; i < 80; i++) guard = guard.afterTick(pocket, false, true, originalPlotPos);
-        require(guard.isActive(), "guard expired before arriving in its destination dimension");
-        guard = guard.afterTick(Level.OVERWORLD, true, true, originalPlotPos);
-        guard = guard.afterTick(Level.OVERWORLD, false, true, originalPlotPos);
-        guard = guard.afterTick(Level.OVERWORLD, false, true, originalPlotPos);
-        require(guard.isActive(), "first contact bypassed the moving arrival grace period");
-        guard = guard.afterTick(pocket, null, true, originalPlotPos);
-        require(!guard.isActive(), "guard survived a later departure to another dimension");
-
+        guard = guard.afterTick(Level.OVERWORLD, true, originalPlotPos);
+        require(!guard.afterTick(pocket, false, originalPlotPos).isActive(), "guard survived leaving its destination dimension");
         guard = ModAttachments.PassageTravelGuard.arrival(passageId, Level.OVERWORLD, originalPlotPos);
-        guard = guard.afterTick(Level.OVERWORLD, true, false, originalPlotPos);
-        guard = guard.afterTick(Level.OVERWORLD, false, false, originalPlotPos);
-        guard = guard.afterTick(Level.OVERWORLD, false, false, originalPlotPos);
-        require(!guard.isActive(), "static passage lost its quick release after leaving");
-
-        guard = ModAttachments.PassageTravelGuard.arrival(passageId, Level.OVERWORLD, originalPlotPos);
-        for (int i = 0; i <= ModAttachments.PassageTravelGuard.ARRIVAL_SETTLING_TICKS; i++) {
-            guard = guard.afterTick(Level.OVERWORLD, false, true, originalPlotPos);
-        }
-        require(!guard.isActive(), "guard never released for a safe arrival outside the door");
+        for (int i = 0; i <= ModAttachments.PassageTravelGuard.ARRIVAL_SETTLING_TICKS; i++)
+            guard = guard.afterTick(Level.OVERWORLD, false, originalPlotPos);
+        require(!guard.isActive(), "guard never released for a safe arrival outside the passage");
 
         ModAttachments.ReturnFrame passageFrame = ModAttachments.ReturnFrame.externalPassage(
                 Level.OVERWORLD, Vec3.ZERO, 0, 0, "target-factory", passageId);

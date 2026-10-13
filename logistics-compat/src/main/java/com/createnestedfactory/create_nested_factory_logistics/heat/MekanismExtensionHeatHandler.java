@@ -1,19 +1,19 @@
 package com.createnestedfactory.create_nested_factory_logistics.heat;
 
+import com.createnestedfactory.create_nested_factory_logistics.MekanismExtensionDelegate;
+import com.createnestedfactory.create_nested_factory_logistics.LiveMekanismEndpoint;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedExtensionInterfaceBlockEntity;
-import com.createnestedfactory.create_nested_factory.block.entity.FactoryLogicalPortEndpoint;
 import mekanism.api.heat.HeatAPI;
 import mekanism.api.heat.IHeatHandler;
 import net.minecraft.core.Direction;
 
 /** A cache-safe heat proxy that rechecks extension binding and redstone on every call. */
-public final class MekanismExtensionHeatHandler implements IHeatHandler {
-    private final NestedExtensionInterfaceBlockEntity extension;
-    private final Direction queriedSide;
+public final class MekanismExtensionHeatHandler implements IHeatHandler, LiveMekanismEndpoint {
+    private final MekanismExtensionDelegate<MekanismHeatHandler> cachedDelegate;
 
     private MekanismExtensionHeatHandler(NestedExtensionInterfaceBlockEntity extension, Direction queriedSide) {
-        this.extension = extension;
-        this.queriedSide = queriedSide;
+        cachedDelegate = new MekanismExtensionDelegate<>(
+                extension, queriedSide, MekanismHeatHandler::forExtension);
     }
 
     public static IHeatHandler create(NestedExtensionInterfaceBlockEntity extension, Direction side) {
@@ -25,9 +25,13 @@ public final class MekanismExtensionHeatHandler implements IHeatHandler {
     }
 
     private IHeatHandler delegate() {
-        FactoryLogicalPortEndpoint endpoint = extension.resolvePort(queriedSide);
-        return endpoint == null ? null
-                : MekanismHeatHandler.forExtension(endpoint);
+        return cachedDelegate.get();
+    }
+
+    @Override
+    public boolean isAvailable() {
+        var delegate = cachedDelegate.get();
+        return delegate != null && delegate.isAvailable();
     }
 
     @Override

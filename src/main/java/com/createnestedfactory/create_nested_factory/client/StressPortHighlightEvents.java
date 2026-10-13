@@ -3,10 +3,10 @@ package com.createnestedfactory.create_nested_factory.client;
 import com.createnestedfactory.create_nested_factory.Create_nested_factory;
 import com.createnestedfactory.create_nested_factory.registry.ModBlocks;
 import net.minecraft.client.Minecraft;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.client.event.RenderHighlightEvent;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
+import net.minecraftforge.client.event.RenderHighlightEvent;
 
 @EventBusSubscriber(modid = Create_nested_factory.MODID, value = Dist.CLIENT)
 public final class StressPortHighlightEvents {

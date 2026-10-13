@@ -6,13 +6,13 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.EventPriority;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.client.event.RenderGuiEvent;
-import net.neoforged.neoforge.client.event.RenderGuiLayerEvent;
-import net.neoforged.neoforge.client.event.ScreenEvent;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.eventbus.api.EventPriority;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
+import net.minecraftforge.client.event.RenderGuiEvent;
+import net.minecraftforge.client.event.RenderGuiOverlayEvent;
+import net.minecraftforge.client.event.ScreenEvent;
 
 /** Renders all mod player messages with one consistent, undimmed presentation. */
 @EventBusSubscriber(modid = Create_nested_factory.MODID, value = Dist.CLIENT)
@@ -38,11 +38,11 @@ public final class PlayerMessageOverlay {
         expiresAt = System.currentTimeMillis() + MESSAGE_DURATION_MS;
     }
 
-    private static final ResourceLocation CREATE_GOGGLE_LAYER = ResourceLocation.fromNamespaceAndPath("create", "goggle_info");
+    private static final ResourceLocation CREATE_GOGGLE_LAYER = new ResourceLocation("create", "goggle_info");
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
-    public static void hideGoggleWhileMessageVisible(RenderGuiLayerEvent.Pre event) {
-        if (CREATE_GOGGLE_LAYER.equals(event.getName()) && hideGoggle && isVisible()) {
+    public static void hideGoggleWhileMessageVisible(RenderGuiOverlayEvent.Pre event) {
+        if (CREATE_GOGGLE_LAYER.equals(event.getOverlay().id()) && hideGoggle && isVisible()) {
             event.setCanceled(true);
         }
     }

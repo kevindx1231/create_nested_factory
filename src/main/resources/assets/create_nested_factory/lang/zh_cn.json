@@ -148,7 +148,6 @@
   "message.create_nested_factory.passage.loading": "通道或移动结构正在加载、迁移，或抵达位置被阻挡，请稍后重试",
   "tooltip.create_nested_factory.passage_marker": "工厂通道标记",
   "tooltip.create_nested_factory.passage_marker_interaction": "主手持物右键设置标记，主手空手右键清除标记",
-  "message.create_nested_factory.factory.return_anchor_loading": "移动结构仍在加载，请稍后再次返回",
   "command.create_nested_factory.root_list": "根工厂房间（%s 个）：",
   "command.create_nested_factory.nested_list": "嵌套工厂房间（%s 个）：",
   "command.create_nested_factory.descendants": "工厂 %s 下的全部嵌套房间（%s 个）：",

@@ -6,6 +6,7 @@ import com.createnestedfactory.create_nested_factory.RoomMutationTaskManager;
 import com.createnestedfactory.create_nested_factory.PocketFreezeHooks;
 import com.createnestedfactory.create_nested_factory.PocketRegistry;
 import com.createnestedfactory.create_nested_factory.blueprint.FactoryBlueprintInteractions;
+import com.createnestedfactory.create_nested_factory.blueprint.NestedFactoryBlueprint;
 import com.createnestedfactory.create_nested_factory.block.NestedFactoryBlock;
 import com.createnestedfactory.create_nested_factory.block.FactoryPassageBlock;
 import com.createnestedfactory.create_nested_factory.block.entity.FactoryPassageBlockEntity;
@@ -21,23 +22,20 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.effect.MobEffectInstance;
-import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
-import net.neoforged.bus.api.EventPriority;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.common.Tags;
-import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
-import net.neoforged.neoforge.event.entity.EntityLeaveLevelEvent;
-import net.neoforged.neoforge.event.entity.player.PlayerEvent;
-import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
-import net.neoforged.neoforge.event.level.BlockEvent;
-import net.neoforged.neoforge.event.level.LevelEvent;
-import net.neoforged.neoforge.event.tick.PlayerTickEvent;
-import net.neoforged.neoforge.event.tick.ServerTickEvent;
-import net.neoforged.neoforge.event.server.ServerStoppedEvent;
+import net.minecraftforge.eventbus.api.EventPriority;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
+import net.minecraftforge.event.entity.living.LivingDeathEvent;
+import net.minecraftforge.event.entity.EntityLeaveLevelEvent;
+import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.entity.player.PlayerInteractEvent;
+import net.minecraftforge.event.level.BlockEvent;
+import net.minecraftforge.event.level.LevelEvent;
+
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.server.ServerStoppedEvent;
 
 @EventBusSubscriber(modid = Create_nested_factory.MODID)
 public class PocketEvents {
@@ -52,12 +50,10 @@ public class PocketEvents {
         }
 
         ItemStack stack = event.getItemStack();
-        boolean emptyBlueprint = stack.is(AllItems.EMPTY_SCHEMATIC.get());
-        boolean nestedFactoryBlueprint = FactoryBlueprintInteractions.isBlueprint(stack, player.registryAccess());
         if (event.getHand() == InteractionHand.MAIN_HAND
-                && (emptyBlueprint || nestedFactoryBlueprint)
                 && level.getBlockEntity(event.getPos()) instanceof NestedFactoryBlockEntity factory) {
-            if (nestedFactoryBlueprint && player.isCrouching()) {
+            boolean emptyBlueprint = stack.is(AllItems.EMPTY_SCHEMATIC.get());
+            if (player.isShiftKeyDown() && NestedFactoryBlueprint.hasFactoryBlueprintMarker(stack)) {
                 FactoryBlueprintInteractions.tryApply(player, factory, event.getHand());
                 consumeRightClick(event);
                 return;
@@ -69,8 +65,8 @@ public class PocketEvents {
             }
         }
 
-        boolean wrench = isWrench(event.getItemStack());
-        boolean empty = event.getItemStack().isEmpty();
+        boolean wrench = isWrench(stack);
+        boolean empty = stack.isEmpty();
 
         if (wrench) {
             BlockState passageState = level.getBlockState(event.getPos());
@@ -90,13 +86,13 @@ public class PocketEvents {
         }
 
         if (level.dimension().equals(NestedFactoryBlock.POCKET_DIMENSION)) {
-            if (wrench && player.isCrouching()
+            if (wrench && player.isShiftKeyDown()
                     && level.getBlockEntity(event.getPos()) instanceof NestedFactoryBlockEntity factory) {
                 NestedFactoryBlock.enterFactory(player, factory);
                 consumeRightClick(event);
                 return;
             }
-            if ((wrench || empty) && player.isCrouching()
+            if ((wrench || empty) && player.isShiftKeyDown()
                     && NestedFactoryBlock.isWallBlock(level.getBlockState(event.getPos()))) {
                 NestedFactoryBlock.exitCurrentFactory(player);
                 consumeRightClick(event);
@@ -111,7 +107,7 @@ public class PocketEvents {
             return;
         }
         if (level.getBlockEntity(event.getPos()) instanceof NestedFactoryBlockEntity be) {
-            if (player.isCrouching()) {
+            if (player.isShiftKeyDown()) {
                 NestedFactoryBlock.enterFactory(player, be);
             } else {
                 be.cycleFaceMode(event.getHitVec().getDirection(), player);
@@ -210,7 +206,7 @@ public class PocketEvents {
     }
 
     private static boolean isWrench(ItemStack stack) {
-        return stack.is(Tags.Items.TOOLS_WRENCH);
+        return stack.is(com.simibubi.create.AllTags.AllItemTags.WRENCH.tag);
     }
 
     private static void consumeRightClick(PlayerInteractEvent.RightClickBlock event) {
@@ -219,7 +215,8 @@ public class PocketEvents {
     }
 
     @SubscribeEvent
-    public static void onServerTick(ServerTickEvent.Post event) {
+    public static void onServerTick(TickEvent.ServerTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) return;
         RoomMutationTaskManager.get(event.getServer()).tick(event.getServer());
         PocketFreezeManager.tick(event.getServer());
     }
@@ -254,8 +251,8 @@ public class PocketEvents {
     @SubscribeEvent
     public static void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
-            player.setData(ModAttachments.PASSAGE_SELECTION, ModAttachments.PassageSelection.empty());
-            player.setData(ModAttachments.PASSAGE_TRAVEL_GUARD, ModAttachments.PassageTravelGuard.empty());
+            ModAttachments.set(player, ModAttachments.PASSAGE_SELECTION, ModAttachments.PassageSelection.empty());
+            ModAttachments.set(player, ModAttachments.PASSAGE_TRAVEL_GUARD, ModAttachments.PassageTravelGuard.empty());
             if (!NestedFactoryBlock.abortSessionOutsidePocket(player, "logout_outside_pocket")) {
                 NestedFactoryBlock.suspendSessionForPlayer(player);
             }
@@ -265,33 +262,36 @@ public class PocketEvents {
     @SubscribeEvent
     public static void onPlayerDeath(LivingDeathEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
-            player.setData(ModAttachments.PASSAGE_SELECTION, ModAttachments.PassageSelection.empty());
-            player.setData(ModAttachments.PASSAGE_TRAVEL_GUARD, ModAttachments.PassageTravelGuard.empty());
+            ModAttachments.set(player, ModAttachments.PASSAGE_SELECTION, ModAttachments.PassageSelection.empty());
+            ModAttachments.set(player, ModAttachments.PASSAGE_TRAVEL_GUARD, ModAttachments.PassageTravelGuard.empty());
             NestedFactoryBlock.endSessionForPlayer(player);
         }
     }
 
     @SubscribeEvent
-    public static void onPlayerTick(PlayerTickEvent.Post event) {
-        if (!(event.getEntity() instanceof ServerPlayer player)) {
+    public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) return;
+        if (!(event.player instanceof ServerPlayer player)) {
             return;
         }
         FactoryPassageNavigation.updateTravelGuard(player);
-        if (player.getData(ModAttachments.PASSAGE_RESUME_PENDING) && player.serverLevel().getGameTime() % 20 == 0) {
+        if (ModAttachments.get(player, ModAttachments.PASSAGE_RESUME_PENDING) && player.serverLevel().getGameTime() % 20 == 0) {
             NestedFactoryBlock.resumeSessionForPlayer(player);
         }
         if (!player.getMainHandItem().is(com.createnestedfactory.create_nested_factory.registry.ModItems.FACTORY_PASSAGE.get())
-                && !player.getOffhandItem().is(com.createnestedfactory.create_nested_factory.registry.ModItems.FACTORY_PASSAGE.get())) {
-            player.setData(ModAttachments.PASSAGE_SELECTION, ModAttachments.PassageSelection.empty());
+                && !player.getOffhandItem().is(com.createnestedfactory.create_nested_factory.registry.ModItems.FACTORY_PASSAGE.get())
+                && ModAttachments.get(player, ModAttachments.PASSAGE_SELECTION).isPresent()) {
+            ModAttachments.set(player, ModAttachments.PASSAGE_SELECTION, ModAttachments.PassageSelection.empty());
         }
         if (!player.serverLevel().dimension().equals(NestedFactoryBlock.POCKET_DIMENSION)) {
             NestedFactoryBlock.abortSessionOutsidePocket(player, "tick_outside_pocket");
             return;
         }
-        ModAttachments.FactorySession session = player.getData(ModAttachments.FACTORY_SESSION);
-        if (session.isActive() && player.serverLevel().getGameTime() % 120 == 0
-                && !player.hasEffect(MobEffects.NIGHT_VISION)) {
-            player.addEffect(new MobEffectInstance(MobEffects.NIGHT_VISION, MobEffectInstance.INFINITE_DURATION, 0, false, false, true));
+        NestedFactoryBlock.refreshExplorationFlight(player);
+        if (player.serverLevel().getGameTime() % 120 != 0) return;
+        ModAttachments.FactorySession session = ModAttachments.get(player, ModAttachments.FACTORY_SESSION);
+        if (session.isActive()) {
+            NestedFactoryBlock.ensureExplorationNightVision(player);
         }
     }
 }

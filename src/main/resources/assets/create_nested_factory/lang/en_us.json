@@ -148,7 +148,6 @@
   "message.create_nested_factory.passage.loading": "The passage or moving structure is loading, moving between spaces, or its arrival point is obstructed. Try again shortly.",
   "tooltip.create_nested_factory.passage_marker": "Factory Passage Marker",
   "tooltip.create_nested_factory.passage_marker_interaction": "Right-click with a main-hand item to set; right-click with an empty main hand to clear",
-  "message.create_nested_factory.factory.return_anchor_loading": "The moving structure is still loading. Try returning again.",
   "command.create_nested_factory.root_list": "Root factory rooms (%s):",
   "command.create_nested_factory.nested_list": "Nested factory rooms (%s):",
   "command.create_nested_factory.descendants": "All nested rooms below factory %s (%s):",

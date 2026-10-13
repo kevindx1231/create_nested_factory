@@ -1,7 +1,6 @@
 package com.createnestedfactory.create_nested_factory.block;
 
 import com.createnestedfactory.create_nested_factory.FactoryPassageNavigation;
-import com.createnestedfactory.create_nested_factory.FactoryPassageMovement;
 import com.createnestedfactory.create_nested_factory.block.entity.FactoryPassageBlockEntity;
 import com.createnestedfactory.create_nested_factory.registry.ModAttachments;
 import com.createnestedfactory.create_nested_factory.registry.ModBlocks;
@@ -36,7 +35,6 @@ import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jetbrains.annotations.Nullable;
-import com.mojang.serialization.MapCodec;
 import com.simibubi.create.api.contraption.ContraptionMovementSetting;
 
 import java.util.EnumMap;
@@ -45,8 +43,7 @@ import java.util.Map;
 /** Two-block-high, independently opened passage endpoint. The lower half owns all persistent data. */
 public final class FactoryPassageBlock extends HorizontalDirectionalBlock implements EntityBlock,
         ContraptionMovementSetting.MovementSettingProvider {
-    public static final MapCodec<FactoryPassageBlock> CODEC = simpleCodec(FactoryPassageBlock::new);
-    public static final EnumProperty<DoubleBlockHalf> HALF = BlockStateProperties.DOUBLE_BLOCK_HALF;
+public static final EnumProperty<DoubleBlockHalf> HALF = BlockStateProperties.DOUBLE_BLOCK_HALF;
     public static final BooleanProperty OPEN = BlockStateProperties.OPEN;
 
     private static final VoxelShape LOWER_CLOSED_NORTH = Shapes.or(
@@ -86,12 +83,7 @@ public final class FactoryPassageBlock extends HorizontalDirectionalBlock implem
                 .setValue(OPEN, false));
     }
 
-    @Override
-    protected MapCodec<? extends HorizontalDirectionalBlock> codec() {
-        return CODEC;
-    }
-
-    @Override
+@Override
     public ContraptionMovementSetting getContraptionMovementSetting() {
         return ContraptionMovementSetting.UNMOVABLE;
     }
@@ -116,7 +108,7 @@ public final class FactoryPassageBlock extends HorizontalDirectionalBlock implem
         level.setBlock(pos.above(), state.setValue(HALF, DoubleBlockHalf.UPPER), Block.UPDATE_ALL);
         if (!level.isClientSide() && placer instanceof ServerPlayer player
                 && level.getBlockEntity(pos) instanceof FactoryPassageBlockEntity passage) {
-            ModAttachments.PassageSelection selection = player.getData(ModAttachments.PASSAGE_SELECTION);
+            ModAttachments.PassageSelection selection = ModAttachments.get(player, ModAttachments.PASSAGE_SELECTION);
             FactoryPassageBlockEntity.BindingResult result = passage.setBinding(
                     selection.isPresent() ? selection.target() : null);
             if (result == FactoryPassageBlockEntity.BindingResult.BOUND) {
@@ -124,7 +116,7 @@ public final class FactoryPassageBlock extends HorizontalDirectionalBlock implem
                         Component.translatable("message.create_nested_factory.passage.bound")
                                 .withStyle(ChatFormatting.AQUA), false);
             }
-            player.setData(ModAttachments.PASSAGE_SELECTION, ModAttachments.PassageSelection.empty());
+            ModAttachments.set(player, ModAttachments.PASSAGE_SELECTION, ModAttachments.PassageSelection.empty());
         }
     }
 
@@ -138,10 +130,11 @@ public final class FactoryPassageBlock extends HorizontalDirectionalBlock implem
     }
 
     @Override
-    protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
+    public InteractionResult use(BlockState state, Level level, BlockPos pos, Player player,
+                                                net.minecraft.world.InteractionHand hand,
                                                 BlockHitResult hitResult) {
         BlockPos basePos = getBasePos(pos, state);
-        if (player.isCrouching() && player instanceof ServerPlayer serverPlayer
+        if (player.isShiftKeyDown() && player instanceof ServerPlayer serverPlayer
                 && level.dimension().equals(NestedFactoryBlock.POCKET_DIMENSION)) {
             if (level.getBlockEntity(basePos) instanceof FactoryPassageBlockEntity passage) {
                 passage.tryTravel(serverPlayer);
@@ -170,7 +163,7 @@ public final class FactoryPassageBlock extends HorizontalDirectionalBlock implem
     }
 
     @Override
-    protected void entityInside(BlockState state, Level level, BlockPos pos, Entity entity) {
+    public void entityInside(BlockState state, Level level, BlockPos pos, Entity entity) {
         if (level.isClientSide() || !(entity instanceof ServerPlayer player)) {
             return;
         }
@@ -180,11 +173,9 @@ public final class FactoryPassageBlock extends HorizontalDirectionalBlock implem
                 || !(level.getBlockEntity(basePos) instanceof FactoryPassageBlockEntity passage)) {
             return;
         }
-        FactoryPassageNavigation.Space space = FactoryPassageNavigation.space(level, basePos);
-        if (!space.ready()) return;
-        ModAttachments.PassageTravelGuard guard = player.getData(ModAttachments.PASSAGE_TRAVEL_GUARD);
+        ModAttachments.PassageTravelGuard guard = ModAttachments.get(player, ModAttachments.PASSAGE_TRAVEL_GUARD);
         if (guard.blocks(passage.getPassageId())) return;
-        if (!isInside(space.coordinates().toLocal(player.position()), basePos)) return;
+        if (!isInside(player.position(), basePos)) return;
         passage.tryTravel(player);
     }
 
@@ -202,7 +193,7 @@ public final class FactoryPassageBlock extends HorizontalDirectionalBlock implem
 
     @Override
     public void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean movedByPiston) {
-        if (!state.is(newState.getBlock()) && !FactoryPassageMovement.isMoving(level, pos)) {
+        if (!state.is(newState.getBlock())) {
             BlockPos basePos = getBasePos(pos, state);
             if (!level.isClientSide() && level.getBlockEntity(basePos) instanceof FactoryPassageBlockEntity passage) {
                 passage.onDestroyed();
@@ -235,7 +226,7 @@ public final class FactoryPassageBlock extends HorizontalDirectionalBlock implem
     }
 
     @Override
-    protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
+    public VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
         VoxelShape shape = shapeFor(state);
         if (state.getValue(HALF) == DoubleBlockHalf.UPPER) {
             return Shapes.or(shape, FactoryPassageMarkerGeometry.selectionShape(state.getValue(FACING)));
@@ -244,7 +235,7 @@ public final class FactoryPassageBlock extends HorizontalDirectionalBlock implem
     }
 
     @Override
-    protected VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos,
+    public VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos,
                                            CollisionContext context) {
         return shapeFor(state);
     }
@@ -264,12 +255,12 @@ public final class FactoryPassageBlock extends HorizontalDirectionalBlock implem
     }
 
     @Override
-    protected BlockState rotate(BlockState state, net.minecraft.world.level.block.Rotation rotation) {
+    public BlockState rotate(BlockState state, net.minecraft.world.level.block.Rotation rotation) {
         return state.setValue(FACING, rotation.rotate(state.getValue(FACING)));
     }
 
     @Override
-    protected BlockState mirror(BlockState state, net.minecraft.world.level.block.Mirror mirror) {
+    public BlockState mirror(BlockState state, net.minecraft.world.level.block.Mirror mirror) {
         return state.rotate(mirror.getRotation(state.getValue(FACING)));
     }
 

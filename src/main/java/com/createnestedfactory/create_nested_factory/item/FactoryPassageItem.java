@@ -28,7 +28,7 @@ public final class FactoryPassageItem extends BlockItem {
             if (!level.isClientSide() && player instanceof ServerPlayer serverPlayer) {
                 ModAttachments.FactoryReference reference = new ModAttachments.FactoryReference(
                         level.dimension(), pos.immutable(), factory.getFactoryId(), factory.getRootFactoryId());
-                serverPlayer.setData(ModAttachments.PASSAGE_SELECTION,
+                ModAttachments.set(serverPlayer, ModAttachments.PASSAGE_SELECTION,
                         new ModAttachments.PassageSelection(reference));
                 PlayerMessagePayload.sendTo(serverPlayer,
                         net.minecraft.network.chat.Component.translatable(
