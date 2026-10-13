@@ -248,6 +248,7 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
         BlockPos origin = factory.roomOrigin();
 
         ModAttachments.FactorySession session = player.getData(ModAttachments.FACTORY_SESSION);
+        if (session.isActive()) session = reconcileFlightSnapshot(player, session);
         ModAttachments.FactorySession originalSession = session;
         boolean startingNewSession = !session.isActive();
         if (allowUnrelatedFactory && !startingNewSession
@@ -259,7 +260,8 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
         if (startingNewSession) {
             session = new ModAttachments.FactorySession(factory.getFactoryId(), factory.getFactoryId(), targetReference,
                     true, player.mayFly(), player.getAbilities().flying,
-                    true, player.hasEffect(MobEffects.NIGHT_VISION), new ArrayList<>());
+                    true, player.hasEffect(MobEffects.NIGHT_VISION), new ArrayList<>(),
+                    player.gameMode.getGameModeForPlayer().getName());
             player.setData(ModAttachments.FACTORY_SESSION, session);
             grantExplorationAbilities(player);
         } else if (!allowUnrelatedFactory) {
@@ -306,7 +308,7 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
         player.setData(ModAttachments.FACTORY_SESSION,
                 new ModAttachments.FactorySession(factory.getRootFactoryId(), factory.getFactoryId(), targetReference,
                         session.grantedFlight(), session.originalMayFly(), session.originalFlying(),
-                        session.nightVisionGranted(), session.originalNightVision(), stack));
+                        session.nightVisionGranted(), session.originalNightVision(), stack, session.flightGameMode()));
 
         factory.onPlayerEntered(player.serverLevel().dimension(), player.blockPosition());
         factory.blackboxDebug("factory_entry_started", () -> "player=" + player.getScoreboardName()
@@ -540,7 +542,7 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
             player.setData(ModAttachments.FACTORY_SESSION,
                     new ModAttachments.FactorySession(parent.getRootFactoryId(), frame.sourceFactoryId(), frame.sourceFactory(),
                             session.grantedFlight(), session.originalMayFly(), session.originalFlying(),
-                            session.nightVisionGranted(), session.originalNightVision(), stack));
+                            session.nightVisionGranted(), session.originalNightVision(), stack, session.flightGameMode()));
             FactoryReturnAnchors.release(player, frame.dynamicAnchor());
             return true;
         } catch (RuntimeException exception) {
@@ -660,6 +662,7 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
         } else {
             current.onPlayerEntered(player.serverLevel().dimension(), player.blockPosition());
         }
+        player.setData(ModAttachments.FACTORY_SESSION, reconcileFlightSnapshot(player, session));
         grantExplorationAbilities(player);
         player.setData(ModAttachments.PASSAGE_RESUME_PENDING, false);
     }
@@ -894,6 +897,7 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
     }
 
     private static void finishSessionWithoutCurrent(ServerPlayer player, ModAttachments.FactorySession session) {
+        session = reconcileFlightSnapshot(player, session);
         player.setData(ModAttachments.PASSAGE_RESUME_PENDING, false);
         for (ModAttachments.ReturnFrame frame : session.stack()) {
             FactoryReturnAnchors.release(player, frame.dynamicAnchor());
@@ -903,11 +907,37 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
             if (creativeFlight != null) {
                 creativeFlight.removeModifier(EXPLORATION_FLIGHT_ID);
             }
-            player.getAbilities().flying = session.originalFlying();
+            player.getAbilities().flying = player.isSpectator() || (session.originalFlying() && player.mayFly());
             player.onUpdateAbilities();
         }
         if (session.nightVisionGranted() && !session.originalNightVision()) player.removeEffect(MobEffects.NIGHT_VISION);
         player.setData(ModAttachments.FACTORY_SESSION, ModAttachments.FactorySession.defaults());
+        player.setData(ModAttachments.EXPLORATION_GAME_MODE, "");
+    }
+
+    private static ModAttachments.FactorySession reconcileFlightSnapshot(ServerPlayer player,
+                                                                          ModAttachments.FactorySession session) {
+        if (!session.grantedFlight()) return session;
+        String mode = player.gameMode.getGameModeForPlayer().getName();
+        if (session.flightGameMode().isEmpty()) {
+            // Legacy saves keep their known snapshot and establish a baseline without guessing past changes.
+            return session.withFlightSnapshot(mode, session.originalMayFly(), session.originalFlying());
+        }
+        if (!mode.equals(session.flightGameMode())) {
+            return session.withFlightSnapshot(mode, player.isCreative() || player.isSpectator(), player.isSpectator());
+        }
+        return session;
+    }
+
+    public static void synchronizeExplorationFlight(ServerPlayer player) {
+        String mode = player.gameMode.getGameModeForPlayer().getName();
+        if (mode.equals(player.getData(ModAttachments.EXPLORATION_GAME_MODE))) return;
+        ModAttachments.FactorySession session = player.getData(ModAttachments.FACTORY_SESSION);
+        if (session.isActive()) {
+            player.setData(ModAttachments.FACTORY_SESSION, reconcileFlightSnapshot(player, session));
+            grantExplorationAbilities(player);
+        }
+        player.setData(ModAttachments.EXPLORATION_GAME_MODE, mode);
     }
 
     private static void grantExplorationAbilities(ServerPlayer player) {

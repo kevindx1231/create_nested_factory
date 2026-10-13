@@ -4,6 +4,7 @@ import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryB
 import com.createnestedfactory.create_nested_factory.block.entity.NestedExtensionInterfaceBlockEntity;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedPortBlockEntity;
 import com.createnestedfactory.create_nested_factory.block.entity.FactoryTransit;
+import com.createnestedfactory.create_nested_factory.block.entity.FactoryLogicalPortEndpoint;
 import com.createnestedfactory.create_nested_factory_logistics.chemical.ChemicalLedger;
 import com.createnestedfactory.create_nested_factory_logistics.chemical.MekanismChemicalHandler;
 import com.createnestedfactory.create_nested_factory_logistics.chemical.MekanismExtensionChemicalHandler;
@@ -17,6 +18,10 @@ import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.capabilities.BlockCapability;
 import net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent;
 import com.createnestedfactory.create_nested_factory.registry.ModBlockEntities;
+import com.createnestedfactory.create_nested_factory.registry.ModAttachments;
+import net.minecraft.world.level.block.entity.BlockEntity;
+
+import java.util.function.Supplier;
 
 public final class MekanismLogisticsCompat {
     public static final String MOD_ID = "create_nested_factory_logistics";
@@ -42,22 +47,52 @@ public final class MekanismLogisticsCompat {
     private static void registerCapabilities(RegisterCapabilitiesEvent event) {
         event.registerBlockEntity(CHEMICAL, ModBlockEntities.NESTED_FACTORY.get(),
                 (be, side) -> be instanceof NestedFactoryBlockEntity factory
-                        ? MekanismChemicalHandler.forFactory(factory, side) : null);
+                        ? cached(factory, CHEMICAL, side, factoryRouting(factory, side),
+                            () -> MekanismChemicalHandler.forFactory(factory, side)) : null);
         event.registerBlockEntity(CHEMICAL, ModBlockEntities.NESTED_PORT.get(),
                 (be, side) -> be instanceof NestedPortBlockEntity port
-                        ? MekanismChemicalHandler.forPort(port, side) : null);
+                        ? cached(port, CHEMICAL, side, portRouting(port),
+                            () -> MekanismChemicalHandler.forPort(port, side)) : null);
         event.registerBlockEntity(CHEMICAL, ModBlockEntities.NESTED_EXTENSION_INTERFACE.get(),
                 (be, side) -> be instanceof NestedExtensionInterfaceBlockEntity extension
-                        ? MekanismExtensionChemicalHandler.create(extension, side) : null);
+                        ? cached(extension, CHEMICAL, side, extensionRouting(extension, side),
+                            () -> MekanismExtensionChemicalHandler.create(extension, side)) : null);
         event.registerBlockEntity(HEAT, ModBlockEntities.NESTED_FACTORY.get(),
                 (be, side) -> be instanceof NestedFactoryBlockEntity factory
-                        ? MekanismHeatHandler.forFactory(factory, side) : null);
+                        ? cached(factory, HEAT, side, factoryRouting(factory, side),
+                            () -> MekanismHeatHandler.forFactory(factory, side)) : null);
         event.registerBlockEntity(HEAT, ModBlockEntities.NESTED_PORT.get(),
                 (be, side) -> be instanceof NestedPortBlockEntity port
-                        ? MekanismHeatHandler.forPort(port, side) : null);
+                        ? cached(port, HEAT, side, portRouting(port),
+                            () -> MekanismHeatHandler.forPort(port, side)) : null);
         event.registerBlockEntity(HEAT, ModBlockEntities.NESTED_EXTENSION_INTERFACE.get(),
                 (be, side) -> be instanceof NestedExtensionInterfaceBlockEntity extension
-                        ? MekanismExtensionHeatHandler.create(extension, side) : null);
+                        ? cached(extension, HEAT, side, extensionRouting(extension, side),
+                            () -> MekanismExtensionHeatHandler.create(extension, side)) : null);
+    }
+
+    private record FactoryRouting(FactoryLogicalPortEndpoint endpoint, boolean live, boolean takenOver) {}
+
+    private static FactoryRouting factoryRouting(NestedFactoryBlockEntity factory, Direction side) {
+        return new FactoryRouting(side == null ? null : factory.resolveLogicalPort(side),
+                factory.isLiveResourceTransferMode(), side != null && factory.isFaceTakenOver(side));
+    }
+
+    private static FactoryRouting portRouting(NestedPortBlockEntity port) {
+        NestedFactoryBlockEntity factory = port.getFactory();
+        return factory == null ? null : new FactoryRouting(factory.resolveLogicalPort(port.getTargetPortId()),
+                !factory.isRemoved() && factory.isLiveResourceTransferMode(), false);
+    }
+
+    private static FactoryRouting extensionRouting(NestedExtensionInterfaceBlockEntity extension, Direction side) {
+        FactoryLogicalPortEndpoint endpoint = extension.resolvePort(side);
+        return endpoint == null ? null : new FactoryRouting(endpoint,
+                !endpoint.factory().isRemoved() && endpoint.factory().isLiveResourceTransferMode(), false);
+    }
+
+    private static <T> T cached(BlockEntity owner, BlockCapability<T, Direction> capability, Direction side,
+                                 Object routing, Supplier<T> create) {
+        return owner.getData(ModAttachments.LOGISTICS_HANDLERS).get(owner, capability, side, routing, create);
     }
 }
 

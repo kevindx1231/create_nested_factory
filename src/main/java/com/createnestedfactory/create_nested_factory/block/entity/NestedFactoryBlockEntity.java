@@ -99,6 +99,17 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     /** A five-sided extension contributes one access point per exposed face. */
     public record ExternalAccessPoint(BlockPos origin, Direction face) {}
 
+    private long logisticsTopologyVersion;
+
+    public long getLogisticsTopologyVersion() {
+        return logisticsTopologyVersion;
+    }
+
+    /** Call before notifying capability consumers so synchronous callbacks cannot reuse old endpoints. */
+    public void invalidateLogisticsTopology() {
+        logisticsTopologyVersion++;
+    }
+
     private record RuntimeToolSlot(FactoryRuntime runtime, FactoryPlan route, ItemVariant signature) {}
 
     private final PortMode[] faceModes = new PortMode[6];
@@ -1282,6 +1293,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     private void invalidateResourceCapabilities() {
+        invalidateLogisticsTopology();
         if (level == null || level.isClientSide()) {
             return;
         }
@@ -2895,6 +2907,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
 
     /** Refreshes every existing pipe face in one port group. */
     void refreshRoomFluidNetworks(int portId) {
+        invalidateLogisticsTopology();
         ServerLevel pocket = pocketLevel();
         if (pocket == null) {
             return;
@@ -2995,6 +3008,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
     }
 
     private void invalidateRoomResourceCapabilities() {
+        invalidateLogisticsTopology();
         if (!hasPhysicalRoom()) return;
         ServerLevel pocket = pocketLevel();
         if (pocket == null) {
@@ -3486,6 +3500,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
      * old routing configuration and must be terminated before the new group becomes visible.
      */
     public void onPortRoutingChanged(Player player) {
+        invalidateLogisticsTopology();
         if (isSimulatedMode()) {
             blackboxDebug("port_contract_change_ignored", () -> "reason=shared_simulated_io, runtime="
                     + runtimeScheduler.debugSummary());
@@ -4785,6 +4800,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
      * transferred into or out of a physical SubLevel.
      */
     public void prepareForSimulatedMove() {
+        invalidateLogisticsTopology();
         simulatedMoveInProgress = true;
         if (level != null && !level.isClientSide()) {
             blackboxDebug("simulated_move_preparing", () -> "runtime=" + runtimeScheduler.debugSummary()
@@ -4803,6 +4819,7 @@ public class NestedFactoryBlockEntity extends GeneratingKineticBlockEntity imple
      * identity and production state remain untouched.
      */
     public void finishSimulatedMove() {
+        invalidateLogisticsTopology();
         try {
             if (level != null && !level.isClientSide()) {
                 bindingConflict = false;

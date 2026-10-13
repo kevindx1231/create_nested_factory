@@ -4,7 +4,11 @@
 
 > Build real factories inside persistent Pocket rooms, connect them through Create logistics, and turn verified production lines into nestable black-box factories.
 
-当前正式版 / Latest stable release: **v1.5.2**
+当前正式版 / Latest stable release: **v1.5.21 — Minecraft 1.21.1**
+
+本次修复化学品提取丢失、游戏模式切换后的飞行状态恢复，并优化物流处理器与热量端点缓存。简要日志见 [v1.5.21 更新日志](docs/releases/v1.5.21.md)。
+
+This update fixes chemical extraction losses and flight restoration after game-mode changes, and reuses logistics handlers and heat endpoints. See the [v1.5.21 release notes](docs/releases/v1.5.21.md).
 
 <a id="简体中文"></a>
 
@@ -14,7 +18,7 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 
 ### 运行要求
 
-| 项目 | v1.5.2 支持版本 |
+| 项目 | v1.5.21 支持版本 |
 |---|---|
 | Minecraft | 1.21.1 |
 | Java | 21 |
@@ -194,7 +198,7 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 
 ### 可选兼容
 
-| 模组组合 | v1.5.2 支持内容 |
+| 模组组合 | v1.5.21 支持内容 |
 |---|---|
 | 不安装可选模组 | 完整基础 Pocket、端口、应力、学习、黑盒、蓝图、冻结和通道功能 |
 | Mekanism 10.7+ | 工厂面与扩展接口的 Chemical 和 Heat capability；Heat 双向，Chemical 遵守端口方向 |
@@ -241,7 +245,7 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 
 1. 安装 Minecraft 1.21.1、Java 21 和 NeoForge 21.1.x。
 2. 安装 Create 6.0.9–6.0.x。
-3. 从 [Releases](https://github.com/kevindx1231/create_nested_factory/releases) 下载 `create_nested_factory-1.5.2.jar`。
+3. 从 [Releases](https://github.com/kevindx1231/create_nested_factory/releases) 下载 `create_nested_factory-1.21.1-1.5.21.jar`。
 4. 把 JAR 放入客户端和服务器的 `mods` 目录；不要同时保留本模组的其他版本。
 5. 如需兼容功能，再安装上表中的可选模组。
 
@@ -280,7 +284,7 @@ Linux/macOS：
 ./gradlew check build --stacktrace
 ```
 
-正式 JAR 输出到 `build/libs/create_nested_factory-1.5.2.jar`。`check` 会运行工厂指令、通道交互与移动空间、防重入、冻结索引、服务器隔离、学习控制器、房间几何、生命周期转换、会话恢复、蓝图资本、移动返回变换和发布修复回归任务。
+正式 JAR 输出到 `build/libs/create_nested_factory-1.21.1-1.5.21.jar`。`check` 会运行工厂指令、通道交互与移动空间、防重入、冻结索引、服务器隔离、学习控制器、房间几何、生命周期转换、会话恢复、蓝图资本、移动返回变换和发布修复回归任务。
 
 ### 问题反馈
 
@@ -310,7 +314,7 @@ Create Nested Factory is an automation mod for Minecraft 1.21.1, NeoForge, and C
 
 ### Requirements
 
-| Component | Supported by v1.5.2 |
+| Component | Supported by v1.5.21 |
 |---|---|
 | Minecraft | 1.21.1 |
 | Java | 21 |
@@ -490,7 +494,7 @@ Copies reference the same room, cannot be placed while the original remains plac
 
 ### Optional compatibility
 
-| Mod combination | v1.5.2 integration |
+| Mod combination | v1.5.21 integration |
 |---|---|
 | No optional mods | Complete base Pocket, port, stress, learning, black-box, blueprint, freeze, and passage features |
 | Mekanism 10.7+ | Chemical and Heat capabilities on factory faces and extension interfaces; Heat is bidirectional and Chemical follows port direction |
@@ -537,7 +541,7 @@ Data-pack recipes cover ordinary crafting, mixing, splashing, and Create sequenc
 
 1. Install Minecraft 1.21.1, Java 21, and NeoForge 21.1.x.
 2. Install Create 6.0.9–6.0.x.
-3. Download `create_nested_factory-1.5.2.jar` from [Releases](https://github.com/kevindx1231/create_nested_factory/releases).
+3. Download `create_nested_factory-1.21.1-1.5.21.jar` from [Releases](https://github.com/kevindx1231/create_nested_factory/releases).
 4. Put the JAR in the `mods` directory on both client and server. Do not keep another version of Create Nested Factory in the same instance.
 5. Install any optional mods required for the integrations listed above.
 
@@ -576,7 +580,7 @@ Linux/macOS:
 ./gradlew check build --stacktrace
 ```
 
-The release JAR is written to `build/libs/create_nested_factory-1.5.2.jar`. `check` runs factory-command, passage-interaction and moving-space, re-entry, freeze-index, server-isolation, learning-controller, room-geometry, lifecycle-transition, session-recovery, blueprint-capital, moving-return-transform, and release-fix regression tasks.
+The release JAR is written to `build/libs/create_nested_factory-1.21.1-1.5.21.jar`. `check` runs factory-command, passage-interaction and moving-space, re-entry, freeze-index, server-isolation, learning-controller, room-geometry, lifecycle-transition, session-recovery, blueprint-capital, moving-return-transform, and release-fix regression tasks.
 
 ### Reporting issues
 

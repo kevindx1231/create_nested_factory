@@ -1,6 +1,7 @@
 package com.createnestedfactory.create_nested_factory.registry;
 
 import com.createnestedfactory.create_nested_factory.Create_nested_factory;
+import com.createnestedfactory.create_nested_factory.block.entity.FactoryCapabilityCache;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.core.BlockPos;
@@ -36,6 +37,13 @@ public class ModAttachments {
     /** A login waits for its physical factory without consuming the persistent return stack. */
     public static final Supplier<AttachmentType<Boolean>> PASSAGE_RESUME_PENDING = ATTACHMENT_TYPES.register("passage_resume_pending",
             () -> AttachmentType.builder(() -> false).build());
+
+    /** Transient mode marker; persistent flight snapshots are reconciled only after an actual change. */
+    public static final Supplier<AttachmentType<String>> EXPLORATION_GAME_MODE = ATTACHMENT_TYPES.register("exploration_game_mode",
+            () -> AttachmentType.builder(() -> "").build());
+
+    public static final Supplier<AttachmentType<FactoryCapabilityCache>> LOGISTICS_HANDLERS = ATTACHMENT_TYPES.register("logistics_handlers",
+            () -> AttachmentType.builder(FactoryCapabilityCache::new).build());
 
     /** A persistent, directly loadable reference to one specific factory block entity. */
     public record FactoryReference(ResourceKey<Level> dimension, BlockPos pos, String factoryId, String rootFactoryId) {
@@ -171,7 +179,19 @@ public class ModAttachments {
                                  FactoryReference currentFactory,
                                  boolean grantedFlight, boolean originalMayFly, boolean originalFlying,
                                  boolean nightVisionGranted, boolean originalNightVision,
-                                 List<ReturnFrame> stack) {
+                                 List<ReturnFrame> stack, String flightGameMode) {
+        public FactorySession(String rootFactoryId, String currentFactoryId, FactoryReference currentFactory,
+                              boolean grantedFlight, boolean originalMayFly, boolean originalFlying,
+                              boolean nightVisionGranted, boolean originalNightVision, List<ReturnFrame> stack) {
+            this(rootFactoryId, currentFactoryId, currentFactory, grantedFlight, originalMayFly, originalFlying,
+                    nightVisionGranted, originalNightVision, stack, "");
+        }
+
+        public FactorySession withFlightSnapshot(String gameMode, boolean mayFly, boolean flying) {
+            return new FactorySession(rootFactoryId, currentFactoryId, currentFactory, grantedFlight, mayFly, flying,
+                    nightVisionGranted, originalNightVision, stack, gameMode);
+        }
+
         public static FactorySession defaults() {
             return new FactorySession("", "", null, false, false, false, false, false, new ArrayList<>());
         }
@@ -194,10 +214,11 @@ public class ModAttachments {
                 Codec.BOOL.fieldOf("originalFlying").forGetter(FactorySession::originalFlying),
                 Codec.BOOL.fieldOf("nightVisionGranted").forGetter(FactorySession::nightVisionGranted),
                 Codec.BOOL.fieldOf("originalNightVision").forGetter(FactorySession::originalNightVision),
-                Codec.list(ReturnFrame.CODEC).fieldOf("stack").forGetter(FactorySession::stack)
+                Codec.list(ReturnFrame.CODEC).fieldOf("stack").forGetter(FactorySession::stack),
+                Codec.STRING.optionalFieldOf("flightGameMode", "").forGetter(FactorySession::flightGameMode)
         ).apply(instance, (rootFactoryId, currentFactoryId, currentFactory, grantedFlight, originalMayFly,
-                            originalFlying, nightVisionGranted, originalNightVision, stack) ->
+                            originalFlying, nightVisionGranted, originalNightVision, stack, flightGameMode) ->
                 new FactorySession(rootFactoryId, currentFactoryId, currentFactory.orElse(null), grantedFlight,
-                        originalMayFly, originalFlying, nightVisionGranted, originalNightVision, stack)));
+                        originalMayFly, originalFlying, nightVisionGranted, originalNightVision, stack, flightGameMode)));
     }
 }

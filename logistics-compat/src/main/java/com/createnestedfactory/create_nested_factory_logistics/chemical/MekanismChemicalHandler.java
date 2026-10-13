@@ -44,7 +44,7 @@ public final class MekanismChemicalHandler implements IChemicalHandler {
     }
 
     public static IChemicalHandler forFactory(NestedFactoryBlockEntity factory, Direction side) {
-        if (factory == null || side == null || factory.isFaceTakenOver(side)
+        if (factory == null || factory.isRemoved() || side == null || factory.isFaceTakenOver(side)
                 || !factory.isLiveResourceTransferMode()) {
             return null;
         }
@@ -52,7 +52,7 @@ public final class MekanismChemicalHandler implements IChemicalHandler {
     }
 
     public static IChemicalHandler forExtension(FactoryLogicalPortEndpoint endpoint) {
-        if (endpoint == null || !endpoint.factory().isLiveResourceTransferMode()) {
+        if (endpoint == null || endpoint.factory().isRemoved() || !endpoint.factory().isLiveResourceTransferMode()) {
             return null;
         }
         return createExternal(endpoint, true);
@@ -72,7 +72,7 @@ public final class MekanismChemicalHandler implements IChemicalHandler {
             return null;
         }
         NestedFactoryBlockEntity factory = port.getFactory();
-        if (factory == null || !factory.isLiveResourceTransferMode()) {
+        if (factory == null || factory.isRemoved() || !factory.isLiveResourceTransferMode()) {
             return null;
         }
         FactoryLogicalPortEndpoint endpoint = factory.resolveLogicalPort(port.getTargetPortId());
@@ -84,7 +84,7 @@ public final class MekanismChemicalHandler implements IChemicalHandler {
     }
 
     private boolean active() {
-        if (!factory.isLiveResourceTransferMode() || mode == PortMode.NONE) {
+        if (factory.isRemoved() || !factory.isLiveResourceTransferMode() || mode == PortMode.NONE) {
             return false;
         }
         return !externalSide || externalFace == null
@@ -163,13 +163,7 @@ public final class MekanismChemicalHandler implements IChemicalHandler {
 
     @Override
     public ChemicalStack extractChemical(int tank, long amount, Action action) {
-        if (tank != 0 || amount <= 0 || !active()) {
-            return ChemicalStack.EMPTY;
-        }
-        if (externalSide) {
-            return isInput() ? ChemicalStack.EMPTY : extractFromRoom(amount, action);
-        }
-        return isInput() ? extractFromExternal(amount, action) : ChemicalStack.EMPTY;
+        return amount <= 0 || !canExtract(tank) ? ChemicalStack.EMPTY : extract(amount, null, action);
     }
 
     @Override
@@ -184,12 +178,11 @@ public final class MekanismChemicalHandler implements IChemicalHandler {
 
     @Override
     public ChemicalStack extractChemical(ChemicalStack stack, Action action) {
-        if (stack.isEmpty()) {
-            return ChemicalStack.EMPTY;
-        }
-        ChemicalStack extracted = extractChemical(stack.getAmount(), action);
-        return extracted.isEmpty() || !ChemicalStack.isSameChemical(extracted, stack)
-                ? ChemicalStack.EMPTY : extracted;
+        return stack.isEmpty() || !canExtract(0) ? ChemicalStack.EMPTY : extract(stack.getAmount(), stack, action);
+    }
+
+    private boolean canExtract(int tank) {
+        return tank == 0 && active() && externalSide != isInput();
     }
 
     private ChemicalStack insertIntoRoom(ChemicalStack stack, Action action) {
@@ -216,30 +209,43 @@ public final class MekanismChemicalHandler implements IChemicalHandler {
         return remaining;
     }
 
-    private ChemicalStack extractFromRoom(long amount, Action action) {
-        ChemicalStack result = ledger().extract(OUTPUT_KEY, amount, action);
+    private ChemicalStack extract(long amount, ChemicalStack requested, Action action) {
+        ChemicalLedger buffer = ledger();
+        String key = ledgerKey();
+        ChemicalStack buffered = buffer.peek(key);
+        if (requested != null && !buffered.isEmpty() && !ChemicalStack.isSameChemical(buffered, requested)) {
+            return ChemicalStack.EMPTY;
+        }
+        List<IChemicalHandler> sources = null;
+        if (requested == null) {
+            requested = buffered;
+            if (requested.isEmpty()) {
+                sources = externalSide ? chemicalsInRoom() : chemicalsOutside();
+                for (IChemicalHandler source : sources) {
+                    requested = source.extractChemical(amount, Action.SIMULATE);
+                    if (!requested.isEmpty()) break;
+                }
+            }
+            if (requested.isEmpty()) return ChemicalStack.EMPTY;
+        }
+        ChemicalStack result = buffered.isEmpty() ? ChemicalStack.EMPTY : buffer.extract(key, amount, action);
         long remaining = amount - result.getAmount();
-        ChemicalStack fromRoom = ChemicalStack.EMPTY;
+        boolean sourceTransferred = false;
         if (remaining > 0) {
-            fromRoom = extractFrom(chemicalsInRoom(), remaining, action);
-            result = merge(result, fromRoom);
+            if (sources == null) sources = externalSide ? chemicalsInRoom() : chemicalsOutside();
+            for (IChemicalHandler source : sources) {
+                ChemicalStack taken = source.extractChemical(requested.copyWithAmount(remaining), action);
+                if (taken.isEmpty()) continue;
+                if (!ChemicalStack.isSameChemical(taken, requested) || taken.getAmount() > remaining) {
+                    throw new IllegalStateException("Chemical source violated its extraction contract");
+                }
+                result = requested.copyWithAmount(result.getAmount() + taken.getAmount());
+                sourceTransferred = true;
+                break;
+            }
         }
         if (action.execute() && !result.isEmpty()) {
-            if (!fromRoom.isEmpty()) ledger().markBoundaryTransfer();
-            factory.setChanged();
-        }
-        return result;
-    }
-
-    private ChemicalStack extractFromExternal(long amount, Action action) {
-        ChemicalStack result = ledger().extract(INPUT_KEY, amount, action);
-        long remaining = amount - result.getAmount();
-        if (remaining > 0) {
-            ChemicalStack external = extractFrom(chemicalsOutside(), remaining, action);
-            result = merge(result, external);
-        }
-        if (action.execute() && !result.isEmpty()) {
-            ledger().markBoundaryTransfer();
+            if (sourceTransferred || !externalSide) buffer.markBoundaryTransfer();
             factory.setChanged();
         }
         return result;
@@ -312,19 +318,4 @@ public final class MekanismChemicalHandler implements IChemicalHandler {
         return remaining;
     }
 
-    private static ChemicalStack extractFrom(List<IChemicalHandler> sources, long amount, Action action) {
-        for (IChemicalHandler source : sources) {
-            ChemicalStack result = source.extractChemical(amount, action);
-            if (!result.isEmpty()) {
-                return result;
-            }
-        }
-        return ChemicalStack.EMPTY;
-    }
-
-    private static ChemicalStack merge(ChemicalStack first, ChemicalStack second) {
-        if (first.isEmpty()) return second;
-        if (second.isEmpty() || !ChemicalStack.isSameChemical(first, second)) return first;
-        return first.copyWithAmount(first.getAmount() + second.getAmount());
-    }
 }

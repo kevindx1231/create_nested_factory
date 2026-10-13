@@ -289,6 +289,7 @@ public class PocketEvents {
             return;
         }
         ModAttachments.FactorySession session = player.getData(ModAttachments.FACTORY_SESSION);
+        if (session.isActive()) NestedFactoryBlock.synchronizeExplorationFlight(player);
         if (session.isActive() && player.serverLevel().getGameTime() % 120 == 0
                 && !player.hasEffect(MobEffects.NIGHT_VISION)) {
             player.addEffect(new MobEffectInstance(MobEffects.NIGHT_VISION, MobEffectInstance.INFINITE_DURATION, 0, false, false, true));

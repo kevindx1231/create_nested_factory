@@ -249,8 +249,9 @@ public class NestedExtensionInterfaceBlockEntity extends SyncedBlockEntity imple
         if (level == null || level.isClientSide()) {
             return;
         }
-        level.invalidateCapabilities(worldPosition);
         NestedFactoryBlockEntity factory = getHostFactory();
+        if (factory != null) factory.invalidateLogisticsTopology();
+        level.invalidateCapabilities(worldPosition);
         if (factory != null) {
             refreshBoundary(factory);
         }
@@ -264,6 +265,8 @@ public class NestedExtensionInterfaceBlockEntity extends SyncedBlockEntity imple
         if (level == null || level.isClientSide()) {
             return;
         }
+        NestedFactoryBlockEntity factory = getHostFactory();
+        if (factory != null) factory.invalidateLogisticsTopology();
         level.invalidateCapabilities(worldPosition);
         sendData();
         rememberState();
@@ -297,16 +300,18 @@ public class NestedExtensionInterfaceBlockEntity extends SyncedBlockEntity imple
         if (level == null || level.isClientSide()) {
             return;
         }
+        NestedFactoryBlockEntity factory = getHostFactory();
+        if (factory != null) factory.invalidateLogisticsTopology();
         level.invalidateCapabilities(worldPosition);
         rememberState();
         sendData();
-        NestedFactoryBlockEntity factory = getHostFactory();
         if (factory != null) {
             refreshBoundary(factory);
         }
     }
 
     private void refreshBoundary(NestedFactoryBlockEntity factory) {
+        factory.invalidateLogisticsTopology();
         if (level != null && !level.isClientSide()) {
             level.invalidateCapabilities(worldPosition);
             factory.onExternalNeighborChanged(worldPosition);
@@ -328,6 +333,7 @@ public class NestedExtensionInterfaceBlockEntity extends SyncedBlockEntity imple
         boolean powered = extension.isPowered();
         PortMode mode = bound ? endpoint.mode() : PortMode.NONE;
         if (bound != extension.lastBound || powered != extension.lastPowered || mode != extension.lastMode) {
+            if (endpoint != null) endpoint.factory().invalidateLogisticsTopology();
             level.invalidateCapabilities(pos);
             extension.sendData();
             if (endpoint != null) {
@@ -406,9 +412,10 @@ public class NestedExtensionInterfaceBlockEntity extends SyncedBlockEntity imple
     public void onLoad() {
         super.onLoad();
         if (level != null && !level.isClientSide()) {
+            NestedFactoryBlockEntity factory = getHostFactory();
+            if (factory != null) factory.invalidateLogisticsTopology();
             level.invalidateCapabilities(worldPosition);
             rememberState();
-            NestedFactoryBlockEntity factory = getHostFactory();
             if (factory != null) {
                 refreshBoundary(factory);
             }

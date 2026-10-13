@@ -22,7 +22,7 @@ repositories {
 }
 
 base {
-    archivesName = mod_id
+    archivesName = "${mod_id}-${minecraft_version}"
 }
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
@@ -153,6 +153,24 @@ def neoForgeServerRuntime = files(providers.provider {
 })
 sourceSets.test.compileClasspath += neoForgeMergedJar + neoForgeServerRuntime
 sourceSets.test.runtimeClasspath += neoForgeMergedJar + neoForgeServerRuntime
+
+// Exercise the bundled logistics classes against the same Mekanism API used to compile them.
+def mekanismTestApi = files(providers.provider {
+    project(':logistics-compat').configurations.compileClasspath.filter { it.name.startsWith('Mekanism-') }
+})
+sourceSets.test.compileClasspath += mekanismTestApi
+sourceSets.test.runtimeClasspath += mekanismTestApi
+
+['MekanismLogistics', 'MekanismHeat', 'ExplorationSession'].each { regression ->
+    tasks.register("test${regression}", JavaExec) {
+        group = 'verification'
+        dependsOn tasks.named('testClasses'), tasks.named('writeServerLegacyClasspath')
+        classpath = sourceSets.test.runtimeClasspath
+        mainClass = "com.createnestedfactory.create_nested_factory.regression.${regression}Regression"
+        jvmArgs '-XX:+EnableDynamicAgentLoading'
+    }
+    tasks.named('check') { dependsOn "test${regression}" }
+}
 
 tasks.named('compileTestJava') {
     dependsOn tasks.named('createMinecraftArtifacts'), tasks.named('writeServerLegacyClasspath')

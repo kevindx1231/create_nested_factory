@@ -1,19 +1,17 @@
 package com.createnestedfactory.create_nested_factory_logistics.heat;
 
 import com.createnestedfactory.create_nested_factory.block.entity.NestedExtensionInterfaceBlockEntity;
-import com.createnestedfactory.create_nested_factory.block.entity.FactoryLogicalPortEndpoint;
+import com.createnestedfactory.create_nested_factory_logistics.MekanismExtensionDelegate;
 import mekanism.api.heat.HeatAPI;
 import mekanism.api.heat.IHeatHandler;
 import net.minecraft.core.Direction;
 
 /** A cache-safe heat proxy that rechecks extension binding and redstone on every call. */
 public final class MekanismExtensionHeatHandler implements IHeatHandler {
-    private final NestedExtensionInterfaceBlockEntity extension;
-    private final Direction queriedSide;
+    private final MekanismExtensionDelegate<IHeatHandler> resolver;
 
     private MekanismExtensionHeatHandler(NestedExtensionInterfaceBlockEntity extension, Direction queriedSide) {
-        this.extension = extension;
-        this.queriedSide = queriedSide;
+        resolver = new MekanismExtensionDelegate<>(extension, queriedSide, MekanismHeatHandler::forExtension);
     }
 
     public static IHeatHandler create(NestedExtensionInterfaceBlockEntity extension, Direction side) {
@@ -25,9 +23,7 @@ public final class MekanismExtensionHeatHandler implements IHeatHandler {
     }
 
     private IHeatHandler delegate() {
-        FactoryLogicalPortEndpoint endpoint = extension.resolvePort(queriedSide);
-        return endpoint == null ? null
-                : MekanismHeatHandler.forExtension(endpoint);
+        return resolver.get();
     }
 
     @Override

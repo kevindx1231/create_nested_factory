@@ -191,6 +191,8 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
     public void onNeighborChanged(BlockPos neighborPos) {
         boolean changed = false;
         if (level != null && !level.isClientSide()) {
+            NestedFactoryBlockEntity factory = findFactory();
+            if (factory != null) factory.invalidateLogisticsTopology();
             level.invalidateCapabilities(worldPosition);
             for (Direction side : Direction.values()) {
                 if (!worldPosition.relative(side).equals(neighborPos)) {
@@ -212,7 +214,6 @@ public class NestedPortBlockEntity extends SyncedBlockEntity implements IHaveGog
             // pipe without notifying this port. Refresh every room-side pipe whenever any
             // port face changes, so an older pipe cannot retain a stale FlowSource.
             refreshRoomFluidNetworks();
-            NestedFactoryBlockEntity factory = findFactory();
             if (factory != null) {
                 factory.onRoomPortLogisticsConnectionChanged();
             }

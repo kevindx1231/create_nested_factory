@@ -1,7 +1,7 @@
 package com.createnestedfactory.create_nested_factory_logistics.chemical;
 
 import com.createnestedfactory.create_nested_factory.block.entity.NestedExtensionInterfaceBlockEntity;
-import com.createnestedfactory.create_nested_factory.block.entity.FactoryLogicalPortEndpoint;
+import com.createnestedfactory.create_nested_factory_logistics.MekanismExtensionDelegate;
 import mekanism.api.Action;
 import mekanism.api.chemical.ChemicalStack;
 import mekanism.api.chemical.IChemicalHandler;
@@ -9,12 +9,10 @@ import net.minecraft.core.Direction;
 
 /** A cache-safe chemical proxy that rechecks extension binding and redstone on every call. */
 public final class MekanismExtensionChemicalHandler implements IChemicalHandler {
-    private final NestedExtensionInterfaceBlockEntity extension;
-    private final Direction queriedSide;
+    private final MekanismExtensionDelegate<IChemicalHandler> resolver;
 
     private MekanismExtensionChemicalHandler(NestedExtensionInterfaceBlockEntity extension, Direction queriedSide) {
-        this.extension = extension;
-        this.queriedSide = queriedSide;
+        resolver = new MekanismExtensionDelegate<>(extension, queriedSide, MekanismChemicalHandler::forExtension);
     }
 
     public static IChemicalHandler create(NestedExtensionInterfaceBlockEntity extension, Direction side) {
@@ -26,9 +24,7 @@ public final class MekanismExtensionChemicalHandler implements IChemicalHandler 
     }
 
     private IChemicalHandler delegate() {
-        FactoryLogicalPortEndpoint endpoint = extension.resolvePort(queriedSide);
-        return endpoint == null ? null
-                : MekanismChemicalHandler.forExtension(endpoint);
+        return resolver.get();
     }
 
     @Override
