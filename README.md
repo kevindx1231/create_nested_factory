@@ -4,11 +4,11 @@
 
 > Build real factories inside persistent Pocket rooms, connect them through Create logistics, and turn verified production lines into nestable black-box factories.
 
-当前正式版 / Latest stable release: **v1.5.21 — Minecraft 1.21.1**
+当前正式版 / Latest stable release: **v1.5.22 — Minecraft 1.21.1**
 
-本次修复化学品提取丢失、游戏模式切换后的飞行状态恢复，并优化物流处理器与热量端点缓存。简要日志见 [v1.5.21 更新日志](docs/releases/v1.5.21.md)。
+本次修复 Observable 冻结兼容，调整树场与农场的学习参与和最终账本校验，并新增 7 个中英文 Ponder 教程场景。完整日志见 [v1.5.22 更新日志](docs/releases/v1.5.22.md)。
 
-This update fixes chemical extraction losses and flight restoration after game-mode changes, and reuses logistics handlers and heat endpoints. See the [v1.5.21 release notes](docs/releases/v1.5.21.md).
+This update fixes Observable freeze compatibility, revises tree/crop learning participation and final ledger validation, and adds seven bilingual Ponder tutorials. See the [v1.5.22 release notes](docs/releases/v1.5.22.md).
 
 <a id="简体中文"></a>
 
@@ -18,7 +18,7 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 
 ### 运行要求
 
-| 项目 | v1.5.21 支持版本 |
+| 项目 | v1.5.22 支持版本 |
 |---|---|
 | Minecraft | 1.21.1 |
 | Java | 21 |
@@ -27,7 +27,16 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 
 客户端和专用服务器应安装相同版本的本模组及必需依赖。
 
-### v1.5.2 更新要点
+### v1.5.22 更新要点
+
+- 修复与 Observable 5.4.4 的方块实体 tick 注入冲突，保留 Lithium 0.15.4 随机刻兼容。
+- 树苗、作物发生生长活动后才参与来源等待；闲置来源不阻塞已完成的独立加工路线，生长活动本身不授予生产权限。
+- 学习默认绝对期限调整为 3600 tick（20 TPS 时为 3 分钟），生长不重置期限；发布前重新核对完整账本，并保留混合计划的启动资本要求。
+- 新增空间、物流、应力、黑盒、蓝图、嵌套和搬运共 7 个 Ponder 场景。将鼠标移到嵌套工厂物品上，按住提示按键（默认 W）查看；场景为教学示意，客户端视觉效果仍待手动验收。
+
+详细日志见 [v1.5.22 更新日志](docs/releases/v1.5.22.md)，思索说明见 [Ponder 初版](docs/ponder-first-pass.md)。
+
+### v1.5.2 历史更新要点
 
 - 工厂通道支持 Simulated/Sable 移动结构；入口、返回位置、视角和速度跟随当前载体，抵达位置同时检查世界与载体碰撞。
 - 通道加载或迁移期间保留返回会话，重新登录后可等待载体加载；传送确认期间位置继续跟随载体，防重入保护在实际离开通道后解除。
@@ -54,7 +63,7 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 
 复制品关联原空间，原工厂仍放置时不能重复放置；恢复时采用最新保存状态。删除会拒绝存在任何后代、玩家或正在进行房间任务的空间。详见[指令说明](docs/cnf-commands.md)。
 
-### v1.5.2 完整功能
+### 完整功能
 
 #### Pocket 工厂与嵌套空间
 
@@ -121,7 +130,9 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 - 前两个等长区间建立候选计划，第三个区间确认连续运行；资源只需在任一区间出现，最终效率按完整证据计算。
 - 没有完整产物时当前区间可自适应延长；整个会话受 `blackboxMaxLearningTicks` 绝对期限限制。
 - 普通加工、再生来源和来源后加工可编译为加工路线、再生路线或来源耦合路线；一个组合计划最多包含一条加工路线和一条再生路线。
-- 内建来源适配器支持圆石、玄武岩、树场和农场。树木按树苗种类分组，作物按方块注册 ID 分组，每组都必须达到配置的来源事件次数并产生对应边界输出。
+- 内建来源适配器支持圆石、玄武岩、树场和农场。树木按树苗种类分组，作物按方块注册 ID 分组；树场、作物出现一次生长活动即参与等待，参与组仍必须达到配置的完整来源事件次数并产生对应边界输出才能认证。
+- 没有生长或生产活动的树苗、作物和闲置来源不阻塞已经完成的其他路线，也不获得黑盒生产权限；没有独立配方时仍保留自然生长的学习时间。
+- 全部学习共用从切换请求开始的 `blackboxMaxLearningTicks` 绝对期限，默认 3600 tick（20 TPS 时为 3 分钟）；生长不会重置期限。到期仍有参与来源未认证时整次学习失败并退回常加载，不发布部分路线。无法确定归属的产物不会转入普通配方，发布前重新核对完整账本。
 - 第三方代码可通过 `RegenerativeSourceAdapter` 注册额外来源类型；无效或没有来源适配器授权的无输入生产不会成为永久配方。
 - 来源事件授予有限产出额度；同身份外部输入与来源产出重叠、隐藏库存消耗或无法解释的房间净损耗不会被当作免费产量。
 - 支持普通加工与独立再生路线的组合，也支持“内部来源 → 内部加工 → 最终边界产物”的耦合路线。
@@ -161,7 +172,7 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 - 潜行右键另一座兼容工厂应用蓝图；不能应用到蓝图来源本身，也不能覆盖尚未取消的现有蓝图。
 - 蓝图模式不加载真实 Pocket 产线，直接按经过验证的合同运行；取消蓝图时按所有权规则结算或清理模拟状态。
 - 终端蓝图工厂专门用于在最大房间深度之外继续封装生产。
-- v1.5.2 使用当前计划/蓝图格式；缺少所有权、来源或应力证明的旧格式不会猜测迁移，必须重新学习并重新复制蓝图。
+- v1.5.22 使用 v9 计划/蓝图格式；缺少所有权、来源或应力证明的旧格式不会猜测迁移，必须重新学习并重新复制蓝图。
 
 #### 工厂通道
 
@@ -182,6 +193,7 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 - 根工厂进入黑盒或蓝图模式时，为整棵嵌套工厂树建立持久化冻结租约。
 - 后代记录祖先冻结状态并释放 Pocket 区块票；真实空间中的方块实体 tick、计划刻和方块事件在冻结期间停止。
 - 解冻时按保存的树快照和事件队列恢复；重启、部分区块卸载和嵌套层级不会让后代提前运行或永久冻结。
+- 方块实体冻结入口兼容 Observable 5.4.4 的计时，随机刻冻结保留 Lithium 0.15.4 兼容；四种组合的服务端验证范围见[冻结兼容修复记录](docs/releases/v1.5.22-freeze-compat.md)。
 - 普通拆除和重新放置保留工厂身份、房间绑定、计划、事务和托管资源。
 - 安装 Simulated 与 Sable 后，工厂可随 SubLevel 结构移动、旋转、装配和解体，同时保持逻辑身份与 Pocket 绑定。
 - 移动开始前中止未完成学习；已激活黑盒在空闲、运行和输出托管阶段都迁移同一份所有权状态。
@@ -193,12 +205,13 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 - Create 工程师护目镜显示工厂身份、模式、深度、学习状态、输入/输出、内外应力、端口目标、扩展接口绑定和通道状态。
 - 工厂物品与蓝图 Tooltip 显示身份、来源工厂、来源位置/维度/深度、效率、输入输出、应力和启动资本。
 - 内置简体中文和英文资源，注册独立创造模式标签、方块模型、物品模型、配方、战利品表和配方解锁进度。
+- 嵌套工厂物品提供 7 个中英文 Ponder 教程场景，覆盖从进入空间到搬运保存的基本流程；详见 [Ponder 说明](docs/ponder-first-pass.md)。
 - 客户端渲染、标记和界面注册均有逻辑侧隔离；支持专用服务器运行。
 - 高频黑盒诊断默认关闭；需要排查学习、事务、应力或所有权问题时可开启结构化 `[CNF-BLACKBOX]` 日志。
 
 ### 可选兼容
 
-| 模组组合 | v1.5.21 支持内容 |
+| 模组组合 | v1.5.22 支持内容 |
 |---|---|
 | 不安装可选模组 | 完整基础 Pocket、端口、应力、学习、黑盒、蓝图、冻结和通道功能 |
 | Mekanism 10.7+ | 工厂面与扩展接口的 Chemical 和 Heat capability；Heat 双向，Chemical 遵守端口方向 |
@@ -216,7 +229,7 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 |---|---:|---:|---|
 | `maxNestingDepth` | 8 | 1–16 | 拥有真实 Pocket 房间的最大嵌套深度 |
 | `roomMutationBlocksPerTick` | 16384 | 64–65536 | 每 tick 房间任务最多检查或写入的方块数 |
-| `blackboxMaxLearningTicks` | 6000 | 2–2147483647 | 一次统一黑盒学习的绝对最大 tick 数 |
+| `blackboxMaxLearningTicks` | 3600 | 2–2147483647 | 一次统一黑盒学习的绝对最大 tick 数 |
 | `cobblestoneSourceVerificationCycles` | 3 | 3–5 | 圆石来源所需完整事件数 |
 | `basaltSourceVerificationCycles` | 3 | 3–5 | 玄武岩来源所需完整事件数 |
 | `treeSourceVerificationCycles` | 3 | 3–5 | 每个树木来源组所需完整事件数 |
@@ -245,7 +258,7 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 
 1. 安装 Minecraft 1.21.1、Java 21 和 NeoForge 21.1.x。
 2. 安装 Create 6.0.9–6.0.x。
-3. 从 [Releases](https://github.com/kevindx1231/create_nested_factory/releases) 下载 `create_nested_factory-1.21.1-1.5.21.jar`。
+3. 从 [v1.5.22 Release](https://github.com/kevindx1231/create_nested_factory/releases/tag/mc1.21.1-v1.5.22) 下载 `create_nested_factory-1.21.1-1.5.22.jar`。
 4. 把 JAR 放入客户端和服务器的 `mods` 目录；不要同时保留本模组的其他版本。
 5. 如需兼容功能，再安装上表中的可选模组。
 
@@ -284,7 +297,9 @@ Linux/macOS：
 ./gradlew check build --stacktrace
 ```
 
-正式 JAR 输出到 `build/libs/create_nested_factory-1.21.1-1.5.21.jar`。`check` 会运行工厂指令、通道交互与移动空间、防重入、冻结索引、服务器隔离、学习控制器、房间几何、生命周期转换、会话恢复、蓝图资本、移动返回变换和发布修复回归任务。
+正式 JAR 输出到 `build/libs/create_nested_factory-1.21.1-1.5.22.jar`。`check` 会运行工厂指令、通道交互与移动空间、防重入、冻结索引、服务器隔离、学习控制器、房间几何、生命周期转换、会话恢复、蓝图资本、移动返回变换和发布修复回归任务。
+
+冻结模组兼容集成测试另行运行 `./scripts/test-freeze-compat.ps1`，覆盖基础、Lithium、Observable 和共存四种组合，测试资源不进入发布 JAR。详见[测试记录与重跑方式](docs/releases/v1.5.22-freeze-compat.md)。
 
 ### 问题反馈
 
@@ -314,7 +329,7 @@ Create Nested Factory is an automation mod for Minecraft 1.21.1, NeoForge, and C
 
 ### Requirements
 
-| Component | Supported by v1.5.21 |
+| Component | Supported by v1.5.22 |
 |---|---|
 | Minecraft | 1.21.1 |
 | Java | 21 |
@@ -323,7 +338,16 @@ Create Nested Factory is an automation mod for Minecraft 1.21.1, NeoForge, and C
 
 Clients and dedicated servers should install the same version of this mod and all required dependencies.
 
-### What's new in v1.5.2
+### What's new in v1.5.22
+
+- Fixes the block-entity tick injection conflict with Observable 5.4.4 while retaining Lithium 0.15.4 random-tick compatibility.
+- Tree and crop groups join source waiting after observed growth. Idle sources do not block completed independent processing routes, and growth alone does not certify production.
+- The default absolute learning deadline is now 3600 ticks (3 minutes at 20 TPS), without growth resets. Publication rechecks the complete ledger and preserves startup capital in mixed plans.
+- Adds seven Ponder scenes covering rooms, logistics, stress, black boxes, blueprints, nesting, and moving. Hover over the Nested Factory item and hold the prompted key (W by default). These are teaching diagrams; client visuals still require manual acceptance.
+
+See the [v1.5.22 release notes](docs/releases/v1.5.22.md) and [Ponder scene guide](docs/ponder-first-pass.md).
+
+### Earlier highlights: v1.5.2
 
 - Factory Passages support Simulated/Sable moving structures. Entry and return positions, orientation, and velocity follow the current carrier, with both world and carrier collision checks.
 - Passage sessions survive temporary loading or migration and can wait for the carrier after login. Pending teleport positions follow the carrier until acknowledgement, and re-entry protection ends after an actual departure.
@@ -350,7 +374,7 @@ The directory persists with the world and queries do not load room chunks. Exist
 
 Copies reference the same room, cannot be placed while the original remains placed, and restore the latest saved state. Deletion rejects rooms with any descendants, players, or active room tasks. See the [command reference](docs/cnf-commands.md).
 
-### Complete v1.5.2 feature set
+### Complete feature set
 
 #### Pocket factories and nested spaces
 
@@ -417,7 +441,9 @@ Copies reference the same room, cannot be placed while the original remains plac
 - The first two equal windows create a candidate plan; the third confirms continuous operation. A resource may appear in any window, while final efficiency uses the complete evidence set.
 - A window may extend adaptively when no complete product has appeared. The entire session is bounded by `blackboxMaxLearningTicks`.
 - Ordinary processing, regenerative sources, and downstream source processing compile into processing, regenerative, or source-coupled routes. A combined plan contains at most one processing route and one regenerative route.
-- Built-in source adapters cover cobblestone, basalt, tree farms, and crop farms. Trees are grouped by sapling type and crops by block registry ID; every group must meet its configured event count and produce matching boundary output.
+- Built-in source adapters cover cobblestone, basalt, tree farms, and crop farms. Trees are grouped by sapling type and crops by block registry ID; tree and crop groups join the wait after any observed growth, but certification still requires the configured complete source-event count and matching boundary output.
+- Plants and sources without growth or production activity do not block completed independent routes or gain production rights. Natural sources retain their learning time when no independent recipe exists.
+- All learning shares the absolute `blackboxMaxLearningTicks` deadline starting at the switch request, defaulting to 3600 ticks (3 minutes at 20 TPS). Growth never resets it. If a participating source remains unverified at the deadline, the entire session fails back to chunk-loaded mode without publishing partial routes. Unattributed source products never become ordinary output, and publication rechecks the complete ledger.
 - Third-party code may register additional source types through `RegenerativeSourceAdapter`. Invalid sources or material-free production without adapter-certified evidence cannot become permanent recipes.
 - Source events grant limited output credit. Overlapping external input, hidden inventory consumption, and unexplained room losses are not treated as free production.
 - Plans may combine an ordinary processing line with an independent regenerative route, or learn a coupled route such as internal source → internal processing → final boundary product.
@@ -457,7 +483,7 @@ Copies reference the same room, cannot be placed while the original remains plac
 - Sneak-right-click another compatible factory to apply it. A blueprint cannot target its source factory or overwrite an existing blueprint until that mode is cancelled.
 - Blueprint mode runs the verified contract without loading the physical Pocket line. Cancelling it settles or clears simulated state according to ownership rules.
 - Terminal blueprint-only factories allow one additional encapsulation layer beyond the maximum room depth.
-- v1.5.2 uses the current plan and blueprint format. Older formats without ownership, source, or stress evidence are not guessed or migrated; relearn and recopy them.
+- v1.5.22 uses the v9 plan and blueprint format. Older formats without ownership, source, or stress evidence are not guessed or migrated; relearn and recopy them.
 
 #### Factory Passages
 
@@ -478,6 +504,7 @@ Copies reference the same room, cannot be placed while the original remains plac
 - When a root factory enters black-box or blueprint mode, it creates a persistent freeze lease for its complete nested factory tree.
 - Descendants record ancestor freeze state and release Pocket chunk tickets. Block-entity ticks, scheduled ticks, and block events in their physical spaces stop while frozen.
 - Thawing restores the saved tree snapshot and event queues. Restarts, partially unloaded chunks, and deep nesting do not let descendants run early or remain permanently frozen.
+- Block-entity freezing supports Observable 5.4.4 profiling, while random-tick freezing retains Lithium 0.15.4 compatibility. See the [freeze compatibility report](docs/releases/v1.5.22-freeze-compat.md) for the four tested server combinations.
 - Normal breaking and replacement preserve factory identity, Pocket binding, plans, transactions, and held resources.
 - With Simulated and Sable installed, factories may move, rotate, assemble, and disassemble with a SubLevel structure while retaining logical identity and Pocket binding.
 - Movement aborts incomplete learning first. Activated black-boxes migrate the same ownership state while idle, running, or holding blocked output.
@@ -489,12 +516,13 @@ Copies reference the same room, cannot be placed while the original remains plac
 - Create Engineer's Goggles show factory identity, mode, depth, learning state, input/output, internal/external stress, port target, interface binding, and passage status.
 - Factory items and blueprints show identity, source factory, source position/dimension/depth, efficiency, I/O, stress, and startup capital in their tooltips.
 - Includes Simplified Chinese and English resources, a dedicated creative tab, block/item models, recipes, loot tables, and recipe advancements.
+- The Nested Factory item offers seven bilingual Ponder tutorials, from entering a room to moving and preserving a factory. See the [Ponder scene guide](docs/ponder-first-pass.md).
 - Client rendering, markers, and screens are side-gated, and the mod supports dedicated servers.
 - High-frequency black-box diagnostics are disabled by default. Enable them when structured `[CNF-BLACKBOX]` learning, runtime, stress, and ownership logs are needed.
 
 ### Optional compatibility
 
-| Mod combination | v1.5.21 integration |
+| Mod combination | v1.5.22 integration |
 |---|---|
 | No optional mods | Complete base Pocket, port, stress, learning, black-box, blueprint, freeze, and passage features |
 | Mekanism 10.7+ | Chemical and Heat capabilities on factory faces and extension interfaces; Heat is bidirectional and Chemical follows port direction |
@@ -512,7 +540,7 @@ NeoForge generates the configuration file. Values relevant to a learning session
 |---|---:|---:|---|
 | `maxNestingDepth` | 8 | 1–16 | Maximum nesting depth that owns a real Pocket room |
 | `roomMutationBlocksPerTick` | 16384 | 64–65536 | Maximum block checks or writes performed by room tasks each tick |
-| `blackboxMaxLearningTicks` | 6000 | 2–2147483647 | Absolute maximum duration of one unified learning session |
+| `blackboxMaxLearningTicks` | 3600 | 2–2147483647 | Absolute maximum duration of one unified learning session |
 | `cobblestoneSourceVerificationCycles` | 3 | 3–5 | Complete events required for a cobblestone source |
 | `basaltSourceVerificationCycles` | 3 | 3–5 | Complete events required for a basalt source |
 | `treeSourceVerificationCycles` | 3 | 3–5 | Complete events required for each tree source group |
@@ -541,7 +569,7 @@ Data-pack recipes cover ordinary crafting, mixing, splashing, and Create sequenc
 
 1. Install Minecraft 1.21.1, Java 21, and NeoForge 21.1.x.
 2. Install Create 6.0.9–6.0.x.
-3. Download `create_nested_factory-1.21.1-1.5.21.jar` from [Releases](https://github.com/kevindx1231/create_nested_factory/releases).
+3. Download `create_nested_factory-1.21.1-1.5.22.jar` from the [v1.5.22 Release](https://github.com/kevindx1231/create_nested_factory/releases/tag/mc1.21.1-v1.5.22).
 4. Put the JAR in the `mods` directory on both client and server. Do not keep another version of Create Nested Factory in the same instance.
 5. Install any optional mods required for the integrations listed above.
 
@@ -580,7 +608,9 @@ Linux/macOS:
 ./gradlew check build --stacktrace
 ```
 
-The release JAR is written to `build/libs/create_nested_factory-1.21.1-1.5.21.jar`. `check` runs factory-command, passage-interaction and moving-space, re-entry, freeze-index, server-isolation, learning-controller, room-geometry, lifecycle-transition, session-recovery, blueprint-capital, moving-return-transform, and release-fix regression tasks.
+The release JAR is written to `build/libs/create_nested_factory-1.21.1-1.5.22.jar`. `check` runs factory-command, passage-interaction and moving-space, re-entry, freeze-index, server-isolation, learning-controller, room-geometry, lifecycle-transition, session-recovery, blueprint-capital, moving-return-transform, and release-fix regression tasks.
+
+Run `./scripts/test-freeze-compat.ps1` separately for the base, Lithium, Observable, and combined integration tests. Their resources stay outside the release JAR. See the [test report and rerun instructions](docs/releases/v1.5.22-freeze-compat.md).
 
 ### Reporting issues
 

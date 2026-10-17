@@ -351,7 +351,8 @@ public final class FactoryPlan {
                 regenerativeToolDamageCosts, regenerativeToolDamageCosts,
                 cycleTicks, naturalWaitTicks, sourceKind, verifiedCycles, statisticalOutput,
                 externalStressSUTicks, peakExternalStressSU,
-                internalGenerationSUTicks, peakInternalGeneratedSU, peakConsumedSU, sourceProofs);
+                internalGenerationSUTicks, peakInternalGeneratedSU, peakConsumedSU, sourceProofs)
+                .withStartupCapital(startupCapitalItems);
     }
 
     private Map<ItemVariant, Long> processingItemOutputs() {

@@ -7,6 +7,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.neoforge.fluids.FluidStack;
 
+import java.util.List;
 import java.util.Map;
 
 /** Extension seam for a source which may legally produce without an external material input. */
@@ -23,7 +24,13 @@ public interface RegenerativeSourceAdapter {
     interface Evidence {
         FactoryPlan.SourceKind sourceKind();
 
+        /** Structural candidacy; activity or explicit authorization determines participation in learning. */
         boolean isSupported();
+
+        /** Stable, independently verified groups; event delivery still goes to the root evidence. */
+        default List<? extends Evidence> learningGroups() {
+            return List.of(this);
+        }
 
         default void beginWindow(int windowIndex) {
         }
@@ -50,6 +57,11 @@ public interface RegenerativeSourceAdapter {
 
         default boolean hasPreliminaryEvidence() {
             return verifiedCycles() > 0;
+        }
+
+        /** Activity joins the shared learning deadline without certifying production or output. */
+        default boolean hasLearningActivity() {
+            return hasPreliminaryEvidence() || isReady();
         }
 
         boolean isReady();

@@ -56,7 +56,6 @@ final class FactoryLearningController {
     private final FactoryPlanCompiler compiler = new FactoryPlanCompiler();
     private final RoomStateLedger roomLedger = new RoomStateLedger();
     private final List<FactoryPlanCompiler.Observation> observations = new ArrayList<>();
-    private FactoryPlan lockedProcessingPlan = new FactoryPlan();
     private FactoryLearningSession session;
     private int preparingTicksRemaining;
     private Stage stage = Stage.WARMUP;
@@ -97,12 +96,11 @@ final class FactoryLearningController {
         roomLedger.clear();
         session = null;
         observations.clear();
-        lockedProcessingPlan = new FactoryPlan();
         windowIndex = 0;
         windowScaleIndex = 0;
         windowTargetTicks = WINDOW_TICKS[0];
         int configuredDeadline = Config.blackboxMaxLearningTicks > 1
-                ? Config.blackboxMaxLearningTicks : 6000;
+                ? Config.blackboxMaxLearningTicks : 3600;
         deadlineTick = now + configuredDeadline;
         preparingTicksRemaining = PREPARING_TICKS;
     }
@@ -123,7 +121,6 @@ final class FactoryLearningController {
         windowIndex = 0;
         windowScaleIndex = 0;
         windowTargetTicks = WINDOW_TICKS[0];
-        lockedProcessingPlan = new FactoryPlan();
         factory.blackboxDebug("learning_warmup_started", () -> "warmupTicks=" + WARMUP_TICKS
                 + ", deadlineTick=" + deadlineTick + ", transit=" + factory.learningTransitSummary());
     }
@@ -174,7 +171,7 @@ final class FactoryLearningController {
 
         boolean sourceSupported = session != null && session.isSupported();
         boolean firstWindowIncomplete = windowIndex == 0
-                && !sourceSupported && !compiler.hasCurrentOutput();
+                && !sourceSupported && !session.hasNaturalCandidates() && !compiler.hasCurrentOutput();
         if (firstWindowIncomplete && windowScaleIndex + 1 < WINDOW_TICKS.length) {
             windowScaleIndex++;
             windowTargetTicks = WINDOW_TICKS[windowScaleIndex];
@@ -194,30 +191,23 @@ final class FactoryLearningController {
                 + ", targetTicks=" + windowTargetTicks + ", observation=" + observation
                 + ", source={" + (session == null ? "none" : session.debugSummary()) + "}");
 
-        if (observations.size() >= 3 && !lockedProcessingPlan.hasProcessingRoute()) {
-            RoomCosts costs = currentRoomCosts(factory);
-            FactoryPlan processing = compiler.compileProcessingCandidate(observations, session,
-                    costs.itemAdjustments(), costs.fluidAdjustments(), costs.toolDamage());
-            if (processing.hasProcessingRoute()) {
-                lockedProcessingPlan = processing.processingRoute();
-                factory.blackboxDebug("processing_candidate_locked", () -> "plan={"
-                        + lockedProcessingPlan.debugSummary() + "}, roomCosts=" + costs);
-            }
-        }
-
         boolean minimumSampleComplete = observations.size() >= 3;
         boolean sourceReady = sourceSupported && (session.isReadyToFinalize(now)
                 || deadlineReached && session.isReady());
         boolean sourceStillLearning = sourceSupported && !sourceReady;
-        boolean hasCandidate = lockedProcessingPlan.hasProcessingRoute() || canBuildCandidate();
-        if (minimumSampleComplete && hasCandidate && !sourceStillLearning) {
+        if (minimumSampleComplete && canBuildCandidate() && !sourceStillLearning) {
             RoomCosts costs = currentRoomCosts(factory);
-            FactoryPlan compiled = compiler.compile(observations, sourceSupported ? session : null,
+            // Reconcile the complete current ledger; never publish an earlier locked recipe.
+            FactoryPlan measured = compiler.compile(observations, sourceSupported ? session : null,
                     costs.itemAdjustments(), costs.fluidAdjustments(), costs.toolDamage());
-            if (lockedProcessingPlan.hasProcessingRoute() && compiled.hasRegenerativeRoute()) {
-                compiled = FactoryPlan.combineIndependent(lockedProcessingPlan, compiled.regenerativeRoute());
-            } else if (lockedProcessingPlan.hasProcessingRoute() && !compiled.hasRegenerativeRoute()) {
-                compiled = lockedProcessingPlan;
+            FactoryPlan compiled = measured;
+            if (measured.hasProcessingRoute() && measured.hasRegenerativeRoute()) {
+                FactoryPlan processing = compiler.compileProcessingCandidate(observations, session,
+                        costs.itemAdjustments(), costs.fluidAdjustments(), costs.toolDamage());
+                if (processing.hasProcessingRoute()) {
+                    compiled = FactoryPlan.combineIndependent(processing.processingRoute(),
+                            measured.regenerativeRoute());
+                }
             }
             FactoryPlan completedPlan = compiled;
             factory.blackboxDebug("learning_plan_compiled", () -> "complete=" + completedPlan.hasCompleteRecipe()
@@ -242,7 +232,6 @@ final class FactoryLearningController {
         compiler.stopLearning();
         session = null;
         observations.clear();
-        lockedProcessingPlan = new FactoryPlan();
         stage = Stage.WARMUP;
         stageTicks = 0;
         deadlineTick = 0L;
@@ -261,7 +250,6 @@ final class FactoryLearningController {
         windowScaleIndex = 0;
         windowTargetTicks = WINDOW_TICKS[0];
         observations.clear();
-        lockedProcessingPlan = new FactoryPlan();
         session = null;
     }
 
@@ -271,7 +259,6 @@ final class FactoryLearningController {
 
     void repairInterruptedLoad() {
         session = null;
-        lockedProcessingPlan = new FactoryPlan();
         observations.clear();
         preparingTicksRemaining = 0;
     }
@@ -327,7 +314,6 @@ final class FactoryLearningController {
         windowScaleIndex = 0;
         windowTargetTicks = WINDOW_TICKS[0];
         observations.clear();
-        lockedProcessingPlan = new FactoryPlan();
         roomLedger.capture(factory.countItemsInFactorySpace(), factory.countFluidsInFactorySpace(),
                 factory.countToolDurabilityInFactorySpace());
         stage = Stage.OBSERVING;
@@ -354,7 +340,7 @@ final class FactoryLearningController {
         boolean hasOutput = observations.stream().anyMatch(FactoryPlanCompiler.Observation::hasOutput);
         boolean hasExternalInput = observations.stream()
                 .anyMatch(FactoryPlanCompiler.Observation::hasExternalInput);
-        boolean hasSource = session != null && session.hasPreliminaryEvidence();
+        boolean hasSource = session != null && (session.hasPreliminaryEvidence() || session.hasReadySource());
         return hasOutput && (hasExternalInput || hasSource);
     }
 }

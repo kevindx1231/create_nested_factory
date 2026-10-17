@@ -27,6 +27,15 @@ base {
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 
+// Opt-in integration tests use a separate world and never enter the release JAR.
+def freezeCompatMode = providers.gradleProperty('freezeCompat')
+sourceSets {
+    freezeCompatTest {
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+    }
+}
+
 neoForge {
     // Specify the version of NeoForge to use.
     version = project.neo_version
@@ -61,6 +70,9 @@ neoForge {
         gameTestServer {
             type = "gameTestServer"
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            if (freezeCompatMode.isPresent()) {
+                gameDirectory = file("build/freeze-compat/${freezeCompatMode.get()}")
+            }
         }
 
         data {
@@ -96,6 +108,9 @@ neoForge {
         // but multi mod projects should define one per mod
         "${mod_id}" {
             sourceSet(sourceSets.main)
+            if (freezeCompatMode.isPresent()) {
+                sourceSet(sourceSets.freezeCompatTest)
+            }
         }
     }
 }
