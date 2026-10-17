@@ -6,9 +6,9 @@
 
 当前正式版 / Latest stable release: **v1.5.22 — Minecraft 1.21.1**
 
-本次修复 Observable 冻结兼容，调整树场与农场的学习参与和最终账本校验，并新增 7 个中英文 Ponder 教程场景。完整日志见 [v1.5.22 更新日志](docs/releases/v1.5.22.md)。
+本次修复 Observable 冻结兼容，调整树场与农场的学习参与和最终账本校验，并移除未完成的ponder功能。完整日志见 [v1.5.22 更新日志](docs/releases/v1.5.22.md)。
 
-This update fixes Observable freeze compatibility, revises tree/crop learning participation and final ledger validation, and adds seven bilingual Ponder tutorials. See the [v1.5.22 release notes](docs/releases/v1.5.22.md).
+This update fixes Observable freeze compatibility, revises tree/crop learning participation and final ledger validation, and removes the unfinished Ponder feature. See the [v1.5.22 release notes](docs/releases/v1.5.22.md).
 
 <a id="简体中文"></a>
 
@@ -32,9 +32,9 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 - 修复与 Observable 5.4.4 的方块实体 tick 注入冲突，保留 Lithium 0.15.4 随机刻兼容。
 - 树苗、作物发生生长活动后才参与来源等待；闲置来源不阻塞已完成的独立加工路线，生长活动本身不授予生产权限。
 - 学习默认绝对期限调整为 3600 tick（20 TPS 时为 3 分钟），生长不重置期限；发布前重新核对完整账本，并保留混合计划的启动资本要求。
-- 新增空间、物流、应力、黑盒、蓝图、嵌套和搬运共 7 个 Ponder 场景。将鼠标移到嵌套工厂物品上，按住提示按键（默认 W）查看；场景为教学示意，客户端视觉效果仍待手动验收。
+- 移除未完成的ponder功能，包括自定义教程注册、场景、结构资源和中英文字幕。
 
-详细日志见 [v1.5.22 更新日志](docs/releases/v1.5.22.md)，思索说明见 [Ponder 初版](docs/ponder-first-pass.md)。
+详细日志见 [v1.5.22 更新日志](docs/releases/v1.5.22.md)。
 
 ### v1.5.2 历史更新要点
 
@@ -205,7 +205,6 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 - Create 工程师护目镜显示工厂身份、模式、深度、学习状态、输入/输出、内外应力、端口目标、扩展接口绑定和通道状态。
 - 工厂物品与蓝图 Tooltip 显示身份、来源工厂、来源位置/维度/深度、效率、输入输出、应力和启动资本。
 - 内置简体中文和英文资源，注册独立创造模式标签、方块模型、物品模型、配方、战利品表和配方解锁进度。
-- 嵌套工厂物品提供 7 个中英文 Ponder 教程场景，覆盖从进入空间到搬运保存的基本流程；详见 [Ponder 说明](docs/ponder-first-pass.md)。
 - 客户端渲染、标记和界面注册均有逻辑侧隔离；支持专用服务器运行。
 - 高频黑盒诊断默认关闭；需要排查学习、事务、应力或所有权问题时可开启结构化 `[CNF-BLACKBOX]` 日志。
 
@@ -343,9 +342,9 @@ Clients and dedicated servers should install the same version of this mod and al
 - Fixes the block-entity tick injection conflict with Observable 5.4.4 while retaining Lithium 0.15.4 random-tick compatibility.
 - Tree and crop groups join source waiting after observed growth. Idle sources do not block completed independent processing routes, and growth alone does not certify production.
 - The default absolute learning deadline is now 3600 ticks (3 minutes at 20 TPS), without growth resets. Publication rechecks the complete ledger and preserves startup capital in mixed plans.
-- Adds seven Ponder scenes covering rooms, logistics, stress, black boxes, blueprints, nesting, and moving. Hover over the Nested Factory item and hold the prompted key (W by default). These are teaching diagrams; client visuals still require manual acceptance.
+- Removes the unfinished Ponder feature, including custom registration, scenes, structure resources, and bilingual captions.
 
-See the [v1.5.22 release notes](docs/releases/v1.5.22.md) and [Ponder scene guide](docs/ponder-first-pass.md).
+See the [v1.5.22 release notes](docs/releases/v1.5.22.md).
 
 ### Earlier highlights: v1.5.2
 
@@ -516,7 +515,6 @@ Copies reference the same room, cannot be placed while the original remains plac
 - Create Engineer's Goggles show factory identity, mode, depth, learning state, input/output, internal/external stress, port target, interface binding, and passage status.
 - Factory items and blueprints show identity, source factory, source position/dimension/depth, efficiency, I/O, stress, and startup capital in their tooltips.
 - Includes Simplified Chinese and English resources, a dedicated creative tab, block/item models, recipes, loot tables, and recipe advancements.
-- The Nested Factory item offers seven bilingual Ponder tutorials, from entering a room to moving and preserving a factory. See the [Ponder scene guide](docs/ponder-first-pass.md).
 - Client rendering, markers, and screens are side-gated, and the mod supports dedicated servers.
 - High-frequency black-box diagnostics are disabled by default. Enable them when structured `[CNF-BLACKBOX]` learning, runtime, stress, and ownership logs are needed.
 

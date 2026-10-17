@@ -2,14 +2,12 @@ package com.createnestedfactory.create_nested_factory.client;
 
 import com.createnestedfactory.create_nested_factory.client.renderer.NestedStressPortRenderer;
 import com.createnestedfactory.create_nested_factory.client.renderer.FactoryPassageRenderer;
-import com.createnestedfactory.create_nested_factory.client.ponder.NestedFactoryPonderPlugin;
 import com.createnestedfactory.create_nested_factory.registry.ModBlockEntities;
 import com.createnestedfactory.create_nested_factory.registry.ModMenus;
 import com.simibubi.create.AllPartialModels;
 import com.simibubi.create.content.kinetics.base.SingleAxisRotatingVisual;
 import dev.engine_room.flywheel.lib.visualization.SimpleBlockEntityVisualizer;
 import net.neoforged.bus.api.IEventBus;
-import net.createmod.ponder.foundation.PonderIndex;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
@@ -22,7 +20,6 @@ public final class ModClientEvents {
     }
 
     public static void register(IEventBus modEventBus) {
-        PonderIndex.addPlugin(new NestedFactoryPonderPlugin());
         modEventBus.addListener(ModClientEvents::registerScreens);
         modEventBus.addListener(ModClientEvents::registerBlockEntityRenderers);
         modEventBus.addListener(ModClientEvents::registerStressPortVisual);
