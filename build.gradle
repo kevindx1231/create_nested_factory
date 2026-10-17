@@ -18,7 +18,13 @@ repositories {
 }
 
 legacyForge {
-    enable { neoForgeVersion = project.neo_version }
+    enable {
+        if (project.hasProperty('forgeVersion')) {
+            forgeVersion = project.property('forgeVersion')
+        } else {
+            neoForgeVersion = project.neo_version
+        }
+    }
     parchment {
         minecraftVersion = project.parchment_minecraft_version
         mappingsVersion = project.parchment_mappings_version
@@ -70,6 +76,7 @@ def regressionPrograms = [
     'PipezFluidAdapter': 'PipezFluidAdapterRegression',
     'ExplorationSession': 'ExplorationSessionRegression',
     'DimensionResources': 'DimensionResourcesRegression',
+    'RecipeResources': 'RecipeResourcesRegression',
     'StaticPassageParity': 'StaticPassageParityRegression',
     'LegacyBackport': 'LegacyBackportRegression',
     'PassageTravelGuard': 'registry.PassageTravelGuardRegression',
@@ -110,6 +117,10 @@ dependencies {
     modImplementation "com.tterrag.registrate:Registrate:${registrate_version}"
     modCompileOnly "mekanism:Mekanism:${mekanism_version}:api"
     implementation 'io.github.llamalad7:mixinextras-forge:0.4.1'
+    // Both Forge 47 and NeoForge 47 need the Forge bootstrap in production, too.
+    jarJar('io.github.llamalad7:mixinextras-forge:0.4.1') {
+        version { strictly '[0.4.1,)'; prefer '0.4.1' }
+    }
     compileOnly(annotationProcessor('io.github.llamalad7:mixinextras-common:0.4.1'))
     annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
     testImplementation 'org.mockito:mockito-core:5.14.2'
@@ -147,3 +158,8 @@ jar {
     ])
 }
 idea.module.downloadSources = true
+
+// Opt-in integration harness; its classes and downloaded mods never enter the release jar.
+if (project.hasProperty('freezeCompatTest')) {
+    apply from: 'gradle/freeze-compat.gradle'
+}

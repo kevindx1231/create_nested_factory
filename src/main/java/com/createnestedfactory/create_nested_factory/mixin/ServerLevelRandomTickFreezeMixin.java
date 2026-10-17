@@ -13,8 +13,8 @@ import org.spongepowered.asm.mixin.injection.At;
 
 /**
  * Keeps random ticks out of frozen factory rooms while allowing optimization mods to wrap the
- * same calls. The lower priority lets Lithium install its redirect first; MixinExtras then wraps
- * that redirected operation instead of competing for ownership of the invocation.
+ * same calls. The lower priority lets default-priority mixins install their redirects first;
+ * MixinExtras then wraps the redirected operation without taking ownership of the invocation.
  */
 @Mixin(value = ServerLevel.class, priority = 900)
 abstract class ServerLevelRandomTickFreezeMixin {

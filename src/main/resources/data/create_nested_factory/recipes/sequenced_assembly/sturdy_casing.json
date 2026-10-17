@@ -1,5 +1,6 @@
 {
   "type": "create:sequenced_assembly",
+  "loops": 1,
   "ingredient": {
     "item": "create_nested_factory:soaked_sturdy_alloy_ingot"
   },
@@ -86,7 +87,7 @@
       ]
     }
   ],
-  "transitional_item": {
+  "transitionalItem": {
     "item": "create_nested_factory:incomplete_sturdy_casing"
   }
 }

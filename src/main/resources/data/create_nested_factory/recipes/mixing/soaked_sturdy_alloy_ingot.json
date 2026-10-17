@@ -1,6 +1,6 @@
 {
   "type": "create:mixing",
-  "heat_requirement": "superheated",
+  "heatRequirement": "superheated",
   "ingredients": [
     {
       "item": "minecraft:netherite_scrap"

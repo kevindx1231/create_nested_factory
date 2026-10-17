@@ -135,6 +135,7 @@ public final class RegenerativeSourceAdapters {
         private int optimizedDrillCredits;
         private int ordinaryDrillCycles;
         private int contraptionDrillCycles;
+        private boolean harvested;
         private long boundaryOutputs;
 
         private GeneratorEvidence(FactoryPlan.SourceKind kind, Block generatedBlock, Item outputItem,
@@ -184,11 +185,18 @@ public final class RegenerativeSourceAdapters {
         }
 
         @Override
+        public boolean hasPreliminaryEvidence() {
+            return events > 0 && (harvested || optimizedDrillCredits > 0
+                    || ordinaryDrillCycles > 0 || contraptionDrillCycles > 0 || boundaryOutputs > 0);
+        }
+
+        @Override
         public boolean onBlockChanged(ServerLevel level, BlockPos pos, BlockState oldState,
                                       BlockState newState, int windowIndex) {
             long key = pos.asLong();
             boolean generatedNow = newState.is(generatedBlock);
             boolean generatedBefore = oldState.is(generatedBlock);
+            if (generatedBefore && !generatedNow && candidates.contains(key)) harvested = true;
             boolean validGeneration = !generatedBefore && generatedNow
                     && validGenerationTopology(level, pos, oldState);
             if (validGeneration) {
@@ -317,38 +325,169 @@ public final class RegenerativeSourceAdapters {
         }
     }
 
-    private static final class TreeEvidence implements RegenerativeSourceAdapter.Evidence {
+    /** Partial age/stage advancement is activity, never a complete verified source cycle. */
+    private static boolean hasGrowthPropertyIncrease(BlockState oldState, BlockState newState) {
+        if (oldState.getBlock() != newState.getBlock()) return false;
+        for (Property<?> property : oldState.getProperties()) {
+            if (property instanceof IntegerProperty growth
+                    && ("age".equals(growth.getName()) || "stage".equals(growth.getName()))
+                    && newState.hasProperty(growth) && newState.getValue(growth) > oldState.getValue(growth)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Plant groups own their evidence and output allowance independently of idle neighbours. */
+    private abstract static class PlantGroupEvidence implements RegenerativeSourceAdapter.Evidence {
+        final int required;
+        final BitSet eventWindows = new BitSet();
+        int events;
+        int outputConfirmedEvents;
+        boolean productionObserved;
+        boolean growthObserved;
+        private final Map<ItemVariant, Long> certifiedOutputs = new HashMap<>();
+        private final String groupId;
+        // A continuous output stream must not postpone publication forever.
+        private long readySinceTick = Long.MIN_VALUE;
+
+        PlantGroupEvidence(Block block, int required) {
+            this.required = required;
+            this.groupId = BuiltInRegistries.BLOCK.getKey(block).toString();
+        }
+
+        abstract boolean matchesPrimary(ItemStack stack);
+
+        @Override public boolean isSupported() { return true; }
+        @Override public boolean hasPreliminaryEvidence() { return events > 0 && productionObserved; }
+        @Override public boolean hasLearningActivity() {
+            return growthObserved || RegenerativeSourceAdapter.Evidence.super.hasLearningActivity();
+        }
+        @Override public boolean isReady() {
+            return events >= required && outputConfirmedEvents >= required;
+        }
+        @Override public boolean isReadyToFinalize(long gameTime) {
+            return isReady() && readySinceTick != Long.MIN_VALUE
+                    && gameTime - readySinceTick >= 40L;
+        }
+        @Override public int verifiedCycles() { return events; }
+        @Override public int requiredCycles() { return required; }
+        @Override public int evidenceWindowCount() { return eventWindows.cardinality(); }
+        @Override public boolean hasNaturalWait() { return true; }
+        @Override public boolean hasStatisticalOutput() { return true; }
+
+        @Override
+        public void recordBoundaryItemOutput(ItemStack stack, long moved, long gameTime, int windowIndex) {
+            if (events <= 0 || moved <= 0 || !allowsOutput(stack)) return;
+            productionObserved = true;
+            if (matchesPrimary(stack)) outputConfirmedEvents = events;
+            certifiedOutputs.merge(ItemVariant.of(stack), moved,
+                    (left, right) -> left > Long.MAX_VALUE - right ? Long.MAX_VALUE : left + right);
+            if (isReady() && readySinceTick == Long.MIN_VALUE) readySinceTick = gameTime;
+        }
+
+        @Override public boolean canQuantifyMixedOutput(ItemStack stack) {
+            return stack != null && !stack.isEmpty() && certifiedOutputs.containsKey(ItemVariant.of(stack));
+        }
+        @Override public long claimedOutputAmount(ItemStack stack, long observed, boolean hasMaterialInputs) {
+            return allowsOutput(stack) && observed > 0
+                    ? Math.min(observed, certifiedOutputs.getOrDefault(ItemVariant.of(stack), 0L)) : 0L;
+        }
+        @Override public String debugSummary() {
+            return RegenerativeSourceAdapter.Evidence.super.debugSummary()
+                    + ", group=" + groupId + ", growth=" + growthObserved + ", production=" + productionObserved
+                    + ", confirmed=" + outputConfirmedEvents + ", outputs=" + certifiedOutputs;
+        }
+    }
+
+    private abstract static class PlantEvidence implements RegenerativeSourceAdapter.Evidence {
+        final int required;
+
+        PlantEvidence(int required) { this.required = required; }
+
+        private List<? extends RegenerativeSourceAdapter.Evidence> participatingGroups() {
+            return learningGroups().stream().filter(RegenerativeSourceAdapter.Evidence::hasLearningActivity).toList();
+        }
+
+        @Override public boolean isSupported() { return !learningGroups().isEmpty(); }
+        @Override public boolean hasPreliminaryEvidence() {
+            return learningGroups().stream().anyMatch(RegenerativeSourceAdapter.Evidence::hasPreliminaryEvidence);
+        }
+        @Override public boolean hasLearningActivity() { return !participatingGroups().isEmpty(); }
+        @Override public boolean isReady() {
+            var active = participatingGroups();
+            return !active.isEmpty() && active.stream().allMatch(RegenerativeSourceAdapter.Evidence::isReady);
+        }
+        @Override public boolean isReadyToFinalize(long gameTime) {
+            var active = participatingGroups();
+            return !active.isEmpty() && active.stream().allMatch(group -> group.isReadyToFinalize(gameTime));
+        }
+        @Override public int verifiedCycles() {
+            return participatingGroups().stream().mapToInt(RegenerativeSourceAdapter.Evidence::verifiedCycles).min().orElse(0);
+        }
+        @Override public int requiredCycles() { return required; }
+        @Override public int evidenceWindowCount() {
+            return participatingGroups().stream().mapToInt(RegenerativeSourceAdapter.Evidence::evidenceWindowCount).min().orElse(0);
+        }
+        @Override public boolean hasNaturalWait() { return true; }
+        @Override public boolean hasStatisticalOutput() { return true; }
+        @Override public boolean allowsOutput(ItemStack stack) {
+            return learningGroups().stream().anyMatch(group -> group.allowsOutput(stack));
+        }
+        @Override public void recordBoundaryItemOutput(ItemStack stack, long moved, long gameTime, int windowIndex) {
+            learningGroups().forEach(group -> group.recordBoundaryItemOutput(stack, moved, gameTime, windowIndex));
+        }
+        @Override public boolean canQuantifyMixedOutput(ItemStack stack) {
+            return participatingGroups().stream().anyMatch(group -> group.canQuantifyMixedOutput(stack));
+        }
+        @Override public long claimedOutputAmount(ItemStack stack, long observed, boolean hasMaterialInputs) {
+            if (observed <= 0) return 0;
+            long remaining = observed;
+            for (var group : participatingGroups()) {
+                if (group.isReady()) remaining -= Math.min(remaining,
+                        Math.max(0L, group.claimedOutputAmount(stack, remaining, hasMaterialInputs)));
+            }
+            return observed - remaining;
+        }
+        @Override public String debugSummary() {
+            return RegenerativeSourceAdapter.Evidence.super.debugSummary()
+                    + ", groups=" + learningGroups().stream().map(group -> group.debugSummary()).toList();
+        }
+    }
+
+    private static final class TreeEvidence extends PlantEvidence {
         private enum Phase { ARMED, GROWING, GROWN }
 
-        private static final class TreeGroup {
-            private final Block sapling;
-            private final BitSet eventWindows = new BitSet();
-            private int events;
+        private static final class TreeGroup extends PlantGroupEvidence {
+            private final String speciesPrefix;
             private long lastEventTick = Long.MIN_VALUE;
-            private int outputConfirmedEvents;
 
-            private TreeGroup(Block sapling) {
-                this.sapling = sapling;
+            private TreeGroup(Block sapling, int required) {
+                super(sapling, required);
+                String path = BuiltInRegistries.BLOCK.getKey(sapling).getPath();
+                speciesPrefix = (path.endsWith("_sapling")
+                        ? path.substring(0, path.length() - "_sapling".length()) : path) + "_";
             }
 
-            private boolean matchesPrimary(ItemStack stack) {
+            @Override public FactoryPlan.SourceKind sourceKind() { return FactoryPlan.SourceKind.TREE; }
+
+            @Override public boolean allowsOutput(ItemStack stack) {
+                if (!isTreeOutput(stack)) return false;
+                if (stack.is(Items.STICK) || stack.is(Items.APPLE)) return true;
+                return BuiltInRegistries.ITEM.getKey(stack.getItem()).getPath().startsWith(speciesPrefix);
+            }
+
+            @Override boolean matchesPrimary(ItemStack stack) {
                 if (stack == null || stack.isEmpty() || !stack.is(ItemTags.LOGS)) return false;
-                String saplingPath = BuiltInRegistries.BLOCK.getKey(sapling).getPath();
-                String species = saplingPath.endsWith("_sapling")
-                        ? saplingPath.substring(0, saplingPath.length() - "_sapling".length()) : saplingPath;
-                return BuiltInRegistries.ITEM.getKey(stack.getItem()).getPath().startsWith(species + "_");
+                return BuiltInRegistries.ITEM.getKey(stack.getItem()).getPath().startsWith(speciesPrefix);
             }
         }
 
         private final Map<Long, Phase> phases = new HashMap<>();
         private final Map<Long, Block> saplingTypes = new HashMap<>();
         private final Map<Block, TreeGroup> groups = new HashMap<>();
-        private final Map<ItemVariant, Long> certifiedOutputs = new HashMap<>();
-        private final int required;
-        private long lastCertifiedOutputTick = Long.MIN_VALUE;
-
         private TreeEvidence(ServerLevel level, PocketBounds bounds, BlockPos origin, int required) {
-            this.required = required;
+            super(required);
             if (level == null) return;
             BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
             for (int x = bounds.minX(origin) + 1; x < bounds.maxX(origin); x++) {
@@ -367,7 +506,7 @@ public final class RegenerativeSourceAdapters {
             Block sapling = state.getBlock();
             phases.put(key, Phase.ARMED);
             saplingTypes.put(key, sapling);
-            groups.computeIfAbsent(sapling, TreeGroup::new);
+            groups.computeIfAbsent(sapling, block -> new TreeGroup(block, required));
         }
 
         @Override
@@ -376,16 +515,24 @@ public final class RegenerativeSourceAdapters {
         }
 
         @Override
-        public boolean isSupported() {
-            return !groups.isEmpty();
+        public List<? extends RegenerativeSourceAdapter.Evidence> learningGroups() {
+            return List.copyOf(groups.values());
         }
 
         @Override
         public boolean onBlockChanged(ServerLevel level, BlockPos pos, BlockState oldState,
                                       BlockState newState, int windowIndex) {
             long key = pos.asLong();
+            if (oldState.is(BlockTags.LOGS) && !newState.is(BlockTags.LOGS)) {
+                ItemStack harvested = new ItemStack(oldState.getBlock().asItem());
+                groups.values().stream().filter(group -> group.matchesPrimary(harvested))
+                        .forEach(group -> group.productionObserved = true);
+            }
             if (isVanillaSapling(newState)) {
                 addSapling(pos, newState);
+                if (hasGrowthPropertyIncrease(oldState, newState)) {
+                    groups.get(newState.getBlock()).growthObserved = true;
+                }
                 return true;
             }
             Block sapling = isVanillaSapling(oldState) ? oldState.getBlock() : saplingTypes.get(key);
@@ -405,95 +552,13 @@ public final class RegenerativeSourceAdapters {
 
         private void recordGrowth(Block sapling, long gameTime, int windowIndex) {
             if (sapling == null) return;
-            TreeGroup group = groups.computeIfAbsent(sapling, TreeGroup::new);
+            TreeGroup group = groups.computeIfAbsent(sapling, block -> new TreeGroup(block, required));
+            group.growthObserved = true;
             // One 2x2 tree replaces four saplings in the same tick; that is one source cycle.
             if (group.lastEventTick == gameTime) return;
             group.lastEventTick = gameTime;
             group.events = Math.addExact(group.events, 1);
             if (windowIndex >= 0) group.eventWindows.set(windowIndex);
-        }
-
-        @Override
-        public void recordBoundaryItemOutput(ItemStack stack, long moved, long gameTime, int windowIndex) {
-            if (moved <= 0 || !isTreeOutput(stack)) return;
-            boolean followsEvent = false;
-            for (TreeGroup group : groups.values()) {
-                if (group.events <= 0) continue;
-                followsEvent = true;
-                if (group.matchesPrimary(stack)) group.outputConfirmedEvents = group.events;
-            }
-            if (followsEvent) {
-                certifiedOutputs.merge(ItemVariant.of(stack), moved, TreeEvidence::saturatingAdd);
-                lastCertifiedOutputTick = gameTime;
-            }
-        }
-
-        @Override
-        public boolean hasPreliminaryEvidence() {
-            return groups.values().stream().anyMatch(group -> group.events > 0 || group.outputConfirmedEvents > 0);
-        }
-
-        @Override
-        public boolean isReady() {
-            return !groups.isEmpty() && groups.values().stream()
-                    .allMatch(group -> group.events >= required && group.outputConfirmedEvents >= required);
-        }
-
-        @Override
-        public boolean isReadyToFinalize(long gameTime) {
-            return isReady() && lastCertifiedOutputTick != Long.MIN_VALUE
-                    && gameTime - lastCertifiedOutputTick >= 40L;
-        }
-
-        @Override
-        public int verifiedCycles() {
-            return groups.values().stream().mapToInt(group -> group.events).min().orElse(0);
-        }
-
-        @Override
-        public int requiredCycles() {
-            return required;
-        }
-
-        @Override
-        public int evidenceWindowCount() {
-            return groups.values().stream().mapToInt(group -> group.eventWindows.cardinality()).min().orElse(0);
-        }
-
-        @Override
-        public boolean allowsOutput(ItemStack stack) {
-            return isTreeOutput(stack);
-        }
-
-        @Override
-        public boolean canQuantifyMixedOutput(ItemStack stack) {
-            return certifiedOutputs.containsKey(ItemVariant.of(stack));
-        }
-
-        @Override
-        public long claimedOutputAmount(ItemStack stack, long observed, boolean hasMaterialInputs) {
-            if (!allowsOutput(stack) || observed <= 0) return 0;
-            return Math.min(observed, certifiedOutputs.getOrDefault(ItemVariant.of(stack), 0L));
-        }
-
-        @Override
-        public boolean hasNaturalWait() {
-            return true;
-        }
-
-        @Override
-        public boolean hasStatisticalOutput() {
-            return true;
-        }
-
-        @Override
-        public String debugSummary() {
-            List<String> status = groups.values().stream()
-                    .map(group -> BuiltInRegistries.BLOCK.getKey(group.sapling) + "=" + group.events + "/"
-                            + required + ",confirmed=" + group.outputConfirmedEvents)
-                    .sorted().toList();
-            return RegenerativeSourceAdapter.Evidence.super.debugSummary() + ", groups=" + status
-                    + ", treeCells=" + phases.size() + ", certifiedOutputs=" + certifiedOutputs;
         }
 
         private static boolean isTreeDynamic(BlockState state) {
@@ -508,10 +573,6 @@ public final class RegenerativeSourceAdapters {
         private static boolean isVanillaSapling(BlockState state) {
             return state.getBlock() instanceof SaplingBlock
                     && "minecraft".equals(BuiltInRegistries.BLOCK.getKey(state.getBlock()).getNamespace());
-        }
-
-        private static long saturatingAdd(long left, long right) {
-            return left > Long.MAX_VALUE - right ? Long.MAX_VALUE : left + right;
         }
     }
 
@@ -533,25 +594,23 @@ public final class RegenerativeSourceAdapters {
     }
 
     /** Per-crop-type event evidence for mixed farms sharing the same room and output ports. */
-    private static final class CropEvidence implements RegenerativeSourceAdapter.Evidence {
-        private static final class CropGroup {
-            private final Block crop;
+    private static final class CropEvidence extends PlantEvidence {
+        private static final class CropGroup extends PlantGroupEvidence {
             private final Set<Item> outputs;
             private final String namespace;
             private final String speciesPath;
-            private final BitSet eventWindows = new BitSet();
-            private int events;
-            private int outputConfirmedEvents;
-
-            private CropGroup(Block crop) {
-                this.crop = crop;
+            private CropGroup(Block crop, int required) {
+                super(crop, required);
                 this.outputs = cropOutputs(crop);
                 var id = BuiltInRegistries.BLOCK.getKey(crop);
                 this.namespace = id.getNamespace();
                 this.speciesPath = normalizedCropPath(id.getPath());
             }
 
-            private boolean matches(ItemStack stack) {
+            @Override public FactoryPlan.SourceKind sourceKind() { return FactoryPlan.SourceKind.CROP; }
+            @Override boolean matchesPrimary(ItemStack stack) { return allowsOutput(stack); }
+
+            @Override public boolean allowsOutput(ItemStack stack) {
                 if (stack == null || stack.isEmpty()) return false;
                 if (outputs.contains(stack.getItem())) return true;
                 var itemId = BuiltInRegistries.ITEM.getKey(stack.getItem());
@@ -563,12 +622,8 @@ public final class RegenerativeSourceAdapters {
 
         private final Map<Long, Block> cells = new HashMap<>();
         private final Map<Block, CropGroup> groups = new HashMap<>();
-        private final Map<ItemVariant, Long> certifiedOutputs = new HashMap<>();
-        private final int required;
-        private long lastCertifiedOutputTick = Long.MIN_VALUE;
-
         private CropEvidence(ServerLevel level, PocketBounds bounds, BlockPos origin, int required) {
-            this.required = required;
+            super(required);
             if (level == null) return;
             BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
             for (int x = bounds.minX(origin) + 1; x < bounds.maxX(origin); x++) {
@@ -587,7 +642,7 @@ public final class RegenerativeSourceAdapters {
         private void addCell(BlockPos pos, Block crop) {
             long key = pos.asLong();
             cells.put(key, crop);
-            groups.computeIfAbsent(crop, CropGroup::new);
+            groups.computeIfAbsent(crop, block -> new CropGroup(block, required));
         }
 
         @Override
@@ -596,8 +651,8 @@ public final class RegenerativeSourceAdapters {
         }
 
         @Override
-        public boolean isSupported() {
-            return !groups.isEmpty();
+        public List<? extends RegenerativeSourceAdapter.Evidence> learningGroups() {
+            return List.copyOf(groups.values());
         }
 
         @Override
@@ -605,25 +660,40 @@ public final class RegenerativeSourceAdapters {
                                       BlockState newState, int windowIndex) {
             Block oldCrop = cropType(oldState);
             Block newCrop = cropType(newState);
-            if (newCrop != null) addCell(pos, newCrop);
+            if (newCrop != null) {
+                addCell(pos, newCrop);
+                if (oldCrop == newCrop && (hasGrowthPropertyIncrease(oldState, newState)
+                        || oldState.is(Blocks.BAMBOO_SAPLING) && newState.is(Blocks.BAMBOO))) {
+                    groups.get(newCrop).growthObserved = true;
+                }
+            }
+            if (oldCrop != null && oldCrop != newCrop && isVerticalCrop(oldCrop) && groups.containsKey(oldCrop)) {
+                groups.get(oldCrop).productionObserved = true;
+            }
+
+            if (oldState.getBlock() != newState.getBlock()
+                    && (oldState.is(Blocks.MELON) || oldState.is(Blocks.PUMPKIN))) {
+                Block harvestedStem = stemCropForFruit(level, pos, newState, oldState);
+                if (harvestedStem != null) groups.get(harvestedStem).productionObserved = true;
+            }
 
             Block fruitStem = stemCropForFruit(level, pos, oldState, newState);
             if (fruitStem != null) {
-                recordEvent(fruitStem, windowIndex);
+                recordEvent(fruitStem, windowIndex, false);
                 return true;
             }
 
             if (oldCrop != null && oldCrop == newCrop && isMature(oldState) && !isMature(newState)) {
-                recordEvent(oldCrop, windowIndex);
+                recordEvent(oldCrop, windowIndex, true);
                 return true;
             }
             if (oldCrop != null && oldCrop != newCrop && isMature(oldState)) {
-                recordEvent(oldCrop, windowIndex);
+                recordEvent(oldCrop, windowIndex, true);
                 return true;
             }
             if (oldCrop == null && newCrop != null && isVerticalCrop(newCrop)) {
                 Block below = cropType(level.getBlockState(pos.below()));
-                if (below == newCrop) recordEvent(newCrop, windowIndex);
+                if (below == newCrop) recordEvent(newCrop, windowIndex, false);
                 return true;
             }
             return oldCrop != null || newCrop != null;
@@ -645,94 +715,12 @@ public final class RegenerativeSourceAdapters {
             return null;
         }
 
-        private void recordEvent(Block crop, int windowIndex) {
-            CropGroup group = groups.computeIfAbsent(crop, CropGroup::new);
+        private void recordEvent(Block crop, int windowIndex, boolean harvested) {
+            CropGroup group = groups.computeIfAbsent(crop, block -> new CropGroup(block, required));
             group.events = Math.addExact(group.events, 1);
+            group.productionObserved |= harvested;
+            group.growthObserved |= !harvested;
             if (windowIndex >= 0) group.eventWindows.set(windowIndex);
-        }
-
-        @Override
-        public void recordBoundaryItemOutput(ItemStack stack, long moved, long gameTime, int windowIndex) {
-            if (stack == null || stack.isEmpty() || moved <= 0) return;
-            boolean certified = false;
-            for (CropGroup group : groups.values()) {
-                if (group.events > 0 && group.matches(stack)) {
-                    group.outputConfirmedEvents = group.events;
-                    certified = true;
-                }
-            }
-            if (certified) {
-                certifiedOutputs.merge(ItemVariant.of(stack), moved, CropEvidence::saturatingAdd);
-                lastCertifiedOutputTick = gameTime;
-            }
-        }
-
-        @Override
-        public boolean hasPreliminaryEvidence() {
-            return groups.values().stream().anyMatch(group -> group.events > 0 || group.outputConfirmedEvents > 0);
-        }
-
-        @Override
-        public boolean isReady() {
-            return !groups.isEmpty() && groups.values().stream()
-                    .allMatch(group -> group.events >= required && group.outputConfirmedEvents >= required);
-        }
-
-        @Override
-        public boolean isReadyToFinalize(long gameTime) {
-            return isReady() && lastCertifiedOutputTick != Long.MIN_VALUE
-                    && gameTime - lastCertifiedOutputTick >= 40L;
-        }
-
-        @Override
-        public int verifiedCycles() {
-            return groups.values().stream().mapToInt(group -> group.events).min().orElse(0);
-        }
-
-        @Override
-        public int requiredCycles() {
-            return required;
-        }
-
-        @Override
-        public int evidenceWindowCount() {
-            return groups.values().stream().mapToInt(group -> group.eventWindows.cardinality()).min().orElse(0);
-        }
-
-        @Override
-        public boolean allowsOutput(ItemStack stack) {
-            return stack != null && groups.values().stream().anyMatch(group -> group.matches(stack));
-        }
-
-        @Override
-        public boolean canQuantifyMixedOutput(ItemStack stack) {
-            return stack != null && certifiedOutputs.containsKey(ItemVariant.of(stack));
-        }
-
-        @Override
-        public long claimedOutputAmount(ItemStack stack, long observed, boolean hasMaterialInputs) {
-            if (!allowsOutput(stack) || observed <= 0) return 0;
-            return Math.min(observed, certifiedOutputs.getOrDefault(ItemVariant.of(stack), 0L));
-        }
-
-        @Override
-        public boolean hasNaturalWait() {
-            return true;
-        }
-
-        @Override
-        public boolean hasStatisticalOutput() {
-            return true;
-        }
-
-        @Override
-        public String debugSummary() {
-            List<String> status = groups.values().stream()
-                    .map(group -> BuiltInRegistries.BLOCK.getKey(group.crop) + "=" + group.events + "/"
-                            + required + ",confirmed=" + group.outputConfirmedEvents)
-                    .sorted().toList();
-            return RegenerativeSourceAdapter.Evidence.super.debugSummary() + ", groups=" + status
-                    + ", cropCells=" + cells.size() + ", certifiedOutputs=" + certifiedOutputs;
         }
 
         private static Block cropType(BlockState state) {
@@ -815,10 +803,6 @@ public final class RegenerativeSourceAdapters {
                 }
             }
             return path;
-        }
-
-        private static long saturatingAdd(long left, long right) {
-            return left > Long.MAX_VALUE - right ? Long.MAX_VALUE : left + right;
         }
     }
 }

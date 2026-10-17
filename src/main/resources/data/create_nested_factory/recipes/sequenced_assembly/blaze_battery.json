@@ -1,5 +1,6 @@
 {
   "type": "create:sequenced_assembly",
+  "loops": 1,
   "ingredient": {
     "item": "create_nested_factory:battery_casing"
   },
@@ -12,7 +13,7 @@
   "sequence": [
     {
       "type": "create:cutting",
-      "processing_time": 100,
+      "processingTime": 100,
       "ingredients": [
         {
           "item": "create_nested_factory:incomplete_blaze_battery"
@@ -54,7 +55,7 @@
       ]
     }
   ],
-  "transitional_item": {
+  "transitionalItem": {
     "item": "create_nested_factory:incomplete_blaze_battery"
   }
 }

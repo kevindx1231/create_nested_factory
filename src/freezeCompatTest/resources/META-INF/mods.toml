@@ -1,0 +1,13 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="All Rights Reserved"
+[[mods]]
+modId="cnf_freeze_test"
+version="1.0"
+displayName="CNF Freeze Integration Tests (test only)"
+[[dependencies.cnf_freeze_test]]
+modId="create_nested_factory"
+mandatory=true
+versionRange="[1.5.22]"
+ordering="AFTER"
+side="SERVER"

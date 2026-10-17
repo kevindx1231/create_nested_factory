@@ -1,5 +1,6 @@
 {
   "type": "create:sequenced_assembly",
+  "loops": 1,
   "ingredient": {
     "item": "create_nested_factory:sturdy_casing"
   },
@@ -59,7 +60,7 @@
       ]
     }
   ],
-  "transitional_item": {
+  "transitionalItem": {
     "item": "create_nested_factory:incomplete_space_expand_mechanism"
   }
 }

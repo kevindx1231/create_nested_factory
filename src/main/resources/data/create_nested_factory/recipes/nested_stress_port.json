@@ -5,17 +5,14 @@
     "B": {
       "item": "create:brass_sheet"
     },
-    "G": {
-      "type": "forge:compound",
-      "ingredients": [
-        {
-          "item": "create:speedometer"
-        },
-        {
-          "item": "create:stressometer"
-        }
-      ]
-    },
+    "G": [
+      {
+        "item": "create:speedometer"
+      },
+      {
+        "item": "create:stressometer"
+      }
+    ],
     "S": {
       "item": "create:shaft"
     },

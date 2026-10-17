@@ -4,7 +4,7 @@
 
 > Build real factories inside persistent Pocket rooms, connect them through Create logistics, and turn verified production lines into nestable black-box factories.
 
-当前正式版 / Latest stable release: **v1.5.21 · Minecraft 1.20.1**
+当前正式版 / Latest stable release: **v1.5.22 · Minecraft 1.20.1**
 
 源码分支 / Source branches: [mc1.20.1](https://github.com/kevindx1231/create_nested_factory/tree/mc1.20.1) · [mc1.21.1](https://github.com/kevindx1231/create_nested_factory/tree/mc1.21.1)
 
@@ -12,30 +12,32 @@
 
 ## 简体中文
 
-Create Nested Factory 是面向 Minecraft 1.20.1、NeoForge 和 Create 的自动化模组。它允许玩家在持久化的 Pocket 空间中建造真实产线，再通过物品、流体、包裹、应力、通道和黑盒生产，把复杂工厂封装成可以搬运、复制生产规则并继续嵌套的工厂方块。
+Create Nested Factory 是面向 Minecraft 1.20.1、Forge/NeoForge 和 Create 的自动化模组。它允许玩家在持久化的 Pocket 空间中建造真实产线，再通过物品、流体、包裹、应力、通道和黑盒生产，把复杂工厂封装成可以搬运、复制生产规则并继续嵌套的工厂方块。
 
 ### 运行要求
 
-| 项目 | v1.5.21 支持版本 |
+| 项目 | v1.5.22 支持版本 |
 |---|---|
 | Minecraft | 1.20.1 |
 | Java | 17 |
-| 加载器 | 开发基线 NeoForge 47.1.106；元数据允许 Forge 47.1.33–47.x，双加载器游戏内验收尚未完成 |
+| 加载器 | 专用服务器验证：Forge 47.3.0 / NeoForge 47.1.106；元数据允许 47.1.33–47.x，其他版本未穷举验证 |
 | Create | `>= 6.0.8` 且 `< 6.1.0`；开发版本为 6.0.8-291 |
 
-客户端和专用服务器应安装相同版本的本模组及必需依赖。构建及自动回归验证不等于已完成双加载器游戏内联测；请按下方验证范围选择环境。
+客户端和专用服务器应安装相同版本的本模组及必需依赖。本次已完成双加载器冻结逻辑的专用服务器测试，客户端 GUI 与其他功能的完整游戏内联测尚未完成；详见[验证报告](docs/freeze-compatibility-validation-1.20.1.md)。
 
-### v1.5.21 更新要点
+### v1.5.22 更新要点
 
-- 发布 Minecraft 1.20.1 移植版，保留 Pocket、嵌套、工厂目录与指令、物流、应力、学习、黑盒和蓝图功能。
-- 修复 GUI 六面模式、按钮按下态与超频滑块的贴图采样尺寸。
-- 修复跨维度后的飞行和无限夜视同步、飞行中 Shift 返回、原有夜视恢复及游戏模式变化后的飞行权限恢复。
-- 修复工厂蓝图被 Create 建筑蓝图逻辑误识别导致的崩溃与编辑界面误打开，并移除重复 Shift 提示。
-- 修复 Mekanism 能力失效重入、四类化学品提取资源损失及 Pipez 流体/通用管道端点识别。
-- 黑盒、蓝图、准备结束、解冻和端口晚加载后自动通知相邻管道重连；合并重复刷新和能力/热量查询。
-- 修复 1.20.1 的维度光照范围格式。此版本不包含 Aeronautics、Simulated 或 Sable 移动结构兼容。
+- 改进树场/农场学习：按树苗种类或作物 ID 独立认证，有生长或生产活动的来源才参与等待，闲置来源不阻塞其他路线；生长活动不等于认证完成。
+- 学习默认绝对期限由 6000 改为 3600 tick（20 TPS 时 3 分钟），生长不会重置期限；已有存档的显式配置保持原值。
+- 发布计划前重新核对完整学习账本，避免沿用过早锁定的加工路线、错误归属再生产物或忽略库存净损耗；拆分再生路线时保留启动资本合同。
+- 修正 1.20.1/Create 配方字段、序列装配中间物和循环次数、锯切时长、超高温搅拌要求及应力端口的两种仪表材料，并新增全部 15 个配方的反序列化回归。
+- 修复工厂冻结与 Observable 4.4.2 的 Mixin 冲突，避免加载世界前因注入失败退出。
+- 冻结时跳过机器执行及 Observable 计时；正常和解冻后的机器保留第三方 tick 与性能分析行为。
+- 将 MixinExtras Forge 0.4.1 内嵌到发布 JAR，支持 Forge 47 和 NeoForge 47，无需玩家另装。
+- 保留原有 XYZ 冻结边界、计划刻/方块事件恢复和玩家排除规则。
+- 完整构建及 21 组 JVM 回归通过；同一发布 JAR 在 Forge 47.3.0 / NeoForge 47.1.106 上分别通过基础、Radium 0.12.4、Observable 4.4.2、两者同时安装的 8 组专用服务器测试。客户端 GUI 和其他版本未重新验收。
 
-英文更新日志见 [v1.5.21 release notes](docs/releases/mc1.20.1-v1.5.21.md)。
+完整更新日志见 [v1.5.22 release notes](docs/releases/mc1.20.1-v1.5.22.md)。
 
 ### 工厂指令
 
@@ -52,7 +54,7 @@ Create Nested Factory 是面向 Minecraft 1.20.1、NeoForge 和 Create 的自动
 
 复制品关联原空间，原工厂仍放置时不能重复放置；恢复时采用最新保存状态。删除会拒绝存在任何后代、玩家或正在进行房间任务的空间。详见[指令说明](docs/cnf-commands.md)。
 
-### v1.5.21 完整功能
+### v1.5.22 完整功能
 
 #### Pocket 工厂与嵌套空间
 
@@ -119,7 +121,9 @@ Create Nested Factory 是面向 Minecraft 1.20.1、NeoForge 和 Create 的自动
 - 前两个等长区间建立候选计划，第三个区间确认连续运行；资源只需在任一区间出现，最终效率按完整证据计算。
 - 没有完整产物时当前区间可自适应延长；整个会话受 `blackboxMaxLearningTicks` 绝对期限限制。
 - 普通加工、再生来源和来源后加工可编译为加工路线、再生路线或来源耦合路线；一个组合计划最多包含一条加工路线和一条再生路线。
-- 内建来源适配器支持圆石、玄武岩、树场和农场。树木按树苗种类分组，作物按方块注册 ID 分组，每组都必须达到配置的来源事件次数并产生对应边界输出。
+- 内建来源适配器支持圆石、玄武岩、树场和农场。树木按树苗种类分组，作物按方块注册 ID 分组；树场、作物出现一次生长活动即参与等待，参与组仍必须达到配置的完整来源事件次数并产生对应边界输出才能认证。
+- 没有生长或生产活动的树苗、作物和闲置来源不阻塞已经完成的其他路线，也不获得黑盒生产权限；没有独立配方时仍保留自然生长的学习时间。
+- 全部学习共用从切换请求开始的 `blackboxMaxLearningTicks` 绝对期限，默认 3600 tick（20 TPS 时为 3 分钟）；生长不会重置期限。到期仍有参与来源未认证时整次学习失败并退回常加载，不发布部分路线。无法确定归属的产物不会转入普通配方，发布前重新核对完整账本。
 - 第三方代码可通过 `RegenerativeSourceAdapter` 注册额外来源类型；无效或没有来源适配器授权的无输入生产不会成为永久配方。
 - 来源事件授予有限产出额度；同身份外部输入与来源产出重叠、隐藏库存消耗或无法解释的房间净损耗不会被当作免费产量。
 - 支持普通加工与独立再生路线的组合，也支持“内部来源 → 内部加工 → 最终边界产物”的耦合路线。
@@ -159,7 +163,7 @@ Create Nested Factory 是面向 Minecraft 1.20.1、NeoForge 和 Create 的自动
 - 潜行右键另一座兼容工厂应用蓝图；不能应用到蓝图来源本身，也不能覆盖尚未取消的现有蓝图。
 - 蓝图模式不加载真实 Pocket 产线，直接按经过验证的合同运行；取消蓝图时按所有权规则结算或清理模拟状态。
 - 终端蓝图工厂专门用于在最大房间深度之外继续封装生产。
-- v1.5.21 使用当前计划/蓝图格式；缺少所有权、来源或应力证明的旧格式不会猜测迁移，必须重新学习并重新复制蓝图。
+- v1.5.22 使用当前计划/蓝图格式；缺少所有权、来源或应力证明的旧格式不会猜测迁移，必须重新学习并重新复制蓝图。
 
 #### 工厂通道
 
@@ -191,7 +195,7 @@ Create Nested Factory 是面向 Minecraft 1.20.1、NeoForge 和 Create 的自动
 
 ### 可选兼容
 
-| 模组组合 | v1.5.21 支持内容 |
+| 模组组合 | v1.5.22 支持内容 |
 |---|---|
 | 不安装可选模组 | 完整基础 Pocket、端口、应力、学习、黑盒、蓝图、冻结和通道功能 |
 | Mekanism 10.4.16–10.4.x | 工厂面与扩展接口的 Chemical 和 Heat capability；Heat 双向，Chemical 遵守端口方向 |
@@ -201,13 +205,13 @@ Create Nested Factory 是面向 Minecraft 1.20.1、NeoForge 和 Create 的自动
 
 ### 配置项
 
-配置文件由 NeoForge 生成。学习开始时会快照与本次会话有关的配置。
+配置文件由 Forge/NeoForge 生成。学习开始时会快照与本次会话有关的配置。
 
 | 配置键 | 默认值 | 范围 | 作用 |
 |---|---:|---:|---|
 | `maxNestingDepth` | 8 | 1–16 | 拥有真实 Pocket 房间的最大嵌套深度 |
 | `roomMutationBlocksPerTick` | 16384 | 64–65536 | 每个房间任务每 tick 最多检查或写入的方块数 |
-| `blackboxMaxLearningTicks` | 6000 | 2–2147483647 | 一次统一黑盒学习的绝对最大 tick 数 |
+| `blackboxMaxLearningTicks` | 3600 | 2–2147483647 | 一次统一黑盒学习的绝对最大 tick 数 |
 | `cobblestoneSourceVerificationCycles` | 3 | 3–5 | 圆石来源所需完整事件数 |
 | `basaltSourceVerificationCycles` | 3 | 3–5 | 玄武岩来源所需完整事件数 |
 | `treeSourceVerificationCycles` | 3 | 3–5 | 每个树木来源组所需完整事件数 |
@@ -234,9 +238,9 @@ Create Nested Factory 是面向 Minecraft 1.20.1、NeoForge 和 Create 的自动
 
 ### 安装
 
-1. 安装 Minecraft 1.20.1、Java 17 和 NeoForge 47.1.106。
+1. 安装 Minecraft 1.20.1、Java 17，以及 Forge 47.3.0 或 NeoForge 47.1.106。
 2. 安装 Create 6.0.8–6.0.x。
-3. 从 [Releases](https://github.com/kevindx1231/create_nested_factory/releases/tag/mc1.20.1-v1.5.21) 下载 `create_nested_factory-1.20.1-1.5.21.jar`。
+3. 从 [Releases](https://github.com/kevindx1231/create_nested_factory/releases/tag/mc1.20.1-v1.5.22) 下载 `create_nested_factory-1.20.1-1.5.22.jar`。
 4. 把 JAR 放入客户端和服务器的 `mods` 目录；不要同时保留本模组的其他版本。
 5. 如需兼容功能，再安装上表中的可选模组。
 
@@ -254,6 +258,7 @@ Create Nested Factory 是面向 Minecraft 1.20.1、NeoForge 和 Create 的自动
 ### 设计与测试文档
 
 - [1.20.1 适配与验证范围](docs/mc1.20.1-port.md)
+- [冻结兼容与双加载器验证报告](docs/freeze-compatibility-validation-1.20.1.md)
 - [领域规则与持久化约束](CONTEXT.md)
 
 ### 从源码构建
@@ -272,7 +277,7 @@ Linux/macOS：
 ./gradlew check build --stacktrace
 ```
 
-正式 JAR 输出到 `build/libs/create_nested_factory-1.20.1-1.5.21.jar`。`build` 包含 20 组 JVM 回归检查，覆盖命令、通道、安全返回、冻结、房间生命周期、会话恢复、维度资源、NBT/能力/网络移植、蓝图、内部端口重连、Mekanism 四类化学品与热量，以及 Pipez 端点适配。
+正式 JAR 输出到 `build/libs/create_nested_factory-1.20.1-1.5.22.jar`。`build` 包含 21 组 JVM 回归检查，覆盖命令、通道、安全返回、冻结、房间生命周期、会话恢复、维度资源、NBT/能力/网络移植、蓝图、内部端口重连、Mekanism 四类化学品与热量、配方反序列化，以及 Pipez 端点适配。
 
 ### 问题反馈
 
@@ -280,7 +285,7 @@ Linux/macOS：
 
 - `latest.log` 和相关崩溃报告；
 - 单人游戏或专用服务器环境；
-- Minecraft、NeoForge、Create 和可选兼容模组版本；
+- Minecraft、Forge/NeoForge、Create 和可选兼容模组版本；
 - 可重复的方块结构、操作步骤、预期结果和实际结果；
 - 是否从旧版本升级，以及问题能否在新世界复现。
 
@@ -298,30 +303,32 @@ Copyright © 2026 Kevin_Dish1231.
 
 ## English
 
-Create Nested Factory is an automation mod for Minecraft 1.20.1, NeoForge, and Create. It lets players build real production lines inside persistent Pocket spaces, then package those lines into portable and nestable factory blocks through item, fluid, package, stress, passage, and black-box systems.
+Create Nested Factory is an automation mod for Minecraft 1.20.1, Forge/NeoForge, and Create. It lets players build real production lines inside persistent Pocket spaces, then package those lines into portable and nestable factory blocks through item, fluid, package, stress, passage, and black-box systems.
 
 ### Requirements
 
-| Component | Supported by v1.5.21 |
+| Component | Supported by v1.5.22 |
 |---|---|
 | Minecraft | 1.20.1 |
 | Java | 17 |
-| Loader | Development baseline: NeoForge 47.1.106; metadata accepts Forge 47.1.33–47.x. In-game validation on both loaders is pending |
+| Loader | Dedicated-server tested: Forge 47.3.0 / NeoForge 47.1.106; metadata accepts 47.1.33–47.x. Other versions are not exhaustively tested |
 | Create | `>= 6.0.8` and `< 6.1.0`; development version 6.0.8-291 |
 
-Clients and dedicated servers should install the same version of this mod and all required dependencies. Build/regression validation does not establish complete in-game coverage on both loaders; see the validation scope below.
+Clients and dedicated servers should install the same version of this mod and all required dependencies. Dedicated-server freeze integration is tested on both loaders; client GUI and complete gameplay coverage remain pending. See the [validation report](docs/freeze-compatibility-validation-1.20.1.md).
 
-### What's new in v1.5.21
+### What's new in v1.5.22
 
-- Ports the mod to Minecraft 1.20.1 while retaining Pocket rooms, nesting, factory commands, logistics, stress, learning, black-box production, and blueprints.
-- Fixes GUI texture sampling for face modes, pressed buttons, and the overclock slider.
-- Fixes flight/night-vision synchronization after dimension changes, Shift-return while flying, previous night-vision restoration, and flight restoration after game-mode changes.
-- Prevents factory blueprints from entering Create's building-schematic reader/editor and removes the duplicate Shift hint.
-- Fixes Mekanism capability-invalidation re-entry, resource loss across all four chemical types, and Pipez fluid/universal-pipe endpoint detection.
-- Restores adjacent pipe connections after black-box/blueprint/preparation transitions, thawing, and late port loading; reduces repeated refreshes, handler creation, and heat endpoint lookups.
-- Fixes the 1.20.1 dimension light-provider format. Aeronautics, Simulated, and Sable moving-structure integration is not included.
+- Improves tree/crop learning with independent sapling-type/crop-ID certification. Only sources with observed growth or production participate in the wait; idle groups do not block other routes, and growth alone does not certify production.
+- Changes the default absolute learning deadline from 6000 to 3600 ticks (3 minutes at 20 TPS). Growth never resets it; existing explicit world configuration retains its value.
+- Reconciles the complete learning ledger before publishing a plan, preventing stale processing candidates, misattributed regenerative output, and ignored inventory losses. Splitting a regenerative route now retains its startup-capital contract.
+- Corrects 1.20.1/Create recipe fields, assembly transitional items/loop counts, cutting duration, superheated mixing, and the stress port's two alternative gauges. Adds deserialization regression coverage for all 15 recipes.
+- Fixes the factory-freeze Mixin conflict with Observable 4.4.2 that could abort world loading.
+- Frozen machines skip execution and Observable timing samples; live and thawed machines retain third-party tick and profiling behavior.
+- Bundles MixinExtras Forge 0.4.1 in the release JAR for Forge 47 and NeoForge 47; no separate installation is needed.
+- Preserves XYZ freeze boundaries, scheduled-tick/block-event restoration, and player exclusions.
+- Full build and 21 JVM regression groups passed. The same release JAR passed eight dedicated-server combinations: Forge 47.3.0 / NeoForge 47.1.106 with base dependencies, Radium 0.12.4, Observable 4.4.2, and both. Client GUI and other versions were not retested.
 
-See the [v1.5.21 release notes](docs/releases/mc1.20.1-v1.5.21.md).
+See the [v1.5.22 release notes](docs/releases/mc1.20.1-v1.5.22.md).
 
 ### Factory commands
 
@@ -338,7 +345,7 @@ The directory persists with the world and queries do not load room chunks. Exist
 
 Copies reference the same room, cannot be placed while the original remains placed, and restore the latest saved state. Deletion rejects rooms with any descendants, players, or active room tasks. See the [command reference](docs/cnf-commands.md).
 
-### Complete v1.5.21 feature set
+### Complete v1.5.22 feature set
 
 #### Pocket factories and nested spaces
 
@@ -405,7 +412,9 @@ Copies reference the same room, cannot be placed while the original remains plac
 - The first two equal windows create a candidate plan; the third confirms continuous operation. A resource may appear in any window, while final efficiency uses the complete evidence set.
 - A window may extend adaptively when no complete product has appeared. The entire session is bounded by `blackboxMaxLearningTicks`.
 - Ordinary processing, regenerative sources, and downstream source processing compile into processing, regenerative, or source-coupled routes. A combined plan contains at most one processing route and one regenerative route.
-- Built-in source adapters cover cobblestone, basalt, tree farms, and crop farms. Trees are grouped by sapling type and crops by block registry ID; every group must meet its configured event count and produce matching boundary output.
+- Built-in source adapters cover cobblestone, basalt, tree farms, and crop farms. Trees are grouped by sapling type and crops by block registry ID. Observed plant growth makes a group participate in the wait; participating groups must still complete the configured source event count and produce matching boundary output to be certified.
+- Saplings, crops, and idle sources with no growth or production activity do not block completed independent routes and gain no black-box production rights. Natural growth is still observed when no independent recipe is available.
+- All learning shares the absolute `blackboxMaxLearningTicks` deadline measured from the mode-switch request, defaulting to 3600 ticks (3 minutes at 20 TPS). Growth never resets it. If a participating source remains uncertified at expiry, the whole session fails back to chunk-loaded mode without publishing partial routes. Ambiguous output is not reassigned to ordinary processing, and the complete ledger is reconciled before publication.
 - Third-party code may register additional source types through `RegenerativeSourceAdapter`. Invalid sources or material-free production without adapter-certified evidence cannot become permanent recipes.
 - Source events grant limited output credit. Overlapping external input, hidden inventory consumption, and unexplained room losses are not treated as free production.
 - Plans may combine an ordinary processing line with an independent regenerative route, or learn a coupled route such as internal source → internal processing → final boundary product.
@@ -445,7 +454,7 @@ Copies reference the same room, cannot be placed while the original remains plac
 - Sneak-right-click another compatible factory to apply it. A blueprint cannot target its source factory or overwrite an existing blueprint until that mode is cancelled.
 - Blueprint mode runs the verified contract without loading the physical Pocket line. Cancelling it settles or clears simulated state according to ownership rules.
 - Terminal blueprint-only factories allow one additional encapsulation layer beyond the maximum room depth.
-- v1.5.21 uses the current plan and blueprint format. Older formats without ownership, source, or stress evidence are not guessed or migrated; relearn and recopy them.
+- v1.5.22 uses the current plan and blueprint format. Older formats without ownership, source, or stress evidence are not guessed or migrated; relearn and recopy them.
 
 #### Factory Passages
 
@@ -477,7 +486,7 @@ Copies reference the same room, cannot be placed while the original remains plac
 
 ### Optional compatibility
 
-| Mod combination | v1.5.21 integration |
+| Mod combination | v1.5.22 integration |
 |---|---|
 | No optional mods | Complete base Pocket, port, stress, learning, black-box, blueprint, freeze, and passage features |
 | Mekanism 10.4.16–10.4.x | Chemical and Heat capabilities on factory faces and extension interfaces; Heat is bidirectional and Chemical follows port direction |
@@ -487,13 +496,13 @@ When an optional mod is absent, its compatibility classes are not initialized an
 
 ### Configuration
 
-NeoForge generates the configuration file. Values relevant to a learning session are snapshotted when that session begins.
+Forge/NeoForge generates the configuration file. Values relevant to a learning session are snapshotted when that session begins.
 
 | Key | Default | Range | Purpose |
 |---|---:|---:|---|
 | `maxNestingDepth` | 8 | 1–16 | Maximum nesting depth that owns a real Pocket room |
 | `roomMutationBlocksPerTick` | 16384 | 64–65536 | Maximum block checks or writes per room task each tick |
-| `blackboxMaxLearningTicks` | 6000 | 2–2147483647 | Absolute maximum duration of one unified learning session |
+| `blackboxMaxLearningTicks` | 3600 | 2–2147483647 | Absolute maximum duration of one unified learning session |
 | `cobblestoneSourceVerificationCycles` | 3 | 3–5 | Complete events required for a cobblestone source |
 | `basaltSourceVerificationCycles` | 3 | 3–5 | Complete events required for a basalt source |
 | `treeSourceVerificationCycles` | 3 | 3–5 | Complete events required for each tree source group |
@@ -520,9 +529,9 @@ Data-pack recipes cover ordinary crafting, mixing, splashing, and Create sequenc
 
 ### Installation
 
-1. Install Minecraft 1.20.1, Java 17, and NeoForge 47.1.106.
+1. Install Minecraft 1.20.1, Java 17, and either Forge 47.3.0 or NeoForge 47.1.106.
 2. Install Create 6.0.8–6.0.x.
-3. Download `create_nested_factory-1.20.1-1.5.21.jar` from [Releases](https://github.com/kevindx1231/create_nested_factory/releases/tag/mc1.20.1-v1.5.21).
+3. Download `create_nested_factory-1.20.1-1.5.22.jar` from [Releases](https://github.com/kevindx1231/create_nested_factory/releases/tag/mc1.20.1-v1.5.22).
 4. Put the JAR in the `mods` directory on both client and server. Do not keep another version of Create Nested Factory in the same instance.
 5. Install any optional mods required for the integrations listed above.
 
@@ -540,6 +549,7 @@ Back up an existing world before upgrading. If an old plan or blueprint is rejec
 ### Design and test documentation
 
 - [1.20.1 port and validation scope](docs/mc1.20.1-port.md)
+- [Freeze compatibility and dual-loader validation report](docs/freeze-compatibility-validation-1.20.1.md)
 - [Domain rules and persistence constraints](CONTEXT.md)
 
 ### Building from source
@@ -558,7 +568,7 @@ Linux/macOS:
 ./gradlew check build --stacktrace
 ```
 
-The release JAR is written to `build/libs/create_nested_factory-1.20.1-1.5.21.jar`. `build` includes 20 JVM regression groups covering commands, passages, safe return, freeze/lifecycle rules, exploration recovery, dimension resources, NBT/capability/network backporting, blueprints, room-port reconnection, Mekanism chemicals/heat, and Pipez endpoint adaptation.
+The release JAR is written to `build/libs/create_nested_factory-1.20.1-1.5.22.jar`. `build` includes 21 JVM regression groups covering commands, passages, safe return, freeze/lifecycle rules, exploration recovery, dimension resources, NBT/capability/network backporting, blueprints, room-port reconnection, Mekanism chemicals/heat, recipe deserialization, and Pipez endpoint adaptation.
 
 ### Reporting issues
 
@@ -566,7 +576,7 @@ Open an issue at [GitHub Issues](https://github.com/kevindx1231/create_nested_fa
 
 - `latest.log` and relevant crash reports;
 - whether the problem occurred in single-player or on a dedicated server;
-- Minecraft, NeoForge, Create, and optional integration versions;
+- Minecraft, Forge/NeoForge, Create, and optional integration versions;
 - a reproducible block layout, exact steps, expected result, and actual result;
 - whether the world was upgraded and whether the issue reproduces in a new world.
 

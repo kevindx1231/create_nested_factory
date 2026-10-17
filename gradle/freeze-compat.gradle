@@ -1,0 +1,42 @@
+sourceSets {
+    freezeCompatTest {
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+    }
+}
+tasks.named('compileFreezeCompatTestJava') { dependsOn tasks.named('createMinecraftArtifacts') }
+
+def compatMods = (findProperty('freezeCompatMods') ?: '').toString().split(',').findAll { it }
+repositories { flatDir { dirs 'build/freeze-compat/mods' } }
+def compatDependencies = []
+if (compatMods.contains('observable')) {
+    compatDependencies += ['cnf.test:observable:4.4.2', 'cnf.test:architectury:9.2.14:forge',
+                           'cnf.test:kotlinforforge:4.12.0:all']
+}
+if (compatMods.contains('radium')) {
+    compatDependencies += 'cnf.test:radium-mc1.20.1:0.12.4+git.26c9d8e'
+}
+dependencies { compatDependencies.each { modRuntimeOnly it } }
+
+legacyForge {
+    mods {
+        cnf_freeze_test { sourceSet sourceSets.freezeCompatTest }
+    }
+    runs {
+        freezeCompat {
+            server()
+            sourceSet = sourceSets.freezeCompatTest
+            gameDirectory = file("build/freeze-compat/run-${project.hasProperty('forgeVersion') ? 'forge' : 'neoforge'}-${compatMods.join('-') ?: 'base'}")
+            programArgument '--nogui'
+            systemProperty 'cnf.freezeCompatTest', 'true'
+            systemProperty 'mixin.debug.export', 'true'
+        }
+    }
+}
+def testJar = tasks.register('freezeCompatTestJar', Jar) {
+    dependsOn tasks.named('freezeCompatTestClasses')
+    archiveBaseName = 'cnf-freeze-compat-test'
+    archiveClassifier = 'test-only'
+    from sourceSets.freezeCompatTest.output
+}
+obfuscation.reobfuscate(testJar, sourceSets.main)

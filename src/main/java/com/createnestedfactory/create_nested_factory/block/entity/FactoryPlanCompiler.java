@@ -6,6 +6,8 @@ import net.minecraftforge.fluids.FluidStack;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiPredicate;
+import java.util.function.Function;
 
 /** Collects live telemetry and compiles one continuous learning run into an immutable v9 plan. */
 public final class FactoryPlanCompiler {
@@ -279,7 +281,7 @@ public final class FactoryPlanCompiler {
     }
 
     /**
-     * Locks the ordinary route while regenerative source groups continue collecting events.
+     * Rebuilds an independent ordinary route after all participating source groups are verified.
      * Potential source outputs are omitted so a mixed farm cannot charge its renewable output
      * to the material-driven route merely because both routes share one output port.
      */
@@ -296,8 +298,23 @@ public final class FactoryPlanCompiler {
                 observation.internalGenerationSUTicks(), observation.peakInternalGeneratedSU(),
                 observation.peakConsumedSU())).toList();
         return compile(processing, null,
-                withoutPotentialSourceItems(roomItemAdjustments, evidence),
-                withoutPotentialSourceFluids(roomFluidAdjustments, evidence), toolDamageCosts);
+                processingRoomCosts(roomItemAdjustments, observations, Observation::itemInputs, Observation::itemOutputs,
+                        evidence == null ? null : evidence::certifiesOutput),
+                processingRoomCosts(roomFluidAdjustments, observations, Observation::fluidInputs, Observation::fluidOutputs,
+                        evidence == null ? null : evidence::certifiesOutput), toolDamageCosts);
+    }
+
+    /** Only certified source backlog may be removed from the ordinary route's complete ledger. */
+    private static <K> Map<K, Long> processingRoomCosts(Map<K, Long> adjustments, List<Observation> observations,
+                                                       Function<Observation, Map<K, Long>> inputs,
+                                                       Function<Observation, Map<K, Long>> outputs,
+                                                       BiPredicate<K, Long> certifies) {
+        if (certifies == null) return adjustments;
+        Map<K, Long> costs = new HashMap<>(adjustments);
+        costs.keySet().removeIf(key -> observations.stream().noneMatch(window -> inputs.apply(window).containsKey(key))
+                && observations.stream().anyMatch(window -> outputs.apply(window).getOrDefault(key, 0L) > 0L)
+                && certifies.test(key, Long.MAX_VALUE));
+        return costs;
     }
 
     public String candidateSummary(List<Observation> observations, FactoryLearningSession evidence) {

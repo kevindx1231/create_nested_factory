@@ -17,7 +17,7 @@ public final class Config {
 
     private static final ForgeConfigSpec.IntValue BLACKBOX_MAX_LEARNING_TICKS = BUILDER
             .comment("Absolute maximum black-box learning time in ticks")
-            .defineInRange("blackboxMaxLearningTicks", 6000, 2, Integer.MAX_VALUE);
+            .defineInRange("blackboxMaxLearningTicks", 3600, 2, Integer.MAX_VALUE);
 
     private static final ForgeConfigSpec.IntValue COBBLESTONE_SOURCE_VERIFICATION_CYCLES = BUILDER
             .comment("Complete source events required for a cobblestone black-box source")

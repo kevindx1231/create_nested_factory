@@ -45,6 +45,10 @@ public final class FactoryLearningSession {
         proofs.forEach(proof -> proof.evidence().tick(level, currentWindow));
     }
 
+    public boolean hasReadySource() {
+        return participatingProofs().stream().anyMatch(proof -> proof.evidence().isReady());
+    }
+
     /** Returns true when at least one adapter owns this dynamic mutation. */
     public boolean onBlockChanged(ServerLevel level, BlockPos pos, BlockState oldState, BlockState newState) {
         if (level == null || pos == null) return false;
@@ -78,36 +82,42 @@ public final class FactoryLearningSession {
     }
 
     public boolean hasPreliminaryEvidence() {
-        return proofs.stream().anyMatch(proof -> proof.evidence().isSupported()
+        return groupProofs().stream().anyMatch(proof -> proof.evidence().isSupported()
                 && proof.evidence().hasPreliminaryEvidence());
     }
 
     public boolean isSupported() {
-        return proofs.stream().anyMatch(proof -> proof.evidence().isSupported());
+        return !participatingProofs().isEmpty();
+    }
+
+    /** Keep slow natural sources observable when no independent recipe has been learned yet. */
+    public boolean hasNaturalCandidates() {
+        return groupProofs().stream().anyMatch(proof -> proof.evidence().isSupported()
+                && proof.evidence().hasNaturalWait());
     }
 
     public boolean isReady() {
-        List<Proof> supported = supportedProofs();
+        List<Proof> supported = participatingProofs();
         return !supported.isEmpty()
                 && supported.stream().allMatch(proof -> proof.evidence().isReady());
     }
 
     public boolean isReadyToFinalize(long gameTime) {
-        List<Proof> supported = supportedProofs();
+        List<Proof> supported = participatingProofs();
         return !supported.isEmpty()
                 && supported.stream().allMatch(proof -> proof.evidence().isReadyToFinalize(gameTime));
     }
 
     public int verifiedCycles() {
-        return supportedProofs().stream().mapToInt(proof -> proof.evidence().verifiedCycles()).min().orElse(0);
+        return participatingProofs().stream().mapToInt(proof -> proof.evidence().verifiedCycles()).min().orElse(0);
     }
 
     public int requiredCycles() {
-        return supportedProofs().stream().mapToInt(proof -> proof.evidence().requiredCycles()).max().orElse(0);
+        return participatingProofs().stream().mapToInt(proof -> proof.evidence().requiredCycles()).max().orElse(0);
     }
 
     public FactoryPlan.SourceKind sourceKind() {
-        List<Proof> supported = supportedProofs();
+        List<Proof> supported = participatingProofs();
         if (supported.isEmpty()) return FactoryPlan.SourceKind.NONE;
         FactoryPlan.SourceKind first = supported.get(0).evidence().sourceKind();
         return supported.stream().allMatch(proof -> proof.evidence().sourceKind() == first)
@@ -115,21 +125,21 @@ public final class FactoryLearningSession {
     }
 
     public boolean hasStatisticalOutput() {
-        return supportedProofs().stream().anyMatch(proof -> proof.evidence().hasStatisticalOutput());
+        return participatingProofs().stream().anyMatch(proof -> proof.evidence().hasStatisticalOutput());
     }
 
     public boolean hasNaturalWait() {
-        return supportedProofs().stream().anyMatch(proof -> proof.evidence().hasNaturalWait());
+        return participatingProofs().stream().anyMatch(proof -> proof.evidence().hasNaturalWait());
     }
 
     public List<String> proofIds() {
-        return supportedProofs().stream().filter(proof -> proof.evidence().isReady())
+        return participatingProofs().stream().filter(proof -> proof.evidence().isReady())
                 .map(proof -> proof.adapterId() + "@" + proof.ruleVersion()).distinct().sorted().toList();
     }
 
     public Map<ItemVariant, Long> startupCapitalItems() {
         Map<ItemVariant, Long> result = new HashMap<>();
-        for (Proof proof : supportedProofs()) {
+        for (Proof proof : participatingProofs()) {
             if (!RegenerativeStartupCapitalPolicy.copiesEvidenceCapital(proof.adapterId())) continue;
             proof.evidence().startupCapitalItems().forEach((variant, count) -> {
                 if (variant != null && count != null && count > 0) result.merge(variant, count, Math::addExact);
@@ -140,7 +150,7 @@ public final class FactoryLearningSession {
 
     public Map<ItemVariant, Long> toolDamageTotals() {
         Map<ItemVariant, Long> result = new HashMap<>();
-        for (Proof proof : supportedProofs()) {
+        for (Proof proof : participatingProofs()) {
             proof.evidence().toolDamageTotals().forEach((variant, count) -> {
                 if (variant != null && count != null && count > 0) result.merge(variant, count, Math::addExact);
             });
@@ -152,7 +162,7 @@ public final class FactoryLearningSession {
         if (variant == null || observed <= 0 || !isReady()) return 0;
         ItemStack stack = variant.createStack(1);
         long claimed = 0;
-        for (Proof proof : supportedProofs()) {
+        for (Proof proof : participatingProofs()) {
             claimed = saturatingAdd(claimed,
                     proof.evidence().claimedOutputAmount(stack, observed - Math.min(observed, claimed), hasMaterialInputs));
             if (claimed >= observed) return observed;
@@ -164,7 +174,7 @@ public final class FactoryLearningSession {
         if (variant == null || observed <= 0 || !isReady()) return 0;
         FluidStack stack = variant.prototype();
         long claimed = 0;
-        for (Proof proof : supportedProofs()) {
+        for (Proof proof : participatingProofs()) {
             claimed = saturatingAdd(claimed,
                     proof.evidence().claimedOutputAmount(stack, observed - Math.min(observed, claimed), hasMaterialInputs));
             if (claimed >= observed) return observed;
@@ -175,13 +185,13 @@ public final class FactoryLearningSession {
     public boolean isPotentialRegenerativeOutput(ItemVariant variant) {
         if (variant == null) return false;
         ItemStack stack = variant.createStack(1);
-        return supportedProofs().stream().anyMatch(proof -> proof.evidence().allowsOutput(stack));
+        return participatingProofs().stream().anyMatch(proof -> proof.evidence().allowsOutput(stack));
     }
 
     public boolean isPotentialRegenerativeOutput(FluidVariant variant) {
         if (variant == null) return false;
         FluidStack stack = variant.prototype();
-        return supportedProofs().stream().anyMatch(proof -> proof.evidence().allowsOutput(stack));
+        return participatingProofs().stream().anyMatch(proof -> proof.evidence().allowsOutput(stack));
     }
 
     /**
@@ -199,7 +209,7 @@ public final class FactoryLearningSession {
     public boolean hasAmbiguousMixedOutput(ItemVariant output, Iterable<ItemVariant> inputs) {
         if (output == null || inputs == null) return false;
         ItemStack outputStack = output.createStack(1);
-        for (Proof proof : supportedProofs()) {
+        for (Proof proof : participatingProofs()) {
             RegenerativeSourceAdapter.Evidence source = proof.evidence();
             if (!source.allowsOutput(outputStack) || source.canQuantifyMixedOutput(outputStack)) continue;
             for (ItemVariant input : inputs) {
@@ -212,7 +222,7 @@ public final class FactoryLearningSession {
     public boolean hasAmbiguousMixedOutput(FluidVariant output, Iterable<FluidVariant> inputs) {
         if (output == null || inputs == null) return false;
         FluidStack outputStack = output.prototype();
-        for (Proof proof : supportedProofs()) {
+        for (Proof proof : participatingProofs()) {
             RegenerativeSourceAdapter.Evidence source = proof.evidence();
             if (!source.allowsOutput(outputStack) || source.canQuantifyMixedOutput(outputStack)) continue;
             for (FluidVariant input : inputs) {
@@ -229,8 +239,14 @@ public final class FactoryLearningSession {
                 .map(proof -> proof.adapterId() + "={" + proof.evidence().debugSummary() + "}").toList();
     }
 
-    private List<Proof> supportedProofs() {
-        return proofs.stream().filter(proof -> proof.evidence().isSupported()).toList();
+    private List<Proof> participatingProofs() {
+        return groupProofs().stream().filter(proof -> proof.evidence().isSupported()
+                && proof.evidence().hasLearningActivity()).toList();
+    }
+
+    private List<Proof> groupProofs() {
+        return proofs.stream().flatMap(proof -> proof.evidence().learningGroups().stream()
+                .map(group -> new Proof(proof.adapterId(), proof.ruleVersion(), group))).toList();
     }
 
     private static long saturatingAdd(long left, long right) {
