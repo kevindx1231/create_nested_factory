@@ -298,9 +298,9 @@ Linux/macOS：
 
 ### 许可
 
-Copyright © 2026 Kevin_Dish1231. All Rights Reserved.
+Copyright © 2026 Kevin_Dish1231.
 
-本仓库公开用于源码查看和问题定位。除非版权所有者另行书面授权，否则不授予复制、修改、再发布或分发许可。详见 [LICENSE](LICENSE)。
+本项目采用 MIT 许可证，允许使用、复制、修改、分发和商业使用，须保留版权声明和许可声明。详见 [LICENSE](LICENSE)。
 
 [返回顶部](#create-nested-factory) | [English](#english)
 
@@ -594,8 +594,8 @@ Open an issue at [GitHub Issues](https://github.com/kevindx1231/create_nested_fa
 
 ### License
 
-Copyright © 2026 Kevin_Dish1231. All Rights Reserved.
+Copyright © 2026 Kevin_Dish1231.
 
-This repository is public for source inspection and issue diagnosis. No permission to copy, modify, republish, or distribute is granted without separate written authorization from the copyright owner. See [LICENSE](LICENSE).
+This project is licensed under the MIT License, which permits use, copying, modification, distribution, and commercial use, provided that the copyright and permission notices are retained. See [LICENSE](LICENSE).
 
 [Back to top](#create-nested-factory) | [简体中文](#简体中文)
