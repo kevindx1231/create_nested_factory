@@ -16,8 +16,6 @@ import com.createnestedfactory.create_nested_factory.registry.ModAttachments;
 import com.simibubi.create.AllItems;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.core.BlockPos;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.item.ItemStack;
@@ -30,7 +28,6 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.common.Tags;
 import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
-import net.neoforged.neoforge.event.entity.EntityLeaveLevelEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.level.BlockEvent;
@@ -131,22 +128,6 @@ public class PocketEvents {
     public static void onPocketBlockBroken(BlockEvent.BreakEvent event) {
         if (!event.isCanceled() && event.getLevel() instanceof Level level) {
             markPocketRoomIndexDirty(level, event.getPos());
-        }
-    }
-
-    @SubscribeEvent
-    public static void onBoundFactoryItemLeaveLevel(EntityLeaveLevelEvent event) {
-        Entity entity = event.getEntity();
-        if (!(entity instanceof ItemEntity itemEntity)
-                || event.getLevel().isClientSide()
-                || itemEntity.getItem().isEmpty()) {
-            return;
-        }
-        if (itemEntity.getItem().is(com.createnestedfactory.create_nested_factory.registry.ModItems.NESTED_FACTORY.get())
-                && itemEntity.getRemovalReason() != Entity.RemovalReason.UNLOADED_TO_CHUNK
-                && itemEntity.getRemovalReason() != Entity.RemovalReason.UNLOADED_WITH_PLAYER
-                && itemEntity.getRemovalReason() != Entity.RemovalReason.CHANGED_DIMENSION) {
-            NestedFactoryBlockEntity.destroyPortableItem((net.minecraft.server.level.ServerLevel) event.getLevel(), itemEntity);
         }
     }
 

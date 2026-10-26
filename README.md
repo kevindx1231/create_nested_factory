@@ -4,11 +4,11 @@
 
 > Build real factories inside persistent Pocket rooms, connect them through Create logistics, and turn verified production lines into nestable black-box factories.
 
-当前正式版 / Latest stable release: **v1.5.22 — Minecraft 1.21.1**
+当前正式版 / Latest stable release: **v1.5.23 — Minecraft 1.21.1**
 
-本次修复 Observable 冻结兼容，调整树场与农场的学习参与和最终账本校验，并移除未完成的ponder功能。完整日志见 [v1.5.22 更新日志](docs/releases/v1.5.22.md)。
+本次新增同层受限蓝图工厂，完善嵌套入口、搬运与空间绑定保护，修复绑定物品丢失或被磁铁收取后空间被清理的问题，并恢复内置 Ponder 教程。完整日志见 [v1.5.23 更新日志](docs/releases/v1.5.23.md)。
 
-This update fixes Observable freeze compatibility, revises tree/crop learning participation and final ledger validation, and removes the unfinished Ponder feature. See the [v1.5.22 release notes](docs/releases/v1.5.22.md).
+This update adds blueprint-only sibling factories, improves nested entry and relocation safeguards, preserves rooms when bound items are lost or collected by magnets, and restores built-in Ponder tutorials. See the [v1.5.23 release notes](docs/releases/v1.5.23.md).
 
 <a id="简体中文"></a>
 
@@ -18,7 +18,7 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 
 ### 运行要求
 
-| 项目 | v1.5.22 支持版本 |
+| 项目 | v1.5.23 支持版本 |
 |---|---|
 | Minecraft | 1.21.1 |
 | Java | 21 |
@@ -27,7 +27,17 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 
 客户端和专用服务器应安装相同版本的本模组及必需依赖。
 
-### v1.5.22 更新要点
+### v1.5.23 更新要点
+
+- 同一父空间中首个工厂取得下一层入口，之后仍可放置仅运行应用蓝图的工厂；拆除入口工厂会释放资格，已放置的其他工厂不自动接替。
+- 带绑定工厂在入口被占用时仍可放回原父空间，其旧空间保持冻结，绑定不会丢失；入口空缺后拆下重放可恢复原空间。
+- 普通挖掘、潜行扳手拆卸和 GUI 销毁共用子工厂、玩家及房间变更保护；扳手拆卸保留绑定，护目镜正确显示入口限制。
+- 工厂物品丢失、损毁、消失或被磁铁收取不再清理原空间；使用 GUI 销毁或 `/cnf delete <id>` 才会显式清理。
+- 恢复工厂、普通端口、应力端口、扩展接口和工厂通道的内置 Ponder 教程，共 8 个教学章节，包含中英文字幕。
+
+详细日志见 [v1.5.23 更新日志](docs/releases/v1.5.23.md)。
+
+### v1.5.22 历史更新要点
 
 - 修复与 Observable 5.4.4 的方块实体 tick 注入冲突，保留 Lithium 0.15.4 随机刻兼容。
 - 树苗、作物发生生长活动后才参与来源等待；闲置来源不阻塞已完成的独立加工路线，生长活动本身不授予生产权限。
@@ -72,10 +82,13 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 - 控制界面支持工厂命名、六面端口配置、模式切换、实时输入/输出查看、烈焰电池和超频档位管理。
 - 玩家进入 Pocket 后临时获得探索所需的飞行和夜视能力，离开或会话恢复时还原进入前状态。
 - 支持在工厂房间内继续放置嵌套工厂，并保存根工厂、父工厂和嵌套深度关系。
-- 每个房间最多拥有一个可进入的直接子工厂；已有子工厂时拒绝创建同层兄弟，避免父子身份歧义。
+- 每个房间至多一个工厂在放置时取得下一层空间入口资格；仍可放置同层受限蓝图工厂，它们只能运行应用蓝图，不创建独立房间。拆除入口工厂立即释放资格，已放置的其他工厂不自动接替。
+- 带原空间绑定的工厂可在入口被占用时放回原父空间，仅运行应用蓝图；其原空间保持冻结，取消蓝图不开放入口，拆除仍保留绑定。入口空缺后拆下重放可恢复原空间。
 - 默认最大有房间嵌套深度为 8，可配置为 1–16；有房间的嵌套工厂使用固定 `16×16×16` 空间。
 - 在最大有房间深度的下一层可放置“终端蓝图工厂”：它没有独立 Pocket 房间，只能运行已应用的蓝图，仍参与父子关系和冻结逻辑。
 - 普通破坏工厂不会销毁 Pocket 空间，而是掉落携带原工厂身份和状态的单个绑定物品；重新合法放置后连接回同一房间。
+- 普通挖掘和潜行扳手拆卸也会检查内部子工厂、玩家和房间变更任务；包括无空间蓝图工厂在内的内部工厂会阻止拆除。无空间蓝图工厂拆除后掉落普通无绑定工厂方块。
+- 绑定工厂物品丢失、烧毁、爆炸销毁、自然消失或被磁铁收取时，原空间与绑定记录继续保留。清理空间需使用控制界面销毁按钮或 `/cnf delete <id>`；物品丢失后，管理员可用 `/cnf copy <id>` 恢复绑定物品。
 - 根工厂只能在 Pocket 维度之外恢复放置；嵌套工厂只能回到原父工厂空间，不能借搬运更换层级或父工厂。
 - 控制界面的永久清除流程会检查玩家、子工厂和房间状态，并以持久化后台任务清理真实空间。
 - 玩家离线、服务器重启或返回路径失效时，会验证完整会话和返回栈；无法恢复时安全结束会话，并返回外部锚点或主世界出生点。
@@ -172,7 +185,7 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 - 潜行右键另一座兼容工厂应用蓝图；不能应用到蓝图来源本身，也不能覆盖尚未取消的现有蓝图。
 - 蓝图模式不加载真实 Pocket 产线，直接按经过验证的合同运行；取消蓝图时按所有权规则结算或清理模拟状态。
 - 终端蓝图工厂专门用于在最大房间深度之外继续封装生产。
-- v1.5.22 使用 v9 计划/蓝图格式；缺少所有权、来源或应力证明的旧格式不会猜测迁移，必须重新学习并重新复制蓝图。
+- v1.5.23 使用 v9 计划/蓝图格式；缺少所有权、来源或应力证明的旧格式不会猜测迁移，必须重新学习并重新复制蓝图。
 
 #### 工厂通道
 
@@ -205,12 +218,13 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 - Create 工程师护目镜显示工厂身份、模式、深度、学习状态、输入/输出、内外应力、端口目标、扩展接口绑定和通道状态。
 - 工厂物品与蓝图 Tooltip 显示身份、来源工厂、来源位置/维度/深度、效率、输入输出、应力和启动资本。
 - 内置简体中文和英文资源，注册独立创造模式标签、方块模型、物品模型、配方、战利品表和配方解锁进度。
+- 内置 8 个 Ponder 教学章节，覆盖工厂进出、物流、黑盒与搬运、多层嵌套与蓝图、普通端口、应力端口、扩展接口及工厂通道，配有中英文字幕。
 - 客户端渲染、标记和界面注册均有逻辑侧隔离；支持专用服务器运行。
 - 高频黑盒诊断默认关闭；需要排查学习、事务、应力或所有权问题时可开启结构化 `[CNF-BLACKBOX]` 日志。
 
 ### 可选兼容
 
-| 模组组合 | v1.5.22 支持内容 |
+| 模组组合 | v1.5.23 支持内容 |
 |---|---|
 | 不安装可选模组 | 完整基础 Pocket、端口、应力、学习、黑盒、蓝图、冻结和通道功能 |
 | Mekanism 10.7+ | 工厂面与扩展接口的 Chemical 和 Heat capability；Heat 双向，Chemical 遵守端口方向 |
@@ -257,7 +271,7 @@ Create Nested Factory 是面向 Minecraft 1.21.1、NeoForge 和 Create 的自动
 
 1. 安装 Minecraft 1.21.1、Java 21 和 NeoForge 21.1.x。
 2. 安装 Create 6.0.9–6.0.x。
-3. 从 [v1.5.22 Release](https://github.com/kevindx1231/create_nested_factory/releases/tag/mc1.21.1-v1.5.22) 下载 `create_nested_factory-1.21.1-1.5.22.jar`。
+3. 从 [v1.5.23 Release](https://github.com/kevindx1231/create_nested_factory/releases/tag/mc1.21.1-v1.5.23) 下载 `create_nested_factory-1.21.1-1.5.23.jar`。
 4. 把 JAR 放入客户端和服务器的 `mods` 目录；不要同时保留本模组的其他版本。
 5. 如需兼容功能，再安装上表中的可选模组。
 
@@ -296,7 +310,7 @@ Linux/macOS：
 ./gradlew check build --stacktrace
 ```
 
-正式 JAR 输出到 `build/libs/create_nested_factory-1.21.1-1.5.22.jar`。`check` 会运行工厂指令、通道交互与移动空间、防重入、冻结索引、服务器隔离、学习控制器、房间几何、生命周期转换、会话恢复、蓝图资本、移动返回变换和发布修复回归任务。
+正式 JAR 输出到 `build/libs/create_nested_factory-1.21.1-1.5.23.jar`。`check` 会运行工厂指令、嵌套放置与绑定恢复、蓝图物品/流体生产、物品移除后空间保留、通道交互与移动空间、防重入、冻结索引、服务器隔离、学习控制器、房间几何、生命周期转换、会话恢复、蓝图资本、移动返回变换和发布修复回归任务。
 
 冻结模组兼容集成测试另行运行 `./scripts/test-freeze-compat.ps1`，覆盖基础、Lithium、Observable 和共存四种组合，测试资源不进入发布 JAR。详见[测试记录与重跑方式](docs/releases/v1.5.22-freeze-compat.md)。
 
@@ -328,7 +342,7 @@ Create Nested Factory is an automation mod for Minecraft 1.21.1, NeoForge, and C
 
 ### Requirements
 
-| Component | Supported by v1.5.22 |
+| Component | Supported by v1.5.23 |
 |---|---|
 | Minecraft | 1.21.1 |
 | Java | 21 |
@@ -337,7 +351,17 @@ Create Nested Factory is an automation mod for Minecraft 1.21.1, NeoForge, and C
 
 Clients and dedicated servers should install the same version of this mod and all required dependencies.
 
-### What's new in v1.5.22
+### What's new in v1.5.23
+
+- The first factory placed in a parent room receives the next-level entry. Additional factories can run applied blueprints without creating rooms. Removing the entry holder frees eligibility; existing siblings do not automatically take over.
+- Bound factories can be replaced in their original parent while entry is occupied. Their original room stays frozen and bound; replacing them again after entry becomes vacant restores that room.
+- Normal breaking, sneak-wrench removal, and GUI destruction share child-factory, player, and room-task safeguards. Wrench removal preserves bindings, and goggles correctly identify restricted factories.
+- Losing, destroying, despawning, or magnet-collecting a factory item no longer clears its room. Room cleanup requires explicit GUI destruction or `/cnf delete <id>`.
+- Restores 8 built-in Ponder chapters for factories, ports, stress ports, extension interfaces, and passages, with Chinese and English captions.
+
+See the [v1.5.23 release notes](docs/releases/v1.5.23.md).
+
+### Earlier highlights: v1.5.22
 
 - Fixes the block-entity tick injection conflict with Observable 5.4.4 while retaining Lithium 0.15.4 random-tick compatibility.
 - Tree and crop groups join source waiting after observed growth. Idle sources do not block completed independent processing routes, and growth alone does not certify production.
@@ -382,10 +406,13 @@ Copies reference the same room, cannot be placed while the original remains plac
 - The control screen supports naming, six-face port configuration, mode switching, live input/output rates, Blaze Battery slots, and overclock selection.
 - Players temporarily receive flight and night vision for Pocket exploration. Their previous abilities are restored when they leave or when a session is recovered.
 - Factories can be placed inside factory rooms, with persistent root, parent, and nesting-depth relationships.
-- Each room may have at most one enterable direct child factory. A second sibling at the same level is rejected to keep parent-child identity unambiguous.
+- At most one factory in each room receives next-level entry eligibility when placed. Additional siblings can run applied blueprints without creating rooms. Removing the entry holder immediately frees eligibility; existing siblings are never automatically promoted.
+- A bound factory can return to its original parent while entry is occupied and run only applied blueprints. Its original room stays frozen and bound, including after blueprint cancellation or removal. Replacing it after entry becomes vacant restores that room.
 - The default maximum room-owning nesting depth is 8 and can be configured from 1 to 16. Nested factories with rooms use fixed `16×16×16` spaces.
 - One layer beyond the room depth limit may contain a terminal blueprint-only factory. It owns no Pocket room, runs only an applied blueprint, and still participates in hierarchy and freeze logic.
 - Normally breaking a factory preserves its Pocket. It drops one bound item carrying the factory identity and state; legal replacement reconnects to the same room.
+- Normal breaking and sneak-wrench removal also check internal child factories, players, and active room tasks. Internal factories, including roomless blueprint factories, prevent removal. Removing a roomless blueprint factory drops an ordinary unbound factory block.
+- Losing, burning, exploding, despawning, or collecting a bound factory item with a magnet preserves its room and binding record. Clear rooms explicitly through the control screen or `/cnf delete <id>`; administrators can recover a lost bound item with `/cnf copy <id>`.
 - Root factories can only be restored outside the Pocket dimension. Nested factories can only return to their original parent space and cannot be moved to change parent or hierarchy level.
 - The permanent-clear action in the control screen validates players, child factories, and room state, then cleans the physical room through a persistent background task.
 - Offline players, server restarts, and invalid return paths are handled by validating the complete session and return stack. Failed recovery safely ends the session and returns the player to an external anchor or the Overworld spawn.
@@ -482,7 +509,7 @@ Copies reference the same room, cannot be placed while the original remains plac
 - Sneak-right-click another compatible factory to apply it. A blueprint cannot target its source factory or overwrite an existing blueprint until that mode is cancelled.
 - Blueprint mode runs the verified contract without loading the physical Pocket line. Cancelling it settles or clears simulated state according to ownership rules.
 - Terminal blueprint-only factories allow one additional encapsulation layer beyond the maximum room depth.
-- v1.5.22 uses the v9 plan and blueprint format. Older formats without ownership, source, or stress evidence are not guessed or migrated; relearn and recopy them.
+- v1.5.23 uses the v9 plan and blueprint format. Older formats without ownership, source, or stress evidence are not guessed or migrated; relearn and recopy them.
 
 #### Factory Passages
 
@@ -515,12 +542,13 @@ Copies reference the same room, cannot be placed while the original remains plac
 - Create Engineer's Goggles show factory identity, mode, depth, learning state, input/output, internal/external stress, port target, interface binding, and passage status.
 - Factory items and blueprints show identity, source factory, source position/dimension/depth, efficiency, I/O, stress, and startup capital in their tooltips.
 - Includes Simplified Chinese and English resources, a dedicated creative tab, block/item models, recipes, loot tables, and recipe advancements.
+- Includes 8 Ponder chapters covering entry and return, logistics, black-box mode and relocation, nesting and blueprints, ports, stress ports, extension interfaces, and passages, with Chinese and English captions.
 - Client rendering, markers, and screens are side-gated, and the mod supports dedicated servers.
 - High-frequency black-box diagnostics are disabled by default. Enable them when structured `[CNF-BLACKBOX]` learning, runtime, stress, and ownership logs are needed.
 
 ### Optional compatibility
 
-| Mod combination | v1.5.22 integration |
+| Mod combination | v1.5.23 integration |
 |---|---|
 | No optional mods | Complete base Pocket, port, stress, learning, black-box, blueprint, freeze, and passage features |
 | Mekanism 10.7+ | Chemical and Heat capabilities on factory faces and extension interfaces; Heat is bidirectional and Chemical follows port direction |
@@ -567,7 +595,7 @@ Data-pack recipes cover ordinary crafting, mixing, splashing, and Create sequenc
 
 1. Install Minecraft 1.21.1, Java 21, and NeoForge 21.1.x.
 2. Install Create 6.0.9–6.0.x.
-3. Download `create_nested_factory-1.21.1-1.5.22.jar` from the [v1.5.22 Release](https://github.com/kevindx1231/create_nested_factory/releases/tag/mc1.21.1-v1.5.22).
+3. Download `create_nested_factory-1.21.1-1.5.23.jar` from the [v1.5.23 Release](https://github.com/kevindx1231/create_nested_factory/releases/tag/mc1.21.1-v1.5.23).
 4. Put the JAR in the `mods` directory on both client and server. Do not keep another version of Create Nested Factory in the same instance.
 5. Install any optional mods required for the integrations listed above.
 
@@ -606,7 +634,7 @@ Linux/macOS:
 ./gradlew check build --stacktrace
 ```
 
-The release JAR is written to `build/libs/create_nested_factory-1.21.1-1.5.22.jar`. `check` runs factory-command, passage-interaction and moving-space, re-entry, freeze-index, server-isolation, learning-controller, room-geometry, lifecycle-transition, session-recovery, blueprint-capital, moving-return-transform, and release-fix regression tasks.
+The release JAR is written to `build/libs/create_nested_factory-1.21.1-1.5.23.jar`. `check` runs factory-command, nested-placement and binding-recovery, blueprint item/fluid production, room retention after item removal, passage-interaction and moving-space, re-entry, freeze-index, server-isolation, learning-controller, room-geometry, lifecycle-transition, session-recovery, blueprint-capital, moving-return-transform, and release-fix regression tasks.
 
 Run `./scripts/test-freeze-compat.ps1` separately for the base, Lithium, Observable, and combined integration tests. Their resources stay outside the release JAR. See the [test report and rerun instructions](docs/releases/v1.5.22-freeze-compat.md).
 

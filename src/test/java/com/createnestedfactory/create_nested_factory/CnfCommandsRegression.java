@@ -4,8 +4,14 @@ import com.createnestedfactory.create_nested_factory.FactoryDirectorySavedData.E
 import com.createnestedfactory.create_nested_factory.block.NestedFactoryBlock;
 import com.createnestedfactory.create_nested_factory.block.OperationMode;
 import com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity;
+import com.createnestedfactory.create_nested_factory.block.entity.FactoryPlan;
+import com.createnestedfactory.create_nested_factory.block.entity.ItemVariant;
+import com.createnestedfactory.create_nested_factory.block.entity.FluidVariant;
+import com.createnestedfactory.create_nested_factory.block.PortMode;
+import com.createnestedfactory.create_nested_factory.blueprint.NestedFactoryBlueprint;
 import com.createnestedfactory.create_nested_factory.command.CnfCommands;
 import com.createnestedfactory.create_nested_factory.command.FactoryCommandService;
+import com.createnestedfactory.create_nested_factory.event.PocketEvents;
 import com.createnestedfactory.create_nested_factory.item.FactoryBlockItem;
 import com.createnestedfactory.create_nested_factory.registry.ModBlockEntities;
 import com.createnestedfactory.create_nested_factory.registry.ModItems;
@@ -16,6 +22,7 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.SharedConstants;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.MappedRegistry;
 import net.minecraft.core.Registry;
 import net.minecraft.core.component.DataComponents;
@@ -31,9 +38,11 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.players.PlayerList;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.GameRules;
@@ -78,14 +87,16 @@ public final class CnfCommandsRegression {
         require(chinese.keySet().stream().filter(key -> key.startsWith("command.create_nested_factory."))
                         .allMatch(english::has), "every Chinese command message needs an English translation");
         directoryPersistence();
+        nestedFactoryPlacementLifecycle();
         slotRecycling();
         inspectionAndPermissions();
         aimedFactoryInfo();
         copyAndPlacement();
+        portableItemRemovalPreservesRooms();
         deletionBlockers();
         deletionCompletionAndRestart();
         frozenAncestorCleanup();
-        System.out.println("CNF command, aimed-info, binding-copy, deletion and slot-recycling regressions passed.");
+        System.out.println("CNF commands, nested placement/binding recovery, blueprint item/fluid production and room deletion regressions passed.");
     }
 
     private static JsonObject language(String name) throws Exception {
@@ -110,6 +121,8 @@ public final class CnfCommandsRegression {
         BuiltInRegistries.BLOCK.freeze();
         reopen(BuiltInRegistries.ITEM);
         Registry.register(BuiltInRegistries.ITEM, id, new FactoryBlockItem(block, new Item.Properties().stacksTo(1)));
+        Registry.register(BuiltInRegistries.ITEM, ResourceLocation.fromNamespaceAndPath("create_nested_factory", "blaze_battery"),
+                new Item(new Item.Properties()));
         BuiltInRegistries.ITEM.freeze();
         reopen(BuiltInRegistries.BLOCK_ENTITY_TYPE);
         Registry.register(BuiltInRegistries.BLOCK_ENTITY_TYPE, id,
@@ -134,6 +147,205 @@ public final class CnfCommandsRegression {
         data.putLong("RootRoomOrigin", origin.asLong());
         data.putIntArray("Bounds", new int[6]);
         return data;
+    }
+
+    /** Exercises the real item gate, initialization, NBT and drops through A/B/D replacement. */
+    private static void nestedFactoryPlacementLifecycle() throws Exception {
+        try (Fixture f = new Fixture(); var lookup = mockStatic(NestedFactoryBlock.class, CALLS_REAL_METHODS);
+             var queues = mockStatic(PocketFreezeHooks.class)) {
+            Config.maxNestingDepth = 8;
+            var registries = net.minecraft.core.RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY);
+            when(f.pocket.registryAccess()).thenReturn(registries);
+            when(f.overworld.registryAccess()).thenReturn(registries);
+            when(f.pocket.getChunkSource()).thenReturn(mock(net.minecraft.server.level.ServerChunkCache.class));
+            when(f.overworld.getChunkSource()).thenReturn(mock(net.minecraft.server.level.ServerChunkCache.class));
+            NestedFactoryBlockEntity parent = factory(f.overworld, new BlockPos(1, 64, 1));
+            setFactoryField(parent, "factoryId", "parent");
+            setFactoryField(parent, "rootFactoryId", "parent");
+            setFactoryField(parent, "rootRoomAllocated", true);
+            setFactoryField(parent, "rootRoomOrigin", f.origin);
+            setFactoryField(parent, "factoryStateInitialized", true);
+            when(f.overworld.getBlockEntity(parent.getBlockPos())).thenReturn(parent);
+            lookup.when(() -> NestedFactoryBlock.findFactoryAt(eq(f.pocket), any(BlockPos.class))).thenReturn(parent);
+
+            BlockPos aPos = f.origin.offset(2, 2, 2);
+            NestedFactoryBlockEntity a = factory(f.pocket, aPos);
+            invokeFactory(a, "initializeFactoryState");
+            require(a.hasPhysicalRoom() && a.isEnterable(), "first factory must own an enterable room");
+            String aId = a.getFactoryId();
+            BlockPos aRoom = a.roomOrigin();
+            int aSlot = a.exportCommandBindingData(registries).getInt("NestedSlotId");
+            Level client = mock(Level.class);
+            a.setLevel(client);
+            require(!occupiedTooltip(a), "client goggles must not mislabel the first factory as occupied");
+            a.setLevel(f.pocket);
+
+            var gate = FactoryBlockItem.class.getDeclaredMethod("canPlaceBoundFactory", Level.class, BlockPos.class, ItemStack.class);
+            gate.setAccessible(true);
+            BlockPos bPos = f.origin.offset(3, 2, 2);
+            require((boolean) gate.invoke(null, f.pocket, bPos, new ItemStack(ModItems.NESTED_FACTORY.get())),
+                    "second factory must be placeable for blueprint use");
+            NestedFactoryBlockEntity b = factory(f.pocket, bPos);
+            invokeFactory(b, "initializeFactoryState");
+            require(!b.hasPhysicalRoom() && !b.isEnterable() && !b.isInvalidNested(),
+                    "second factory must be a valid roomless blueprint target");
+            require(parent.getChildFactoryId().equals(aId), "blueprint-only placement replaced the active child");
+            require(b.applyBlueprint(null, null).getContents() instanceof TranslatableContents error
+                            && error.getKey().endsWith("apply.invalid_data"),
+                    "blueprint-only target must reach blueprint-data validation");
+            require(occupiedTooltip(b), "blueprint-only sibling must display the occupied-entry message");
+            NestedFactoryBlueprint blueprint = productionBlueprint(f, registries);
+            blueprintProduction(b, blueprint);
+            b.switchFromBlueprint(null, OperationMode.CHUNK_LOADED);
+            require(b.isBlueprintOnly() && !b.hasPhysicalRoom() && b.getItemHandler(Direction.DOWN) == null,
+                    "canceling a roomless blueprint must leave an inactive blueprint-only factory");
+
+            BlockPos inner = aRoom.offset(1, 1, 1);
+            NestedFactoryBlockEntity roomlessChild = factory(f.pocket, inner);
+            LevelChunk populated = mock(LevelChunk.class);
+            when(populated.getBlockEntities()).thenReturn(Map.of(inner, roomlessChild));
+            int childChunkX = Math.floorDiv(inner.getX(), 16), childChunkZ = Math.floorDiv(inner.getZ(), 16);
+            LevelChunk empty = f.pocket.getChunk(childChunkX, childChunkZ);
+            when(f.pocket.getChunk(childChunkX, childChunkZ)).thenReturn(populated);
+            require(a.getRemovalFailure() != null, "roomless child factories must protect their owning room from removal");
+            require(!ModItems.NESTED_FACTORY.get().getBlock().onDestroyedByPlayer(a.getBlockState(), f.pocket,
+                    aPos, mock(net.minecraft.world.entity.player.Player.class), true, Fluids.EMPTY.defaultFluidState()),
+                    "ordinary breaking must enforce child protection before changing the world");
+            when(f.pocket.getChunk(childChunkX, childChunkZ)).thenReturn(empty);
+            require(a.getRemovalFailure() == null, "an empty room must permit portable removal");
+
+            ItemStack portableA = a.createPortableItem(registries);
+            invokeFactory(a, "unregisterFactoryState");
+            require(!parent.hasRecordedChild(), "removing A must immediately free the entry");
+            require(!b.hasPhysicalRoom() && !b.isEnterable(), "existing B must never be promoted");
+            CompoundTag legacyRoomless = b.saveWithFullMetadata(registries);
+            legacyRoomless.remove("SiblingBlueprintOnly");
+            legacyRoomless.putBoolean("InvalidNested", true);
+            NestedFactoryBlockEntity migratedB = factory(f.pocket, bPos);
+            migratedB.loadWithComponents(legacyRoomless, registries);
+            migratedB.onLoad();
+            require(migratedB.isBlueprintOnly() && !migratedB.hasPhysicalRoom() && !parent.hasRecordedChild(),
+                    "legacy roomless migration must never claim a newly vacant entry");
+
+            NestedFactoryBlockEntity d = factory(f.pocket, f.origin.offset(4, 2, 2));
+            invokeFactory(d, "initializeFactoryState");
+            require(d.hasPhysicalRoom() && d.isEnterable() && !d.roomOrigin().equals(aRoom),
+                    "new D must receive a separate room after A is removed");
+            require((boolean) gate.invoke(null, f.pocket, aPos, portableA),
+                    "bound A must be placeable while D owns the entry");
+            NestedFactoryBlockEntity blockedA = factory(f.pocket, aPos);
+            blockedA.loadWithComponents(NestedFactoryBlockEntity.getFactoryItemData(portableA), registries);
+            invokeFactory(blockedA, "initializeFactoryState");
+            blockedA.onLoad();
+            require(!blockedA.isEnterable() && !blockedA.isInvalidNested() && blockedA.hasPhysicalRoom(),
+                    "blocked A must retain its room binding without player access");
+            require(blockedA.getFactoryId().equals(aId) && blockedA.roomOrigin().equals(aRoom)
+                            && blockedA.exportCommandBindingData(registries).getInt("NestedSlotId") == aSlot,
+                    "blocked placement erased A's original room identity");
+            require(parent.getChildFactoryId().equals(d.getFactoryId()), "restoring A stole D's entry");
+            require(!blockedA.requestRoomBuild() && !blockedA.isLiveResourceTransferMode(),
+                    "blocked A must not build or transfer resources to its retained room");
+            require(f.frozen.hasTree(aId), "blocked A's retained physical room must stay frozen");
+            blueprintProduction(blockedA, blueprint);
+            var cachedInput = blockedA.getItemHandler(Direction.DOWN);
+            blockedA.switchFromBlueprint(null, OperationMode.CHUNK_LOADED);
+            require(f.frozen.hasTree(aId) && !blockedA.canUsePhysicalRoom()
+                            && cachedInput.insertItem(0, new ItemStack(Items.COBBLESTONE), false).getCount() == 1,
+                    "canceling A's blueprint must retain the room freeze and close cached input handlers");
+            CompoundTag worldSave = blockedA.saveWithFullMetadata(registries);
+            NestedFactoryBlockEntity reloadedA = factory(f.pocket, aPos);
+            reloadedA.loadWithComponents(worldSave, registries);
+            reloadedA.onLoad();
+            require(!reloadedA.isEnterable() && reloadedA.isBlueprintOnly() && reloadedA.roomOrigin().equals(aRoom),
+                    "world reload must preserve A's blocked placement and original binding");
+            blockedA = reloadedA;
+            ItemStack blockedDrop = blockedA.createPortableItem(registries);
+            require(NestedFactoryBlockEntity.getFactoryItemData(blockedDrop).getString("FactoryId").equals(aId),
+                    "blocked A must drop its original portable binding");
+            invokeFactory(blockedA, "unregisterFactoryState");
+            require(parent.getChildFactoryId().equals(d.getFactoryId()), "removing blocked A cleared D's entry");
+            invokeFactory(d, "unregisterFactoryState");
+            NestedFactoryBlockEntity restoredA = factory(f.pocket, aPos);
+            restoredA.loadWithComponents(NestedFactoryBlockEntity.getFactoryItemData(blockedDrop), registries);
+            invokeFactory(restoredA, "initializeFactoryState");
+            require(restoredA.isEnterable() && restoredA.roomOrigin().equals(aRoom),
+                    "replacing A into a vacant entry must restore its original room");
+            ItemStack ordinaryB = b.createPortableItem(registries);
+            require(!ordinaryB.has(DataComponents.BLOCK_ENTITY_DATA), "roomless B must drop an ordinary unbound factory");
+
+            // The terminal layer remains roomless even when an old save still records a child.
+            setFactoryField(parent, "nestingDepth", 8);
+            NestedFactoryBlockEntity terminal = factory(f.pocket, f.origin.offset(6, 2, 2));
+            invokeFactory(terminal, "initializeFactoryState");
+            require(terminal.isTerminalBlueprintOnly() && !terminal.hasPhysicalRoom(),
+                    "depth-limit terminal placement must remain supported");
+        }
+    }
+
+    private static boolean occupiedTooltip(NestedFactoryBlockEntity factory) {
+        List<Component> tooltip = new ArrayList<>();
+        factory.addToGoggleTooltip(tooltip, false);
+        return tooltip.stream().anyMatch(component -> component.toString().contains("goggles.create_nested_factory.child_factory_exists"));
+    }
+
+    private static NestedFactoryBlueprint productionBlueprint(Fixture f, net.minecraft.core.HolderLookup.Provider registries) throws Exception {
+        var compile = java.util.Arrays.stream(FactoryPlan.class.getDeclaredMethods())
+                .filter(method -> method.getName().equals("compiled")).findFirst().orElseThrow();
+        compile.setAccessible(true);
+        FactoryPlan plan = (FactoryPlan) compile.invoke(null,
+                Map.of(ItemVariant.of(new ItemStack(Items.COBBLESTONE)), 1L),
+                Map.of(ItemVariant.of(new ItemStack(Items.STONE)), 1L),
+                Map.of(FluidVariant.of(new net.neoforged.neoforge.fluids.FluidStack(Fluids.WATER, 1000)), 1000L),
+                Map.of(FluidVariant.of(new net.neoforged.neoforge.fluids.FluidStack(Fluids.LAVA, 1000)), 1000L),
+                Map.of(), Map.of(), Map.of(), Map.of(), 1, 0, FactoryPlan.SourceKind.NONE, 0, false,
+                0d, 0f, 0d, 0f, 0f, List.of());
+        require(plan.hasCompleteRecipe(), "production fixture requires a complete material-backed plan");
+        NestedFactoryBlockEntity source = factory(f.overworld, new BlockPos(20, 64, 20));
+        source.getPlan().read(plan.write(new CompoundTag(), registries), registries);
+        for (var entry : Map.of("faceModes", new PortMode[]{PortMode.INPUT, PortMode.OUTPUT, PortMode.NONE,
+                PortMode.NONE, PortMode.NONE, PortMode.NONE}, "portIds", new int[]{1, 2, 0, 0, 0, 0}).entrySet()) {
+            Field field = NestedFactoryBlockEntity.class.getDeclaredField(entry.getKey());
+            field.setAccessible(true);
+            System.arraycopy(entry.getValue(), 0, field.get(source), 0, 6);
+        }
+        return NestedFactoryBlueprint.fromFactory(source, registries);
+    }
+
+    private static void blueprintProduction(NestedFactoryBlockEntity factory, NestedFactoryBlueprint blueprint) throws Exception {
+        require(factory.applyBlueprint(blueprint, null) == null, "valid blueprint must apply to a restricted factory");
+        var input = factory.getItemHandler(Direction.DOWN);
+        var output = factory.getItemHandler(Direction.UP);
+        var fluidInput = factory.getFluidHandler(Direction.DOWN);
+        var fluidOutput = factory.getFluidHandler(Direction.UP);
+        require(input != null && output != null && fluidInput != null && fluidOutput != null,
+                "blueprint factory must expose its item and fluid faces");
+        require(input.insertItem(0, new ItemStack(Items.COBBLESTONE), false).isEmpty(), "blueprint item input was rejected");
+        require(fluidInput.fill(new net.neoforged.neoforge.fluids.FluidStack(Fluids.WATER, 1000),
+                net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE) == 1000, "blueprint fluid input was rejected");
+        for (int tick = 0; tick < 5; tick++) invokeFactory(factory, "tickBlueprint");
+        require(output.extractItem(0, 64, false).is(Items.STONE), "blueprint did not produce its paid item output");
+        require(fluidOutput.drain(1000, net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE)
+                .getFluid() == Fluids.LAVA, "blueprint did not produce its paid fluid output");
+        require(output.extractItem(0, 64, false).isEmpty(), "blueprint output was delivered twice");
+    }
+
+    private static NestedFactoryBlockEntity factory(ServerLevel level, BlockPos pos) {
+        var factory = new NestedFactoryBlockEntity(pos, ModItems.NESTED_FACTORY.get().getBlock().defaultBlockState());
+        factory.setLevel(level);
+        when(level.getBlockEntity(pos)).thenReturn(factory);
+        return factory;
+    }
+
+    private static void setFactoryField(NestedFactoryBlockEntity factory, String name, Object value) throws Exception {
+        Field field = NestedFactoryBlockEntity.class.getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(factory, value);
+    }
+
+    private static void invokeFactory(NestedFactoryBlockEntity factory, String name) throws Exception {
+        var method = NestedFactoryBlockEntity.class.getDeclaredMethod(name);
+        method.setAccessible(true);
+        method.invoke(factory);
     }
 
     private static void directoryPersistence() {
@@ -375,7 +587,6 @@ public final class CnfCommandsRegression {
             CompoundTag copiedData = NestedFactoryBlockEntity.getFactoryItemData(copy);
             require(copiedData.getString("FactoryId").equals("root") && copiedData.getBoolean(FactoryCommandService.COPY_KEY), "copy must keep the existing ID and identify its non-owning binding");
             require(f.directory.find("root").isItem(), "copy must not alter the original binding");
-            require(!FactoryCommandService.canDestroyPortableRoom(f.server, copiedData), "destroying a copy must not delete its shared room");
             f.directory.observe(entry("root", "", true, new BlockPos(9, 64, 9)));
             BlockPlaceContext context = mock(BlockPlaceContext.class);
             when(context.getLevel()).thenReturn(f.overworld);
@@ -410,6 +621,58 @@ public final class CnfCommandsRegression {
             require(!FactoryCommandService.preparePlacement(context), "a retired binding must not be placeable");
             NestedFactoryBlockEntity.observePortableItem(f.server, copy);
             require(f.directory.find("root") == null, "inventory observation must not resurrect a retired room");
+        }
+    }
+
+    private static void portableItemRemovalPreservesRooms() throws Exception {
+        var events = net.neoforged.bus.api.BusBuilder.builder().build();
+        events.register(PocketEvents.class);
+        for (boolean nested : new boolean[]{false, true}) {
+            for (boolean damaged : new boolean[]{false, true}) {
+                try (Fixture f = new Fixture()) {
+                    CompoundTag binding = f.data.copy();
+                    if (nested) {
+                        binding.putBoolean("Nested", true);
+                        binding.putString("ParentFactoryId", "parent");
+                        binding.putInt("NestedSlotId", 0);
+                        binding.putLong("NestedRoomOrigin", f.origin.asLong());
+                        f.directory.observe(entry("root", "parent", true, null));
+                        f.directory.observeBindingData("root", binding);
+                    }
+                    CompoundTag expectedBinding = f.directory.bindingData("root");
+                    ItemStack stored = new ItemStack(ModItems.NESTED_FACTORY.get());
+                    net.minecraft.world.item.BlockItem.setBlockEntityData(stored, ModBlockEntities.NESTED_FACTORY.get(), binding);
+                    ItemEntity entity = mock(ItemEntity.class);
+                    when(entity.getItem()).thenReturn(stored.copy());
+                    when(entity.level()).thenReturn(f.overworld);
+                    when(entity.position()).thenReturn(Vec3.ZERO);
+                    when(entity.getRemovalReason()).thenReturn(Entity.RemovalReason.DISCARDED);
+                    f.slots.acquireFreezeLease("root");
+                    if (damaged) {
+                        stored.getItem().onDestroyed(entity);
+                    }
+                    // Magnets transfer a copy, then remove an entity whose stack is still nonempty.
+                    events.post(new net.neoforged.neoforge.event.entity.EntityLeaveLevelEvent(entity, f.overworld));
+                    require(f.tasks.save(new CompoundTag(), null).getList("Tasks", Tag.TAG_COMPOUND).isEmpty(),
+                            "removing a bound factory item must not schedule room cleanup (nested=" + nested + ", damaged=" + damaged + ")");
+                    f.tasks.tick(f.server);
+                    require(!f.directory.isUnavailable("root") && f.directory.find("root") != null
+                                    && expectedBinding.equals(f.directory.bindingData("root")),
+                            "item removal must retain the factory ID and authoritative binding snapshot");
+                    require(f.slots.hasFreezeLeaseInAncestry("root"),
+                            "item removal must retain the room's existing freeze lease");
+                    if (!nested) {
+                        require(!f.slots.claimRootAllocation("other", -1, null).roomOrigin().equals(f.origin),
+                                "item removal must not release the original room allocation");
+                    }
+                    BlockPlaceContext context = mock(BlockPlaceContext.class);
+                    when(context.getLevel()).thenReturn(f.overworld);
+                    when(context.getItemInHand()).thenReturn(stored);
+                    require(FactoryCommandService.preparePlacement(context),
+                            "a factory transferred into storage must retain a valid placement binding");
+                    verify(f.pocket, never()).setBlock(any(BlockPos.class), any(), anyInt());
+                }
+            }
         }
     }
 
@@ -476,7 +739,12 @@ public final class CnfCommandsRegression {
             require(f.directory.isRetired("root") && f.directory.find("root") == null, "actual cleanup completion must retire the ID and remove the directory entry");
             require(f.slots.claimRootAllocation("replacement", -1, null).roomOrigin().equals(f.origin), "completed cleanup must make its exact slot available to a new factory");
             verify(f.pocket, times(4096)).setBlock(any(BlockPos.class), eq(Blocks.AIR.defaultBlockState()), anyInt());
-            require(!FactoryCommandService.canDestroyPortableRoom(f.server, f.data), "an old original item must not be able to erase a reused slot");
+            BlockPlaceContext stale = mock(BlockPlaceContext.class);
+            when(stale.getLevel()).thenReturn(f.overworld);
+            ItemStack oldItem = new ItemStack(ModItems.NESTED_FACTORY.get());
+            net.minecraft.world.item.BlockItem.setBlockEntityData(oldItem, ModBlockEntities.NESTED_FACTORY.get(), f.data);
+            when(stale.getItemInHand()).thenReturn(oldItem);
+            require(!FactoryCommandService.preparePlacement(stale), "an old item must not reclaim a deleted room after slot reuse");
             verify(f.server).sendSystemMessage(argThat(c -> c.getContents() instanceof TranslatableContents t
                     && t.getKey().endsWith("delete_complete")));
         }

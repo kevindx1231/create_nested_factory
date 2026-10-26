@@ -141,15 +141,6 @@ public final class FactoryCommandService {
         return null;
     }
 
-    /** A disposable command copy never owns destruction of its shared room. */
-    public static boolean canDestroyPortableRoom(MinecraftServer server, CompoundTag data) {
-        FactoryDirectorySavedData directory = FactoryDirectorySavedData.get(server);
-        String id = data.getString("FactoryId");
-        Entry entry = directory.find(id);
-        return !data.getBoolean(COPY_KEY) && !directory.isUnavailable(id)
-                && (entry == null || entry.isItem());
-    }
-
     private static BlockPos roomOrigin(CompoundTag data) {
         String key = data.getBoolean("Nested") ? "NestedRoomOrigin" : "RootRoomOrigin";
         if (!data.contains(key, Tag.TAG_LONG)) return null;

@@ -14,6 +14,9 @@
     "DrillBlockEntityLearningMixin",
     "DrillMovementBehaviourLearningMixin"
   ],
+  "client": [
+    "client.NestedFactoryPonderTagScreenMixin"
+  ],
   "injectors": {
     "defaultRequire": 1
   }

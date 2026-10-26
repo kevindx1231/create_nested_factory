@@ -87,8 +87,11 @@ public final class ReleaseFixRegression {
                         == NestedFactoryPlacementRules.Kind.INVALID,
                 "an out-of-room terminal placement was accepted");
         require(NestedFactoryPlacementRules.classify(9, 8, true, false)
-                        == NestedFactoryPlacementRules.Kind.INVALID,
-                "a second terminal child was accepted");
+                        == NestedFactoryPlacementRules.Kind.TERMINAL_BLUEPRINT_ONLY,
+                "a second roomless terminal must remain a valid blueprint target");
+        require(NestedFactoryPlacementRules.classify(1, 8, true, false)
+                        == NestedFactoryPlacementRules.Kind.SIBLING_BLUEPRINT_ONLY,
+                "a second factory must be classified for blueprint-only production");
     }
 
     private static void blackboxDiagnosticsAreDisabledByDefault() throws Exception {

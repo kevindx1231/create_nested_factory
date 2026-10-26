@@ -9,7 +9,6 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionResult;
-import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.BlockItem;
@@ -20,6 +19,7 @@ import net.minecraft.world.level.block.Block;
 
 /**
  * Carries a factory block entity's persistent state when the block is moved by hand.
+ * The room survives item loss or destruction and is cleared only by explicit deletion.
  */
 public final class FactoryBlockItem extends BlockItem {
     public FactoryBlockItem(Block block, Item.Properties properties) {
@@ -38,14 +38,6 @@ public final class FactoryBlockItem extends BlockItem {
     public Component getName(net.minecraft.world.item.ItemStack stack) {
         String customName = NestedFactoryBlockEntity.getFactoryItemData(stack).getString("CustomName");
         return customName.isBlank() ? super.getName(stack) : Component.literal(customName);
-    }
-
-    @Override
-    public void onDestroyed(ItemEntity entity) {
-        if (entity.level() instanceof ServerLevel level) {
-            NestedFactoryBlockEntity.destroyPortableItem(level, entity);
-        }
-        super.onDestroyed(entity);
     }
 
     @Override
@@ -73,7 +65,6 @@ public final class FactoryBlockItem extends BlockItem {
             NestedFactoryBlockEntity parent = NestedFactoryBlock.findFactoryAt(serverLevel, pos);
             return parent != null
                     && parent.getBounds().isBuildableAt(parent.roomOrigin(), pos)
-                    && !parent.hasRecordedChild()
                     && parent.getNestingDepth() + 1 <= Config.maxNestingDepth + 1;
         }
 
@@ -94,9 +85,6 @@ public final class FactoryBlockItem extends BlockItem {
         }
         String parentId = data.getString("ParentFactoryId");
         if (parentId.isBlank() || !parentId.equals(parent.getFactoryId())) {
-            return false;
-        }
-        if (parent.hasRecordedChild()) {
             return false;
         }
         int slotId = data.getInt("NestedSlotId");
