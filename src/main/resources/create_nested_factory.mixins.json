@@ -13,11 +13,13 @@
     "LevelChunkLearningMixin",
     "DrillBlockEntityLearningMixin",
     "DrillMovementBehaviourLearningMixin",
+    "BlockHelperFactoryRemovalMixin",
     "ServerLevelWeatherFreezeMixin",
     "SchematicItemMixin"
   ],
   "client": [
-    "client.SchematicHandlerMixin"
+    "client.SchematicHandlerMixin",
+    "client.NestedFactoryPonderTagScreenMixin"
   ],
   "injectors": {
     "defaultRequire": 1

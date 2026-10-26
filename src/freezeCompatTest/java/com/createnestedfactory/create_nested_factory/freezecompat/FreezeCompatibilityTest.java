@@ -67,6 +67,8 @@ public final class FreezeCompatibilityTest {
             randomTicks();
             scheduledTicksAndEvents();
             entitiesAndPlayers();
+            placementLifecycle();
+            System.out.println("[CNF-PLACEMENT-TEST] PASS: actual BlockItem placement, same-tick sibling admission, machine removal protection, bound drops, independent replacement room, restricted restore and original-room recovery");
             System.out.println("[CNF-FREEZE-TEST] PASS: transformed block-entity tick, XYZ/dimension isolation, thaw, Observable samples/context, block/fluid random ticks, scheduled ticks/events/reload, entities/players");
             server.halt(false);
         } catch (Throwable failure) {
@@ -75,6 +77,85 @@ public final class FreezeCompatibilityTest {
             // System.exit on the server thread deadlocks with Minecraft's shutdown hook joining it.
             Runtime.getRuntime().halt(1);
         }
+    }
+
+    private void placementLifecycle() {
+        ServerLevel outside = server.overworld();
+        ServerLevel pocket = pocket();
+        BlockPos host = new BlockPos(80, 100, 80);
+        var root = placeFactory(outside, host, new ItemStack(
+                com.createnestedfactory.create_nested_factory.registry.ModItems.NESTED_FACTORY.get()));
+        root.requestRoomBuild();
+        finishRoomTasks(root);
+        BlockPos aPos = root.roomOrigin().offset(2, 2, 2);
+        BlockPos bPos = aPos.east();
+        BlockPos dPos = aPos.south();
+        var item = com.createnestedfactory.create_nested_factory.registry.ModItems.NESTED_FACTORY.get();
+        var a = placeFactory(pocket, aPos, new ItemStack(item));
+        String aId = a.getFactoryId();
+        BlockPos aRoom = a.roomOrigin();
+        var b = placeFactory(pocket, bPos, new ItemStack(item));
+        check(a.isEnterable() && a.hasPhysicalRoom() && b.isSiblingBlueprintOnly() && !b.hasPhysicalRoom(),
+                "real same-tick placements must assign exactly one room entry");
+        var drops = new java.util.ArrayList<ItemStack>();
+        finishRoomTasks(root, a);
+        com.simibubi.create.foundation.utility.BlockHelper.destroyBlock(outside, host, 0f, drops::add);
+        check(outside.getBlockEntity(host) == root && drops.isEmpty(),
+                "transformed Create machine helper must reject breaking a factory containing children");
+        com.simibubi.create.foundation.utility.BlockHelper.destroyBlock(pocket, aPos, 0f, drops::add);
+        check(drops.size() == 1 && pocket.getBlockEntity(aPos) == null && !root.hasRecordedChild(),
+                "machine removal must return one bound item and release only its entry; drops=" + drops.size()
+                        + ", remaining=" + pocket.getBlockEntity(aPos) + ", entry=" + root.getChildFactoryId()
+                        + ", blocker=" + a.removalBlocker() + ", blockDrops="
+                        + pocket.getGameRules().getBoolean(net.minecraft.world.level.GameRules.RULE_DOBLOCKDROPS));
+        var d = placeFactory(pocket, dPos, new ItemStack(item));
+        finishRoomTasks(d);
+        check(!d.roomOrigin().equals(aRoom), "new D must own a different physical room");
+        a = placeFactory(pocket, aPos, drops.remove(0));
+        finishRoomTasks(a);
+        check(a.getFactoryId().equals(aId) && a.roomOrigin().equals(aRoom) && a.hasPhysicalRoom()
+                        && a.isSiblingBlueprintOnly() && !a.isEnterable(),
+                "a real portable binding must retain its old room when the entry is occupied");
+        check(PocketFreezeSavedData.get(server).isFrozen(aRoom), "restricted restore must physically freeze its room");
+        check(!((net.minecraft.world.level.block.entity.BlockEntity) a).saveWithFullMetadata().getBoolean("PortableBinding"),
+                "successful actual item placement must consume its portable marker");
+        com.simibubi.create.foundation.utility.BlockHelper.destroyBlock(pocket, aPos, 0f, drops::add);
+        check(drops.size() == 1 && root.getChildFactoryId().equals(d.getFactoryId()),
+                "removing restricted A must preserve its binding and D's entry");
+        com.simibubi.create.foundation.utility.BlockHelper.destroyBlock(pocket, dPos, 0f, ignored -> {});
+        check(!root.hasRecordedChild() && !b.hasPhysicalRoom(), "removing D must not promote already placed B");
+        a = placeFactory(pocket, aPos, drops.remove(0));
+        check(a.roomOrigin().equals(aRoom) && a.isEnterable() && !a.isSiblingBlueprintOnly(),
+                "replacing A into a vacant entry must recover its original room; " + a.debugEntryBlockers());
+        pocket.removeBlock(aPos, false);
+        pocket.removeBlock(bPos, false);
+        outside.removeBlock(host, false);
+    }
+
+    private void finishRoomTasks(
+            com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity... factories) {
+        var tasks = com.createnestedfactory.create_nested_factory.RoomMutationTaskManager.get(server);
+        for (int i = 0; i < 200; i++) {
+            if (java.util.Arrays.stream(factories).noneMatch(factory -> factory.isRoomMutationLocked())) return;
+            tasks.tick(server);
+        }
+        throw new AssertionError("test rooms did not finish their asynchronous generation");
+    }
+
+    private com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity placeFactory(
+            ServerLevel level, BlockPos pos, ItemStack stack) {
+        level.getChunkAt(pos);
+        level.setBlockAndUpdate(pos.below(), Blocks.STONE.defaultBlockState());
+        var player = net.minecraftforge.common.util.FakePlayerFactory.getMinecraft(level);
+        var context = new net.minecraft.world.item.context.BlockPlaceContext(level, player,
+                net.minecraft.world.InteractionHand.MAIN_HAND, stack,
+                new net.minecraft.world.phys.BlockHitResult(net.minecraft.world.phys.Vec3.atCenterOf(pos.below()),
+                        net.minecraft.core.Direction.UP, pos.below(), false));
+        check(((net.minecraft.world.item.BlockItem) stack.getItem()).place(context).consumesAction(),
+                "actual factory item placement failed at " + pos);
+        check(level.getBlockEntity(pos) instanceof com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity,
+                "placement did not produce a factory block entity at " + pos);
+        return (com.createnestedfactory.create_nested_factory.block.entity.NestedFactoryBlockEntity) level.getBlockEntity(pos);
     }
 
     private void randomTicks() {

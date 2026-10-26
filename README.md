@@ -4,7 +4,7 @@
 
 > Build real factories inside persistent Pocket rooms, connect them through Create logistics, and turn verified production lines into nestable black-box factories.
 
-当前正式版 / Latest stable release: **v1.5.22 · Minecraft 1.20.1**
+当前正式版 / Latest stable release: **v1.5.23 · Minecraft 1.20.1**
 
 源码分支 / Source branches: [mc1.20.1](https://github.com/kevindx1231/create_nested_factory/tree/mc1.20.1) · [mc1.21.1](https://github.com/kevindx1231/create_nested_factory/tree/mc1.21.1)
 
@@ -16,28 +16,25 @@ Create Nested Factory 是面向 Minecraft 1.20.1、Forge/NeoForge 和 Create 的
 
 ### 运行要求
 
-| 项目 | v1.5.22 支持版本 |
+| 项目 | v1.5.23 支持版本 |
 |---|---|
 | Minecraft | 1.20.1 |
 | Java | 17 |
 | 加载器 | 专用服务器验证：Forge 47.3.0 / NeoForge 47.1.106；元数据允许 47.1.33–47.x，其他版本未穷举验证 |
 | Create | `>= 6.0.8` 且 `< 6.1.0`；开发版本为 6.0.8-291 |
 
-客户端和专用服务器应安装相同版本的本模组及必需依赖。本次已完成双加载器冻结逻辑的专用服务器测试，客户端 GUI 与其他功能的完整游戏内联测尚未完成；详见[验证报告](docs/freeze-compatibility-validation-1.20.1.md)。
+客户端和专用服务器应安装相同版本的本模组及必需依赖。1.5.23 放置修复阶段已完成双加载器基础依赖专用服务器测试；本次最终产物通过完整构建和 22 组 JVM 回归，客户端 GUI 与思索播放效果仍需手动验收。详见[放置修复验证](docs/nested-factory-placement-fix-validation-1.20.1.md)和[思索验收说明](docs/ponder-1.20.1.md)。
 
-### v1.5.22 更新要点
+### v1.5.23 更新要点
 
-- 改进树场/农场学习：按树苗种类或作物 ID 独立认证，有生长或生产活动的来源才参与等待，闲置来源不阻塞其他路线；生长活动不等于认证完成。
-- 学习默认绝对期限由 6000 改为 3600 tick（20 TPS 时 3 分钟），生长不会重置期限；已有存档的显式配置保持原值。
-- 发布计划前重新核对完整学习账本，避免沿用过早锁定的加工路线、错误归属再生产物或忽略库存净损耗；拆分再生路线时保留启动资本合同。
-- 修正 1.20.1/Create 配方字段、序列装配中间物和循环次数、锯切时长、超高温搅拌要求及应力端口的两种仪表材料，并新增全部 15 个配方的反序列化回归。
-- 修复工厂冻结与 Observable 4.4.2 的 Mixin 冲突，避免加载世界前因注入失败退出。
-- 冻结时跳过机器执行及 Observable 计时；正常和解冻后的机器保留第三方 tick 与性能分析行为。
-- 将 MixinExtras Forge 0.4.1 内嵌到发布 JAR，支持 Forge 47 和 NeoForge 47，无需玩家另装。
-- 保留原有 XYZ 冻结边界、计划刻/方块事件恢复和玩家排除规则。
-- 完整构建及 21 组 JVM 回归通过；同一发布 JAR 在 Forge 47.3.0 / NeoForge 47.1.106 上分别通过基础、Radium 0.12.4、Observable 4.4.2、两者同时安装的 8 组专用服务器测试。客户端 GUI 和其他版本未重新验收。
+- 新增五类组件的八段 Ponder 思索教程，涵盖工厂进入与返回、物流、黑盒与搬迁、多层嵌套、端口、扩展接口、应力及通道；包含十个结构资源和中英文各 89 条翻译。
+- 同层后放工厂可作为无空间蓝图工厂使用；深度上限下一层允许放置多个终端蓝图工厂，不额外分配 Pocket 房间或占用入口。
+- 修复旧绑定工厂受限放回、再次搬运和恢复原房间的生命周期，以及 Forge 提前触发 `onLoad` 导致临时身份抢占入口的问题。
+- 同层受限工厂保留旧空间绑定并冻结旧房间；蓝图生产继续使用真实投入、物品/流体托管和应力合同，取消蓝图不会启动旧房间。
+- 统一玩家、创造模式、扳手、GUI/指令、爆炸及 Create 机械钻头/移动破坏器的内部子工厂保护，修正重复掉落和客户端护目镜提示。
+- 完整构建及 22 组 JVM 回归通过。放置修复阶段已通过 Forge 47.3.0 / NeoForge 47.1.106 基础依赖专用服务器测试；加入 Ponder 后本次复核构建与 JVM 回归，客户端 GUI、思索画面和完整性能模组组合尚未重新验收。
 
-完整更新日志见 [v1.5.22 release notes](docs/releases/mc1.20.1-v1.5.22.md)。
+完整更新日志见 [v1.5.23 release notes](docs/releases/mc1.20.1-v1.5.23.md)。
 
 ### 工厂指令
 
@@ -54,7 +51,7 @@ Create Nested Factory 是面向 Minecraft 1.20.1、Forge/NeoForge 和 Create 的
 
 复制品关联原空间，原工厂仍放置时不能重复放置；恢复时采用最新保存状态。删除会拒绝存在任何后代、玩家或正在进行房间任务的空间。详见[指令说明](docs/cnf-commands.md)。
 
-### v1.5.22 完整功能
+### v1.5.23 完整功能
 
 #### Pocket 工厂与嵌套空间
 
@@ -63,11 +60,12 @@ Create Nested Factory 是面向 Minecraft 1.20.1、Forge/NeoForge 和 Create 的
 - 控制界面支持工厂命名、六面端口配置、模式切换、实时输入/输出查看、烈焰电池和超频档位管理。
 - 玩家进入 Pocket 后临时获得探索所需的飞行和夜视能力，离开或会话恢复时还原进入前状态。
 - 支持在工厂房间内继续放置嵌套工厂，并保存根工厂、父工厂和嵌套深度关系。
-- 每个房间最多拥有一个可进入的直接子工厂；已有子工厂时拒绝创建同层兄弟，避免父子身份歧义。
+- 每个房间最多拥有一个可进入的直接子工厂；同层后放工厂作为无空间蓝图工厂，不占用入口，也不能进入或学习真实产线。
 - 默认最大有房间嵌套深度为 8，可配置为 1–16；有房间的嵌套工厂使用固定 `16×16×16` 空间。
-- 在最大有房间深度的下一层可放置“终端蓝图工厂”：它没有独立 Pocket 房间，只能运行已应用的蓝图，仍参与父子关系和冻结逻辑。
-- 普通破坏工厂不会销毁 Pocket 空间，而是掉落携带原工厂身份和状态的单个绑定物品；重新合法放置后连接回同一房间。
-- 根工厂只能在 Pocket 维度之外恢复放置；嵌套工厂只能回到原父工厂空间，不能借搬运更换层级或父工厂。
+- 在最大有房间深度的下一层可放置多个“终端蓝图工厂”：它们没有独立 Pocket 房间，只能运行已应用的蓝图，仍参与父子关系和冻结逻辑。
+- 普通破坏有房间绑定的工厂不会销毁 Pocket 空间，而是掉落携带原工厂身份和状态的单个绑定物品；重新合法放置后连接回同一房间。无空间同层/终端工厂结算真实资源后掉落普通工厂方块。
+- 绑定工厂物品丢失、烧毁、爆炸销毁、自然消失或被磁铁收取时，原空间与绑定记录继续保留。清理空间需使用控制界面销毁按钮或 `/cnf delete <id>`；物品丢失后，管理员可用 `/cnf copy <id>` 恢复绑定物品。
+- 根工厂只能在 Pocket 维度之外恢复放置；嵌套工厂只能回到原父工厂空间，不能借搬运更换层级或父工厂。原入口被另一工厂占用时，旧绑定可受限放回并保留原空间；原房间保持冻结，需在入口空闲后重新搬运放置才能恢复使用资格，不会自动升级。
 - 控制界面的永久清除流程会检查玩家、子工厂和房间状态，并以持久化后台任务清理真实空间。
 - 玩家离线、服务器重启或返回路径失效时，会验证完整会话和返回栈；无法恢复时安全结束会话，并返回外部锚点或主世界出生点。
 - 工厂身份与服务器实例隔离；坐标复用、区块卸载和方块实体重建不会把旧工厂状态绑定到新工厂。
@@ -160,10 +158,10 @@ Create Nested Factory 是面向 Minecraft 1.20.1、Forge/NeoForge 和 Create 的
 
 - 可从没有玩家停留、可进入且已激活的黑盒工厂复制生产蓝图。
 - 蓝图保存生产合同、来源证明、应力、工具/资本要求和建议面布局，但不复制真实输入、工具、资本、在制批次或待领取输出。
-- 潜行右键另一座兼容工厂应用蓝图；不能应用到蓝图来源本身，也不能覆盖尚未取消的现有蓝图。
+- 潜行右键另一座兼容工厂应用蓝图，包括同层受限工厂和终端蓝图工厂；不能应用到蓝图来源本身，也不能覆盖尚未取消的现有蓝图。
 - 蓝图模式不加载真实 Pocket 产线，直接按经过验证的合同运行；取消蓝图时按所有权规则结算或清理模拟状态。
 - 终端蓝图工厂专门用于在最大房间深度之外继续封装生产。
-- v1.5.22 使用当前计划/蓝图格式；缺少所有权、来源或应力证明的旧格式不会猜测迁移，必须重新学习并重新复制蓝图。
+- v1.5.23 使用当前计划/蓝图格式；缺少所有权、来源或应力证明的旧格式不会猜测迁移，必须重新学习并重新复制蓝图。
 
 #### 工厂通道
 
@@ -195,7 +193,7 @@ Create Nested Factory 是面向 Minecraft 1.20.1、Forge/NeoForge 和 Create 的
 
 ### 可选兼容
 
-| 模组组合 | v1.5.22 支持内容 |
+| 模组组合 | v1.5.23 支持内容 |
 |---|---|
 | 不安装可选模组 | 完整基础 Pocket、端口、应力、学习、黑盒、蓝图、冻结和通道功能 |
 | Mekanism 10.4.16–10.4.x | 工厂面与扩展接口的 Chemical 和 Heat capability；Heat 双向，Chemical 遵守端口方向 |
@@ -240,7 +238,7 @@ Create Nested Factory 是面向 Minecraft 1.20.1、Forge/NeoForge 和 Create 的
 
 1. 安装 Minecraft 1.20.1、Java 17，以及 Forge 47.3.0 或 NeoForge 47.1.106。
 2. 安装 Create 6.0.8–6.0.x。
-3. 从 [Releases](https://github.com/kevindx1231/create_nested_factory/releases/tag/mc1.20.1-v1.5.22) 下载 `create_nested_factory-1.20.1-1.5.22.jar`。
+3. 从 [Releases](https://github.com/kevindx1231/create_nested_factory/releases/tag/mc1.20.1-v1.5.23) 下载 `create_nested_factory-1.20.1-1.5.23.jar`。
 4. 把 JAR 放入客户端和服务器的 `mods` 目录；不要同时保留本模组的其他版本。
 5. 如需兼容功能，再安装上表中的可选模组。
 
@@ -255,10 +253,16 @@ Create Nested Factory 是面向 Minecraft 1.20.1、Forge/NeoForge 和 Create 的
 5. 黑盒激活后验证原料、应力、工具和输出；需要时安装烈焰电池并选择 `0.5×`–`5×` 档位。
 6. 从已验证工厂复制蓝图并应用到另一座工厂，或使用工厂通道连接不同位置和嵌套层级。
 
+### Ponder 思索教程
+
+在物品界面对嵌套工厂、嵌套端口、嵌套扩展接口、应力端口或工厂通道按住 W，即可查看八段中英文思索教程。工厂本体包含进入与返回、物流、黑盒与搬迁、多层嵌套四段教程。
+
 ### 设计与测试文档
 
 - [1.20.1 适配与验证范围](docs/mc1.20.1-port.md)
 - [冻结兼容与双加载器验证报告](docs/freeze-compatibility-validation-1.20.1.md)
+- [1.5.23 嵌套放置修复验证](docs/nested-factory-placement-fix-validation-1.20.1.md)
+- [Ponder 思索移植与手动验收](docs/ponder-1.20.1.md)
 - [领域规则与持久化约束](CONTEXT.md)
 
 ### 从源码构建
@@ -277,7 +281,7 @@ Linux/macOS：
 ./gradlew check build --stacktrace
 ```
 
-正式 JAR 输出到 `build/libs/create_nested_factory-1.20.1-1.5.22.jar`。`build` 包含 21 组 JVM 回归检查，覆盖命令、通道、安全返回、冻结、房间生命周期、会话恢复、维度资源、NBT/能力/网络移植、蓝图、内部端口重连、Mekanism 四类化学品与热量、配方反序列化，以及 Pipez 端点适配。
+正式 JAR 输出到 `build/libs/create_nested_factory-1.20.1-1.5.23.jar`。`build` 包含 22 组 JVM 回归检查（含 Ponder 场景、结构与翻译检查），覆盖命令、通道、安全返回、冻结、房间生命周期、会话恢复、维度资源、NBT/能力/网络移植、蓝图、内部端口重连、Mekanism 四类化学品与热量、配方反序列化，以及 Pipez 端点适配。
 
 ### 问题反馈
 
@@ -307,28 +311,25 @@ Create Nested Factory is an automation mod for Minecraft 1.20.1, Forge/NeoForge,
 
 ### Requirements
 
-| Component | Supported by v1.5.22 |
+| Component | Supported by v1.5.23 |
 |---|---|
 | Minecraft | 1.20.1 |
 | Java | 17 |
 | Loader | Dedicated-server tested: Forge 47.3.0 / NeoForge 47.1.106; metadata accepts 47.1.33–47.x. Other versions are not exhaustively tested |
 | Create | `>= 6.0.8` and `< 6.1.0`; development version 6.0.8-291 |
 
-Clients and dedicated servers should install the same version of this mod and all required dependencies. Dedicated-server freeze integration is tested on both loaders; client GUI and complete gameplay coverage remain pending. See the [validation report](docs/freeze-compatibility-validation-1.20.1.md).
+Clients and dedicated servers should install the same version of this mod and all required dependencies. The 1.5.23 placement-fix stage passed base-dependency dedicated-server tests on both loaders. The final artifact passes the full build and 22 JVM regression groups; client GUI and Ponder playback still need manual acceptance. See the [placement validation](docs/nested-factory-placement-fix-validation-1.20.1.md) and [Ponder acceptance guide](docs/ponder-1.20.1.md).
 
-### What's new in v1.5.22
+### What's new in v1.5.23
 
-- Improves tree/crop learning with independent sapling-type/crop-ID certification. Only sources with observed growth or production participate in the wait; idle groups do not block other routes, and growth alone does not certify production.
-- Changes the default absolute learning deadline from 6000 to 3600 ticks (3 minutes at 20 TPS). Growth never resets it; existing explicit world configuration retains its value.
-- Reconciles the complete learning ledger before publishing a plan, preventing stale processing candidates, misattributed regenerative output, and ignored inventory losses. Splitting a regenerative route now retains its startup-capital contract.
-- Corrects 1.20.1/Create recipe fields, assembly transitional items/loop counts, cutting duration, superheated mixing, and the stress port's two alternative gauges. Adds deserialization regression coverage for all 15 recipes.
-- Fixes the factory-freeze Mixin conflict with Observable 4.4.2 that could abort world loading.
-- Frozen machines skip execution and Observable timing samples; live and thawed machines retain third-party tick and profiling behavior.
-- Bundles MixinExtras Forge 0.4.1 in the release JAR for Forge 47 and NeoForge 47; no separate installation is needed.
-- Preserves XYZ freeze boundaries, scheduled-tick/block-event restoration, and player exclusions.
-- Full build and 21 JVM regression groups passed. The same release JAR passed eight dedicated-server combinations: Forge 47.3.0 / NeoForge 47.1.106 with base dependencies, Radium 0.12.4, Observable 4.4.2, and both. Client GUI and other versions were not retested.
+- Adds eight Ponder scenes for five components, covering factory entry/return, logistics, black-box operation and relocation, nesting, ports, extensions, stress, and passages; includes ten structures and 89 translations per language in English and Simplified Chinese.
+- Later siblings can serve as roomless blueprint factories. Multiple terminal blueprint factories are allowed one layer beyond the room depth limit without allocating Pocket rooms or taking an entrance.
+- Fixes restricted replacement, repeated relocation, and original-room recovery of bound factories, including Forge calling `onLoad` before item NBT is installed.
+- Restricted factories retain their old room binding and keep that room frozen. Blueprint production uses real inputs, item/fluid escrow, and stress contracts; cancelling the blueprint does not restart the old room.
+- Unifies child-factory removal protection across players, creative mode, wrenches, GUI/commands, explosions, and Create drills/moving breakers; fixes duplicate drops and client goggle status.
+- Full build and 22 JVM regression groups passed. The placement-fix stage passed base-dependency dedicated-server tests on Forge 47.3.0 / NeoForge 47.1.106. This publication rechecks the build/JVM suite after adding Ponder; client GUI, Ponder visuals, and the full performance-mod matrix remain unverified for this artifact.
 
-See the [v1.5.22 release notes](docs/releases/mc1.20.1-v1.5.22.md).
+See the [v1.5.23 release notes](docs/releases/mc1.20.1-v1.5.23.md).
 
 ### Factory commands
 
@@ -345,7 +346,7 @@ The directory persists with the world and queries do not load room chunks. Exist
 
 Copies reference the same room, cannot be placed while the original remains placed, and restore the latest saved state. Deletion rejects rooms with any descendants, players, or active room tasks. See the [command reference](docs/cnf-commands.md).
 
-### Complete v1.5.22 feature set
+### Complete v1.5.23 feature set
 
 #### Pocket factories and nested spaces
 
@@ -354,11 +355,12 @@ Copies reference the same room, cannot be placed while the original remains plac
 - The control screen supports naming, six-face port configuration, mode switching, live input/output rates, Blaze Battery slots, and overclock selection.
 - Players temporarily receive flight and night vision for Pocket exploration. Their previous abilities are restored when they leave or when a session is recovered.
 - Factories can be placed inside factory rooms, with persistent root, parent, and nesting-depth relationships.
-- Each room may have at most one enterable direct child factory. A second sibling at the same level is rejected to keep parent-child identity unambiguous.
+- Each room may have at most one enterable direct child factory. Later siblings act as roomless blueprint factories: they do not take an entrance and cannot enter or learn from a physical production line.
 - The default maximum room-owning nesting depth is 8 and can be configured from 1 to 16. Nested factories with rooms use fixed `16×16×16` spaces.
-- One layer beyond the room depth limit may contain a terminal blueprint-only factory. It owns no Pocket room, runs only an applied blueprint, and still participates in hierarchy and freeze logic.
-- Normally breaking a factory preserves its Pocket. It drops one bound item carrying the factory identity and state; legal replacement reconnects to the same room.
-- Root factories can only be restored outside the Pocket dimension. Nested factories can only return to their original parent space and cannot be moved to change parent or hierarchy level.
+- One layer beyond the room depth limit may contain multiple terminal blueprint-only factories. They own no Pocket rooms, run only applied blueprints, and still participate in hierarchy and freeze logic.
+- Normally breaking a room-bound factory preserves its Pocket and drops one bound item carrying its identity and state; legal replacement reconnects to that room. Roomless sibling/terminal factories settle real resources and drop an ordinary factory block.
+- Losing, burning, exploding, despawning, or collecting a bound factory item with a magnet preserves its room and binding record. Clear rooms explicitly through the control screen or `/cnf delete <id>`; administrators can recover a lost bound item with `/cnf copy <id>`.
+- Root factories can only be restored outside the Pocket dimension. Nested factories can only return to their original parent space and cannot change parent or hierarchy level by relocation. If another factory owns the entrance, a bound factory can be placed in a restricted state while retaining its frozen original room. Regaining room access requires relocating it again after the entrance becomes free; it never upgrades automatically.
 - The permanent-clear action in the control screen validates players, child factories, and room state, then cleans the physical room through a persistent background task.
 - Offline players, server restarts, and invalid return paths are handled by validating the complete session and return stack. Failed recovery safely ends the session and returns the player to an external anchor or the Overworld spawn.
 - Factory identities are scoped to the current server. Coordinate reuse, chunk unloads, and block-entity reconstruction do not bind a new factory to stale state.
@@ -451,10 +453,10 @@ Copies reference the same room, cannot be placed while the original remains plac
 
 - A production blueprint can be copied from an enterable, activated black-box factory while no player remains inside.
 - It stores the production contract, source evidence, stress, tool/capital requirements, and suggested face layout, but never copies real inputs, tools, capital, in-flight batches, or pending output.
-- Sneak-right-click another compatible factory to apply it. A blueprint cannot target its source factory or overwrite an existing blueprint until that mode is cancelled.
+- Sneak-right-click another compatible factory, including restricted siblings and terminal blueprint factories, to apply a blueprint. It cannot be applied to its source or overwrite an existing blueprint that has not been cancelled.
 - Blueprint mode runs the verified contract without loading the physical Pocket line. Cancelling it settles or clears simulated state according to ownership rules.
 - Terminal blueprint-only factories allow one additional encapsulation layer beyond the maximum room depth.
-- v1.5.22 uses the current plan and blueprint format. Older formats without ownership, source, or stress evidence are not guessed or migrated; relearn and recopy them.
+- v1.5.23 uses the current plan and blueprint format. Older formats without ownership, source, or stress evidence are not guessed or migrated; relearn and recopy them.
 
 #### Factory Passages
 
@@ -486,7 +488,7 @@ Copies reference the same room, cannot be placed while the original remains plac
 
 ### Optional compatibility
 
-| Mod combination | v1.5.22 integration |
+| Mod combination | v1.5.23 integration |
 |---|---|
 | No optional mods | Complete base Pocket, port, stress, learning, black-box, blueprint, freeze, and passage features |
 | Mekanism 10.4.16–10.4.x | Chemical and Heat capabilities on factory faces and extension interfaces; Heat is bidirectional and Chemical follows port direction |
@@ -531,7 +533,7 @@ Data-pack recipes cover ordinary crafting, mixing, splashing, and Create sequenc
 
 1. Install Minecraft 1.20.1, Java 17, and either Forge 47.3.0 or NeoForge 47.1.106.
 2. Install Create 6.0.8–6.0.x.
-3. Download `create_nested_factory-1.20.1-1.5.22.jar` from [Releases](https://github.com/kevindx1231/create_nested_factory/releases/tag/mc1.20.1-v1.5.22).
+3. Download `create_nested_factory-1.20.1-1.5.23.jar` from [Releases](https://github.com/kevindx1231/create_nested_factory/releases/tag/mc1.20.1-v1.5.23).
 4. Put the JAR in the `mods` directory on both client and server. Do not keep another version of Create Nested Factory in the same instance.
 5. Install any optional mods required for the integrations listed above.
 
@@ -546,10 +548,16 @@ Back up an existing world before upgrading. If an old plan or blueprint is rejec
 5. After activation, verify ingredients, stress, tools, and output. Add Blaze Batteries if `0.5×`–`5×` operation is needed.
 6. Copy the verified plan to another factory with a blueprint, or connect locations and nesting levels with Factory Passages.
 
+### Ponder tutorials
+
+Hold W over a Nested Factory, Nested Port, Nested Extension Interface, Nested Stress Port, or Factory Passage in the item UI to open eight tutorials in English or Simplified Chinese. The factory itself has four scenes: entry/return, logistics, black-box operation/relocation, and nesting.
+
 ### Design and test documentation
 
 - [1.20.1 port and validation scope](docs/mc1.20.1-port.md)
 - [Freeze compatibility and dual-loader validation report](docs/freeze-compatibility-validation-1.20.1.md)
+- [1.5.23 nested placement validation](docs/nested-factory-placement-fix-validation-1.20.1.md)
+- [Ponder port and manual acceptance](docs/ponder-1.20.1.md)
 - [Domain rules and persistence constraints](CONTEXT.md)
 
 ### Building from source
@@ -568,7 +576,7 @@ Linux/macOS:
 ./gradlew check build --stacktrace
 ```
 
-The release JAR is written to `build/libs/create_nested_factory-1.20.1-1.5.22.jar`. `build` includes 21 JVM regression groups covering commands, passages, safe return, freeze/lifecycle rules, exploration recovery, dimension resources, NBT/capability/network backporting, blueprints, room-port reconnection, Mekanism chemicals/heat, recipe deserialization, and Pipez endpoint adaptation.
+The release JAR is written to `build/libs/create_nested_factory-1.20.1-1.5.23.jar`. `build` includes 22 JVM regression groups (including Ponder scenes, structures, and translations) covering commands, passages, safe return, freeze/lifecycle rules, exploration recovery, dimension resources, NBT/capability/network backporting, blueprints, room-port reconnection, Mekanism chemicals/heat, recipe deserialization, and Pipez endpoint adaptation.
 
 ### Reporting issues
 

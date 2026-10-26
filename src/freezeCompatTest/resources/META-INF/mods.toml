@@ -8,6 +8,6 @@ displayName="CNF Freeze Integration Tests (test only)"
 [[dependencies.cnf_freeze_test]]
 modId="create_nested_factory"
 mandatory=true
-versionRange="[1.5.22]"
+versionRange="[1.5.23]"
 ordering="AFTER"
 side="SERVER"

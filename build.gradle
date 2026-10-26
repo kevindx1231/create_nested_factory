@@ -69,6 +69,7 @@ sourceSets.test.runtimeClasspath += sourceSets.main.compileClasspath.filter { it
 tasks.named('compileTestJava') { dependsOn tasks.named('createMinecraftArtifacts') }
 
 def regressionPrograms = [
+    'PonderPort': 'PonderPortRegression',
     'RoomPortReconnect': 'block.entity.RoomPortReconnectRegression',
     'MekanismLogistics': 'MekanismLogisticsRegression',
     'MekanismHeat': 'MekanismHeatRegression',

@@ -123,6 +123,7 @@ public final class FactoryCommandService {
     public static void recordPlacement(BlockPlaceContext context) {
         if (!(context.getLevel() instanceof ServerLevel level)
                 || !(level.getBlockEntity(context.getClickedPos()) instanceof NestedFactoryBlockEntity factory)) return;
+        factory.completePlacement();
         FactoryDirectorySavedData directory = FactoryDirectorySavedData.get(level.getServer());
         Entry entry = directory.find(factory.getFactoryId());
         if (entry == null || !entry.isItem()) return;
@@ -140,19 +141,11 @@ public final class FactoryCommandService {
         return null;
     }
 
-    /** A disposable command copy never owns destruction of its shared room. */
-    public static boolean canDestroyPortableRoom(MinecraftServer server, CompoundTag data) {
-        FactoryDirectorySavedData directory = FactoryDirectorySavedData.get(server);
-        String id = data.getString("FactoryId");
-        Entry entry = directory.find(id);
-        return !data.getBoolean(COPY_KEY) && !directory.isUnavailable(id)
-                && (entry == null || entry.isItem());
-    }
-
     private static BlockPos roomOrigin(CompoundTag data) {
         String key = data.getBoolean("Nested") ? "NestedRoomOrigin" : "RootRoomOrigin";
         if (!data.contains(key, Tag.TAG_LONG)) return null;
-        if (data.getBoolean("Nested") ? data.getInt("NestedSlotId") < 0 : !data.getBoolean("RootRoomAllocated")) {
+        if (data.getBoolean("Nested") ? !data.contains("NestedSlotId") || data.getInt("NestedSlotId") < 0
+                : !data.getBoolean("RootRoomAllocated")) {
             return null;
         }
         return BlockPos.of(data.getLong(key));

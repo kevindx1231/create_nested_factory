@@ -1,0 +1,93 @@
+// Imported from the 1.21.1 Ponderer export; adapted for Minecraft 1.20.1.
+// Re-import with tools/port_ponder_1_20_1.py; keep the source checkout read-only.
+package com.createnestedfactory.create_nested_factory.ponder.generated.scenes;
+
+import com.createnestedfactory.create_nested_factory.ponder.generated.GeneratedPonderAttribution;
+import com.createnestedfactory.create_nested_factory.ponder.generated.GeneratedPonderSupport;
+import net.createmod.ponder.api.registration.PonderSceneRegistrationHelper;
+import net.createmod.ponder.api.registration.PonderTagRegistrationHelper;
+import net.createmod.ponder.api.scene.SceneBuilder;
+import net.createmod.ponder.api.scene.SceneBuildingUtil;
+import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.phys.Vec3;
+import java.util.Map;
+
+public final class GeneratedNestedPort_6095c83f {
+    private GeneratedNestedPort_6095c83f() {
+    }
+
+    public static void register(PonderSceneRegistrationHelper<ResourceLocation> helper) {
+        ResourceLocation[] tags = new ResourceLocation[]{new ResourceLocation("create_nested_factory", "ponderer_exported")};
+        var multi = helper.forComponents(java.util.List.of(new ResourceLocation("create_nested_factory", "nested_port")));
+        multi.addStoryBoard(new ResourceLocation("create_nested_factory", "generated/ponderer/nested_logistic"), GeneratedNestedPort_6095c83f::storyboard$0, tags);
+    }
+
+    public static void registerTags(PonderTagRegistrationHelper<ResourceLocation> helper) {
+        ResourceLocation tag = GeneratedPonderAttribution.tag();
+        helper.addTagToComponent(new ResourceLocation("create_nested_factory", "nested_port"), tag);
+    }
+
+    private static void storyboard$0(SceneBuilder scene, SceneBuildingUtil util) {
+        scene.title("nested_port", "Nested Port");
+        GeneratedPonderSupport.Context context = new GeneratedPonderSupport.Context();
+        GeneratedPonderSupport.preScanBounds(scene, new BlockPos(3, 1, 2), new BlockPos(3, 3, 14));
+        GeneratedPonderSupport.showStructure(scene, context, null, null, 0.5f, 270.0f);
+        GeneratedPonderSupport.zoomScene(scene, new Vec3(3.0, 1.5, 4.5), 1.5f, 0);
+        scene.idle(20);
+        GeneratedPonderSupport.showExtraStructure(scene, context, new ResourceLocation("create_nested_factory", "ponder/generated/ponderer/nested_logistic2.nbt"), new BlockPos(3, 1, 2), 0, false, false, false, "simultaneous", 20, 1, false, null, "west");
+        scene.idle(20);
+        GeneratedPonderSupport.highlightSection(scene, "input", new BlockPos(3, 2, 6), new BlockPos(3, 2, 6), 150);
+        GeneratedPonderSupport.highlightSection(scene, "input", new BlockPos(3, 2, 2), new BlockPos(3, 2, 2), 150);
+        GeneratedPonderSupport.highlightSection(scene, "input", new BlockPos(3, 2, 12), new BlockPos(3, 2, 12), 150);
+        GeneratedPonderSupport.showText(scene, "Nested Ports connect to the parent Nested Factory", new Vec3(3.0, 2.5, 6.5), 80, null, true);
+        scene.idle(90);
+        GeneratedPonderSupport.showText(scene, "It can transfer items, fluids, packages, and more", new Vec3(3.0, 2.5, 6.5), 60, null, true);
+        scene.idle(70);
+        GeneratedPonderSupport.zoomScene(scene, new Vec3(3.0, 2.5, 12.5), 1.5f, 20);
+        GeneratedPonderSupport.showControls(scene, new Vec3(3.0, 2.5, 12.5), "right", 80, "right", null, null, false, false);
+        GeneratedPonderSupport.showText(scene, "Configure the input and output faces in the factory panel", new Vec3(3.0, 2.5, 12.5), 80, null, true);
+        scene.idle(90);
+        GeneratedPonderSupport.showText(scene, "Note the port number shown in the tooltip", new Vec3(3.0, 2.5, 12.5), 60, null, true);
+        scene.idle(70);
+        GeneratedPonderSupport.zoomScene(scene, new Vec3(3.0, 1.5, 4.5), 1.5f, 20);
+        GeneratedPonderSupport.highlightSection(scene, "input", new BlockPos(3, 2, 6), new BlockPos(3, 2, 6), 80);
+        GeneratedPonderSupport.highlightSection(scene, "input", new BlockPos(3, 2, 2), new BlockPos(3, 2, 2), 80);
+        GeneratedPonderSupport.showControls(scene, new Vec3(3.0, 2.5, 6.5), "right", 80, null, "create:goggles", null, false, false);
+        GeneratedPonderSupport.showText(scene, "Use Engineer's Goggles to view the ports and their settings", new Vec3(3.0, 2.5, 6.5), 80, null, true);
+        scene.idle(90);
+        GeneratedPonderSupport.highlightSection(scene, "input", new BlockPos(3, 2, 6), new BlockPos(3, 2, 6), 80);
+        GeneratedPonderSupport.highlightSection(scene, "input", new BlockPos(3, 2, 2), new BlockPos(3, 2, 2), 80);
+        GeneratedPonderSupport.showControls(scene, new Vec3(3.0, 2.5, 6.5), "right", 60, "right", null, null, false, false);
+        GeneratedPonderSupport.showText(scene, "Right-click to cycle through port numbers", new Vec3(3.0, 2.5, 6.5), 60, null, true);
+        scene.idle(90);
+        GeneratedPonderSupport.highlightSection(scene, "input", new BlockPos(3, 2, 12), new BlockPos(3, 2, 12), 40);
+        GeneratedPonderSupport.highlightSection(scene, "input", new BlockPos(3, 2, 6), new BlockPos(3, 2, 6), 40);
+        scene.addKeyframe();
+        GeneratedPonderSupport.showText(scene, "Port 1  Input", new Vec3(3.0, 2.5, 6.5), 40, null, true);
+        scene.idle(50);
+        GeneratedPonderSupport.highlightSection(scene, "input", new BlockPos(3, 2, 12), new BlockPos(3, 2, 12), 40);
+        GeneratedPonderSupport.highlightSection(scene, "input", new BlockPos(3, 2, 2), new BlockPos(3, 2, 2), 40);
+        GeneratedPonderSupport.showText(scene, "Port 2  Output", new Vec3(3.0, 2.5, 2.5), 40, null, true);
+        scene.idle(50);
+        GeneratedPonderSupport.zoomScene(scene, new Vec3(3.0, 2.5, 12.5), 1.5f, 20);
+        GeneratedPonderSupport.showText(scene, "Input raw materials", new Vec3(3.0, 1.5, 14.5), 60, null, true);
+        GeneratedPonderSupport.modifyBlockEntity(scene, Map.ofEntries(Map.entry("casing", "false"), Map.entry("waterlogged", "false"), Map.entry("part", "start"), Map.entry("facing", "north"), Map.entry("slope", "horizontal")), "{Casing:\"NONE\",ConnectedToExtraKinetics:0b,Controller:[I;78,-59,-38],Covered:0b,Index:0,Inventory:{Items:[{Angle:326,InDirection:1,InSegment:0,Item:{count:1,id:\"minecraft:gold_ingot\"},Offset:0.13518518f,Pos:0.7041668f,PrevOffset:0.13518518f,PrevPos:0.67083347f}],PositiveOrder:1b},IsController:1b,Length:5,Network:{Capacity:262144.0f,Id:21990232387525L,Size:6,Stress:0.0f},Source:[I;78,-59,-39],Speed:-16.0f}", null, new BlockPos(3, 1, 14), new BlockPos(3, 1, 14));
+        scene.idle(20);
+        GeneratedPonderSupport.modifyBlockEntity(scene, Map.ofEntries(Map.entry("casing", "false"), Map.entry("waterlogged", "false"), Map.entry("part", "start"), Map.entry("facing", "north"), Map.entry("slope", "horizontal")), "{Casing:\"NONE\",ConnectedToExtraKinetics:0b,Controller:[I;78,-59,-38],Covered:0b,Index:0,Inventory:{Items:[],PositiveOrder:1b},IsController:1b,Length:5,Network:{Capacity:262144.0f,Id:21990232387525L,Size:6,Stress:0.0f},Source:[I;78,-59,-39],Speed:-16.0f}", null, new BlockPos(3, 1, 14), new BlockPos(3, 1, 14));
+        GeneratedPonderSupport.modifyBlockEntity(scene, Map.ofEntries(Map.entry("casing", "false"), Map.entry("waterlogged", "false"), Map.entry("part", "start"), Map.entry("facing", "north"), Map.entry("slope", "horizontal")), "{Casing:\"NONE\",ConnectedToExtraKinetics:0b,Controller:[I;78,-59,-38],Covered:0b,Index:0,Inventory:{Items:[{Angle:2,InDirection:1,InSegment:0,Item:{count:1,id:\"minecraft:gold_ingot\"},Offset:-0.16481481f,Pos:1.4375f,PrevOffset:-0.16481481f,PrevPos:1.4041667f}],PositiveOrder:1b},IsController:1b,Length:5,Network:{Capacity:262144.0f,Id:21990232387525L,Size:6,Stress:0.0f},Source:[I;78,-59,-39],Speed:-16.0f}", null, new BlockPos(3, 1, 6), new BlockPos(3, 1, 6));
+        scene.idle(30);
+        GeneratedPonderSupport.modifyBlockEntity(scene, Map.ofEntries(Map.entry("casing", "false"), Map.entry("waterlogged", "false"), Map.entry("part", "start"), Map.entry("facing", "north"), Map.entry("slope", "horizontal")), "{Casing:\"NONE\",ConnectedToExtraKinetics:0b,Controller:[I;78,-59,-38],Covered:0b,Index:0,Inventory:{Items:[{Angle:2,InDirection:1,InSegment:0,Item:{count:1,id:\"minecraft:gold_ingot\"},Locked:1b,Offset:-0.16481481f,Pos:2.5019531f,PrevOffset:-0.16481481f,PrevPos:2.5019531f}],PositiveOrder:1b},IsController:1b,Length:5,Network:{Capacity:262144.0f,Id:21990232387525L,Size:6,Stress:0.0f},Source:[I;78,-59,-39],Speed:-16.0f}", null, new BlockPos(3, 1, 6), new BlockPos(3, 1, 6));
+        GeneratedPonderSupport.modifyBlockEntity(scene, Map.ofEntries(Map.entry("facing", "east")), "{ConnectedToExtraKinetics:0b,Finished:1b,Mode:1,NeedsUpdate:0b,Network:{AddedStress:8.0f,Capacity:262144.0f,Id:21990232395719L,Size:2,Stress:128.0f},Owner:[I;41354267,213273310,-1403732092,-2044254752],Running:1b,Source:[I;79,-57,-40],Speed:-16.0f,Ticks:26,TracksCreated:0}", null, new BlockPos(3, 3, 4), new BlockPos(3, 3, 4));
+        scene.idle(60);
+        GeneratedPonderSupport.modifyBlockEntity(scene, Map.ofEntries(Map.entry("facing", "east")), "{ConnectedToExtraKinetics:0b,Finished:1b,Mode:1,NeedsUpdate:0b,Network:{AddedStress:8.0f,Capacity:262144.0f,Id:21990232395719L,Size:2,Stress:128.0f},Owner:[I;41354267,213273310,-1403732092,-2044254752],Running:1b,Source:[I;79,-57,-40],Speed:-16.0f,Ticks:136,TracksCreated:0}", null, new BlockPos(3, 3, 4), new BlockPos(3, 3, 4));
+        GeneratedPonderSupport.modifyBlockEntity(scene, Map.ofEntries(Map.entry("casing", "false"), Map.entry("waterlogged", "false"), Map.entry("part", "start"), Map.entry("facing", "north"), Map.entry("slope", "horizontal")), "{Casing:\"NONE\",ConnectedToExtraKinetics:0b,Controller:[I;78,-59,-38],Covered:0b,Index:0,Inventory:{Items:[{Angle:20,InDirection:1,InSegment:0,Item:{count:1,id:\"create:golden_sheet\"},Offset:-0.14814815f,Pos:2.4041657f,PrevOffset:-0.14814815f,PrevPos:2.3708324f}],PositiveOrder:1b},IsController:1b,Length:5,Network:{Capacity:262144.0f,Id:21990232387525L,Size:6,Stress:0.0f},Source:[I;78,-59,-39],Speed:-16.0f}", null, new BlockPos(3, 1, 6), new BlockPos(3, 1, 6));
+        scene.idle(30);
+        GeneratedPonderSupport.modifyBlockEntity(scene, Map.ofEntries(Map.entry("casing", "false"), Map.entry("waterlogged", "false"), Map.entry("part", "start"), Map.entry("facing", "north"), Map.entry("slope", "horizontal")), "{Casing:\"NONE\",ConnectedToExtraKinetics:0b,Controller:[I;78,-59,-38],Covered:0b,Index:0,Inventory:{Items:[],PositiveOrder:1b},IsController:1b,Length:5,Network:{Capacity:262144.0f,Id:21990232387525L,Size:6,Stress:0.0f},Source:[I;78,-59,-39],Speed:-16.0f}", null, new BlockPos(3, 1, 6), new BlockPos(3, 1, 6));
+        GeneratedPonderSupport.modifyBlockEntity(scene, Map.ofEntries(Map.entry("casing", "false"), Map.entry("waterlogged", "false"), Map.entry("part", "start"), Map.entry("facing", "north"), Map.entry("slope", "horizontal")), "{Casing:\"NONE\",ConnectedToExtraKinetics:0b,Controller:[I;78,-59,-38],Covered:0b,Index:0,Inventory:{Items:[{Angle:20,InDirection:1,InSegment:0,Item:{count:1,id:\"create:golden_sheet\"},Offset:-0.14814815f,Pos:3.2374983f,PrevOffset:-0.14814815f,PrevPos:3.204165f}],PositiveOrder:1b},IsController:1b,Length:5,Network:{Capacity:262144.0f,Id:21990232387525L,Size:6,Stress:0.0f},Source:[I;78,-59,-39],Speed:-16.0f}", null, new BlockPos(3, 1, 14), new BlockPos(3, 1, 14));
+        GeneratedPonderSupport.showText(scene, "Output products", new Vec3(3.0, 1.5, 10.5), 40, null, true);
+        scene.idle(50);
+        GeneratedPonderSupport.modifyBlockEntity(scene, Map.ofEntries(Map.entry("casing", "false"), Map.entry("waterlogged", "false"), Map.entry("part", "start"), Map.entry("facing", "north"), Map.entry("slope", "horizontal")), "{Casing:\"NONE\",ConnectedToExtraKinetics:0b,Controller:[I;78,-59,-38],Covered:0b,Index:0,Inventory:{Items:[],PositiveOrder:1b},IsController:1b,Length:5,Network:{Capacity:262144.0f,Id:21990232387525L,Size:6,Stress:0.0f},Source:[I;78,-59,-39],Speed:-16.0f}", null, new BlockPos(3, 1, 14), new BlockPos(3, 1, 14));
+    }
+
+}

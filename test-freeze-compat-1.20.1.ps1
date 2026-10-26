@@ -30,7 +30,14 @@ foreach ($artifact in @(
     if ($files.Count -ne 1) { throw "Expected exactly one cached runtime artifact for $artifact" }
     Copy-Item -LiteralPath $files[0].FullName -Destination $modsRoot -Force
 }
-foreach ($name in @('create_nested_factory-1.20.1-1.5.22.jar', 'cnf-freeze-compat-test-1.5.22-test-only.jar')) {
+$releaseVersion = (Get-Content -LiteralPath (Join-Path $workspace 'gradle.properties') |
+    Where-Object { $_ -match '^mod_version=' }) -replace '^mod_version=', ''
+if ([string]::IsNullOrWhiteSpace($releaseVersion)) { throw 'Missing mod_version in gradle.properties' }
+# Only remove old CNF artifacts in this workspace's dedicated test server.
+Get-ChildItem -LiteralPath $modsRoot -File | Where-Object {
+    $_.Name -like 'create_nested_factory-1.20.1-*.jar' -or $_.Name -like 'cnf-freeze-compat-test-*-test-only.jar'
+} | Remove-Item
+foreach ($name in @("create_nested_factory-1.20.1-$releaseVersion.jar", "cnf-freeze-compat-test-$releaseVersion-test-only.jar")) {
     Copy-Item -LiteralPath (Join-Path $workspace "build\libs\$name") -Destination $modsRoot -Force
 }
 Set-Content -LiteralPath (Join-Path $serverRoot 'eula.txt') -Value 'eula=true'

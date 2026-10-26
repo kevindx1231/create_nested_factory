@@ -17,8 +17,6 @@ import com.createnestedfactory.create_nested_factory.registry.ModAttachments;
 import com.simibubi.create.AllItems;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.core.BlockPos;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.item.ItemStack;
@@ -28,7 +26,6 @@ import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
-import net.minecraftforge.event.entity.EntityLeaveLevelEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.level.BlockEvent;
@@ -130,22 +127,6 @@ public class PocketEvents {
         }
     }
 
-    @SubscribeEvent
-    public static void onBoundFactoryItemLeaveLevel(EntityLeaveLevelEvent event) {
-        Entity entity = event.getEntity();
-        if (!(entity instanceof ItemEntity itemEntity)
-                || event.getLevel().isClientSide()
-                || itemEntity.getItem().isEmpty()) {
-            return;
-        }
-        if (itemEntity.getItem().is(com.createnestedfactory.create_nested_factory.registry.ModItems.NESTED_FACTORY.get())
-                && itemEntity.getRemovalReason() != Entity.RemovalReason.UNLOADED_TO_CHUNK
-                && itemEntity.getRemovalReason() != Entity.RemovalReason.UNLOADED_WITH_PLAYER
-                && itemEntity.getRemovalReason() != Entity.RemovalReason.CHANGED_DIMENSION) {
-            NestedFactoryBlockEntity.destroyPortableItem((net.minecraft.server.level.ServerLevel) event.getLevel(), itemEntity);
-        }
-    }
-
     private static void markPocketRoomIndexDirty(Level level, net.minecraft.core.BlockPos pos) {
         if (level.isClientSide() || !level.dimension().equals(NestedFactoryBlock.POCKET_DIMENSION)
                 || !(level instanceof net.minecraft.server.level.ServerLevel pocket)) {
@@ -193,8 +174,23 @@ public class PocketEvents {
             port.onBlockDestroyed(event.getPlayer());
             return;
         }
+        if (level.getBlockEntity(event.getPos()) instanceof NestedFactoryBlockEntity factory) {
+            var failure = factory.removalBlocker();
+            if (failure != null) {
+                event.setCanceled(true);
+                if (event.getPlayer() != null) event.getPlayer().displayClientMessage(failure, true);
+            }
+        }
         // Ordinary factory breaking is a portable move. The block supplies a bound item drop
         // and deliberately leaves its Pocket room intact.
+    }
+
+    @SubscribeEvent
+    public static void onFactoryExplosion(net.minecraftforge.event.level.ExplosionEvent.Detonate event) {
+        Level level = event.getLevel();
+        if (level.isClientSide()) return;
+        event.getAffectedBlocks().removeIf(pos -> level.getBlockEntity(pos) instanceof NestedFactoryBlockEntity factory
+                && factory.removalBlocker() != null);
     }
 
     @SubscribeEvent

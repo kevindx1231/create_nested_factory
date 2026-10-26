@@ -45,6 +45,12 @@ import net.minecraft.world.level.material.PushReaction;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.context.UseOnContext;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.level.BlockEvent;
+import com.simibubi.create.content.equipment.wrench.IWrenchable;
+import net.minecraft.world.level.storage.loot.LootParams;
+import net.minecraft.world.level.storage.loot.parameters.LootContextParams;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -126,7 +132,9 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
                                         + serverPlayer.getScoreboardName() + ", " + be.debugEntryBlockers());
                         String message = be.isTerminalBlueprintOnly()
                                 ? "message.create_nested_factory.factory.terminal_blueprint_only"
-                                : "message.create_nested_factory.factory.child_factory_exists";
+                                : be.isSiblingBlueprintOnly()
+                                ? "message.create_nested_factory.factory.child_factory_exists"
+                                : "message.create_nested_factory.factory.not_enterable";
                         PlayerMessagePayload.sendTo(serverPlayer,
                                 Component.translatable(message).withStyle(ChatFormatting.RED), false);
                     } else {
@@ -167,9 +175,25 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
     }
 
     @Override
+    public List<ItemStack> getDrops(BlockState state, LootParams.Builder builder) {
+        BlockEntity entity = builder.getOptionalParameter(LootContextParams.BLOCK_ENTITY);
+        if (entity instanceof NestedFactoryBlockEntity factory && factory.getLevel() instanceof ServerLevel server) {
+            return List.of(factory.createPortableItem(server.registryAccess()));
+        }
+        return super.getDrops(state, builder);
+    }
+
+    @Override
     public boolean onDestroyedByPlayer(BlockState state, Level level, BlockPos pos, Player player,
                                        boolean willHarvest, FluidState fluid) {
         BlockEntity blockEntity = level.getBlockEntity(pos);
+        if (!level.isClientSide() && blockEntity instanceof NestedFactoryBlockEntity factory) {
+            Component failure = factory.removalBlocker();
+            if (failure != null) {
+                player.displayClientMessage(failure, true);
+                return false;
+            }
+        }
         boolean destroyed = super.onDestroyedByPlayer(state, level, pos, player, willHarvest, fluid);
         if (destroyed && player.isCreative() && !level.isClientSide()
                 && level instanceof ServerLevel server
@@ -177,6 +201,29 @@ public class NestedFactoryBlock extends HorizontalKineticBlock implements IBE<Ne
             Block.popResource(level, pos, factory.createPortableItem(server.registryAccess()));
         }
         return destroyed;
+    }
+
+    @Override
+    public InteractionResult onSneakWrenched(BlockState state, UseOnContext context) {
+        Level level = context.getLevel();
+        BlockPos pos = context.getClickedPos();
+        Player player = context.getPlayer();
+        if (!(level instanceof ServerLevel server)) return InteractionResult.SUCCESS;
+        if (!(level.getBlockEntity(pos) instanceof NestedFactoryBlockEntity factory)) return InteractionResult.PASS;
+        Component failure = factory.removalBlocker();
+        if (failure != null) {
+            if (player != null) player.displayClientMessage(failure, true);
+            return InteractionResult.SUCCESS;
+        }
+        if (MinecraftForge.EVENT_BUS.post(new BlockEvent.BreakEvent(level, pos, state, player))) {
+            return InteractionResult.SUCCESS;
+        }
+        ItemStack drop = factory.createPortableItem(server.registryAccess());
+        level.destroyBlock(pos, false);
+        if (player == null) Block.popResource(level, pos, drop);
+        else player.getInventory().placeItemBackInInventory(drop);
+        IWrenchable.playRemoveSound(level, pos);
+        return InteractionResult.SUCCESS;
     }
 
     public static void enterFactory(ServerPlayer player, NestedFactoryBlockEntity factory) {

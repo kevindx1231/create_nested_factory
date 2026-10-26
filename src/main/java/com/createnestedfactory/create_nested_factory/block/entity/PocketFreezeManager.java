@@ -1,6 +1,7 @@
 package com.createnestedfactory.create_nested_factory.block.entity;
 
 import com.createnestedfactory.create_nested_factory.NestedFactorySaveData;
+import com.createnestedfactory.create_nested_factory.FactoryDirectorySavedData;
 import com.createnestedfactory.create_nested_factory.PocketChunkForceManager;
 import com.createnestedfactory.create_nested_factory.PocketFreezeHooks;
 import com.createnestedfactory.create_nested_factory.PocketFreezeSavedData;
@@ -76,7 +77,7 @@ public final class PocketFreezeManager {
         freezeData.beginFreeze(root.getFactoryId(), rooms);
         PocketChunkForceManager.releaseAll(server, thawOwner(root.getFactoryId()));
         forgetThawState(server, root.getFactoryId());
-        if (!alreadyFrozen) {
+        if (!alreadyFrozen && !rooms.isEmpty()) {
             try {
                 // Publish the spatial guard before removing queued work or releasing any chunk ticket.
                 PocketFreezeHooks.capturePhysicalQueues(pocket, root.getFactoryId(), rooms);
@@ -104,6 +105,8 @@ public final class PocketFreezeManager {
     }
 
     public static void thawLoadedTree(NestedFactoryBlockEntity root) {
+        // A restricted binding owns a separate freeze lease even after blueprint cancellation.
+        if (root.isBlueprintOnly() && root.hasPhysicalRoom()) return;
         MinecraftServer server = root.getLevel() == null ? null : root.getLevel().getServer();
         if (server == null) return;
         PocketFreezeSavedData freezeData = PocketFreezeSavedData.get(server);
@@ -153,15 +156,25 @@ public final class PocketFreezeManager {
             if (removed == null) continue;
             NestedFactorySaveData.get(server).releaseFreezeLease(tree.rootFactoryId());
             PocketFreezeHooks.restorePhysicalQueues(pocket, removed);
-            List<NestedFactoryBlockEntity> restoredFactories = new ArrayList<>();
+            Set<NestedFactoryBlockEntity> restoredFactories = new java.util.LinkedHashSet<>();
+            // Physical trees resolve through their manifest; roomless roots have only a directory location.
+            var rootEntry = removed.rooms().isEmpty()
+                    ? FactoryDirectorySavedData.get(server).find(tree.rootFactoryId()) : null;
+            if (rootEntry != null && !rootEntry.isItem()) {
+                ResourceLocation id = ResourceLocation.tryParse(rootEntry.dimension());
+                ServerLevel rootLevel = id == null ? null : server.getLevel(ResourceKey.create(Registries.DIMENSION, id));
+                if (rootLevel != null && rootLevel.getBlockEntity(rootEntry.pos()) instanceof NestedFactoryBlockEntity root) {
+                    restoredFactories.addAll(collect(root));
+                }
+            }
             for (PocketFreezeSavedData.FrozenRoom room : removed.rooms()) {
                 NestedFactoryBlockEntity factory = resolveFactory(server, room);
                 if (factory == null) continue;
-                if (!factory.getFactoryId().equals(tree.rootFactoryId())) {
-                    factory.setAncestorFrozen(hasPersistentLease(factory));
-                }
+                restoredFactories.addAll(collect(factory));
+            }
+            for (NestedFactoryBlockEntity factory : restoredFactories) {
+                factory.setAncestorFrozen(hasPersistentLease(factory));
                 factory.refreshChunkRefsAfterFreeze();
-                restoredFactories.add(factory);
             }
             // All subtree freeze flags must be settled before ports announce their live endpoints.
             for (NestedFactoryBlockEntity factory : restoredFactories) {
